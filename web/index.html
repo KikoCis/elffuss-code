@@ -28,19 +28,33 @@
   <header>
     <div class="brand"><img src="img/elffuss-claw.svg" alt=""><b>Elffuss Claw</b>
       <span id="project-name" class="proj"></span><span id="build" class="proj">__BUILD__</span></div>
+    <nav id="menubar">
+      <button data-menu="file">File</button>
+      <button data-menu="edit">Edit</button>
+      <button data-menu="view">View</button>
+      <button data-menu="git">Git</button>
+    </nav>
     <div class="controls">
-      🧠 <select id="model-select"></select>
-      <span id="model-dot" class="dot off"></span>
-      <button id="btn-clear" class="ghost" title="Nueva conversación">🧹</button>
-      <button id="btn-settings" class="ghost" title="proveedores externos">⚙️</button>
+      <button id="git-branch" class="chip" title="rama actual" hidden></button>
+      <span id="model-dot" class="dot off" title="modelo"></span>
+      <select id="model-select" hidden></select>
+      <button id="btn-clear" class="ghost icon-btn" title="Nueva conversación"></button>
+      <button id="btn-settings" class="ghost icon-btn" title="Ajustes, modelo y API keys"></button>
     </div>
   </header>
   <div id="settings-panel" hidden></div>
+  <div id="topmenu" hidden></div>
+  <div id="palette" hidden>
+    <input id="pal-input" autocomplete="off" spellcheck="false"
+      placeholder="Buscar archivos por nombre (: para ir a línea, @ para símbolo, &gt; para comandos)">
+    <div id="pal-list"></div>
+  </div>
   <main>
     <nav id="activity">
       <button id="act-files" class="on" title="Explorador"></button>
-      <button id="act-search" title="Buscar en el proyecto"></button>
-      <button id="act-settings" title="Proveedores externos"></button>
+      <button id="act-search" title="Buscar (Cmd/Ctrl+P)"></button>
+      <button id="act-skills" title="Skills"></button>
+      <button id="act-settings" title="Ajustes y modelo"></button>
       <img src="img/elffuss-claw.svg" alt="Elffuss" title="Elffuss Claw">
     </nav>
     <aside id="sidebar">
@@ -61,18 +75,18 @@
           <div class="ctx-track"><div id="ctx-bar"></div></div>
         </div>
         <form id="composer">
-          <button type="button" id="btn-plus" class="cbtn" title="Adjuntar archivo del proyecto (@)">+</button>
-          <button type="button" id="btn-slash" class="cbtn" title="Comandos">/</button>
+          <button type="button" id="btn-plus" class="cbtn" title="Adjuntar archivo del proyecto (@)"></button>
+          <button type="button" id="btn-slash" class="cbtn" title="Comandos"></button>
           <input id="prompt" autocomplete="off" placeholder="Pídele código a Elffuss…">
           <button type="button" id="btn-autoedit" class="cbtn autoedit on" title="Editar archivos automáticamente"><span class="ae-ico">&lt;/&gt;</span> <span class="ae-txt">Auto</span></button>
-          <button type="submit" id="btn-send">➤</button>
+          <button type="submit" id="btn-send" title="Enviar"></button>
         </form>
       </div>
     </section>
   </main>
 </div>
 
-<button id="code-flip" title="cambiar entre chat y editor">📝 Editor</button>
+<button id="code-flip" title="cambiar entre chat y editor"></button>
 
 <div id="model-progress" hidden>
   <img src="img/elffuss-claw.svg" alt="">

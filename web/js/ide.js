@@ -52,6 +52,18 @@ export async function initEditor() {
   });
 }
 
+export function gotoLine(n) {
+  if (!editor || !n) return;
+  editor.revealLineInCenter(n);
+  editor.setPosition({ lineNumber: n, column: 1 });
+  editor.focus();
+}
+export function triggerEditor(actionId) {
+  editor?.getAction(actionId)?.run();
+  editor?.focus();
+}
+export function hasEditor() { return !!editor; }
+
 export async function openFile(path) {
   let tab = tabs.find(t => t.path === path);
   if (!tab) {
