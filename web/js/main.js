@@ -11,6 +11,7 @@ import * as skills from './skills.js';
 import * as terminal from './terminal.js';
 import * as shell from './shell.js';
 import { setTerminalEcho } from './tools/index.js';
+import { ensureModelCache, cacheEstimate, clearModelCache } from './model-cache.js';
 
 const $ = id => document.getElementById(id);
 const agent = new Agent(rules);
@@ -331,6 +332,27 @@ function renderSettings() {
   }
   box.appendChild(grid);
 
+  // --- Almacenamiento del modelo (caché persistente) ---
+  box.append(el('div', 'sk-h', 'Modelo descargado (se cachea en tu navegador)'));
+  const storeCard = el('div', 'prov-card');
+  const storeInfo = el('span', null, 'Calculando espacio…'); storeInfo.style.cssText = 'font-size:.8rem;color:var(--fg)';
+  const storeSub = el('div', 'field'); storeSub.style.marginTop = '2px';
+  const storeMuted = el('span', 'muted', ''); storeMuted.style.fontSize = '.72rem';
+  const clearBtn = el('button', 'prov-use', 'Vaciar caché');
+  clearBtn.style.marginTop = '8px';
+  clearBtn.onclick = async () => { clearBtn.textContent = 'Vaciando…'; await clearModelCache(); await paintStorage(); clearBtn.textContent = 'Vaciar caché'; };
+  const storeHead = el('div', 'prov-head'); storeHead.append(storeInfo);
+  storeCard.append(storeHead, storeMuted, clearBtn);
+  box.appendChild(storeCard);
+  async function paintStorage() {
+    const { usage, quota, persisted } = await cacheEstimate();
+    const gb = n => (n / 1073741824).toFixed(2) + ' GB';
+    storeInfo.textContent = usage ? `${gb(usage)} en caché` : 'Nada cacheado todavía';
+    storeMuted.textContent = (persisted ? '✓ almacenamiento persistente (no se borra solo)' : '⚠ sin persistencia: el navegador podría desalojarlo')
+      + (quota ? ` · límite ~${gb(quota)}` : '');
+  }
+  paintStorage();
+
   // --- Proveedores externos (API keys) ---
   box.append(el('div', 'sk-h', 'Proveedores externos (opcional · la clave se queda en tu navegador)'));
   for (const [id, c] of Object.entries(settings.configs())) {
@@ -388,7 +410,9 @@ async function enterIDE(handle) {
 }
 
 async function boot() {
-  preloadModel(); // descarga en background desde el primer segundo
+  // Caché de modelos (persistente + service worker) ANTES de descargar nada,
+  // para que hasta la primera descarga de pesos quede cacheada y no se repita.
+  ensureModelCache().finally(() => preloadModel());
   // galaxia en la landing (misma técnica que Elffuss)
   import('./splash-gl.js').then(m => { galaxy = m.startGalaxy($('landing')); }).catch(() => {});
 
