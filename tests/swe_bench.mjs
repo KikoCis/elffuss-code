@@ -55,22 +55,27 @@ const runScripted = task => p.evaluate(async t => {
   return { tools: ev.filter(x => x.startsWith('tool_result')).length };
 }, { target: task.target, solution: task.solution, task: task.task });
 
-// Solver con MODELO real: envía la tarea por el composer y espera a que acabe.
+// Solver con MODELO real: envía la tarea por el composer y espera a que el
+// modelo REESCRIBA el fichero objetivo (contenido distinto al sembrado) o timeout.
+// (La página se recarga por tarea en el bucle → historial del agente limpio.)
 const runModel = async task => {
-  await p.evaluate(() => { window.__busy = true; });
-  await p.fill('#prompt', task.task + ' Usa code.read y code.write. No pidas permiso.');
+  const original = task.files[task.target];
+  await p.fill('#prompt', task.task + ' Usa code.read y luego code.write con el contenido corregido COMPLETO. No pidas permiso.');
   await p.press('#prompt', 'Enter');
-  // esperar a que el fichero objetivo cambie respecto al bug, o timeout
   const t0 = Date.now();
   while (Date.now() - t0 < TIMEOUT) {
-    const changed = await p.evaluate(async target => {
-      try { const o = await navigator.storage.getDirectory(); const parts = target.split('/'); const name = parts.pop(); let d = o; for (const x of parts) d = await d.getDirectoryHandle(x); const t = await (await (await d.getFileHandle(name)).getFile()).text(); return !/BUG/.test(t); } catch { return false; }
+    await p.waitForTimeout(2500);
+    const cur = await p.evaluate(async target => {
+      try { const o = await navigator.storage.getDirectory(); const parts = target.split('/'); const name = parts.pop(); let d = o; for (const x of parts) d = await d.getDirectoryHandle(x); return await (await (await d.getFileHandle(name)).getFile()).text(); } catch { return null; }
     }, task.target);
-    if (changed) break;
-    await p.waitForTimeout(2000);
+    if (cur != null && cur !== original) { await p.waitForTimeout(1500); break; }
   }
   return { tools: -1 };
 };
+async function waitModel() {
+  await p.waitForFunction(() => document.getElementById('model-dot')?.classList.contains('on'), null, { timeout: 300000 })
+    .catch(() => console.log('  (aviso: modelo no confirmó carga; continúo)'));
+}
 
 const verify = task => p.evaluate(async ({ target, testSrc }) => {
   const o = await navigator.storage.getDirectory();
@@ -84,15 +89,25 @@ const verify = task => p.evaluate(async ({ target, testSrc }) => {
   } catch (e) { return { passed: false, err: String(e.message || e).slice(0, 60) }; }
 }, { target: task.target, testSrc: task.test.toString() });
 
-console.log(`\nSWE-style · solver=${SOLVER}${SOLVER === 'model' ? ' · modelo=' + MODEL : ''} · ${TASKS.length} tareas\n`);
+const LIMIT = +(process.env.LIMIT || TASKS.length);
+const BATCH = TASKS.slice(0, LIMIT);
+console.log(`\nSWE-style · solver=${SOLVER}${SOLVER === 'model' ? ' · modelo=' + MODEL : ''} · ${BATCH.length} tareas\n`);
 console.log('instance'.padEnd(12), 'resolved', 'tools', 'nota');
 let resolved = 0;
-for (const task of TASKS) {
+for (const task of BATCH) {
   await clearOPFS();
   await seed(task.files);
   let tools = '-';
-  try { const r = SOLVER === 'model' ? await runModel(task) : await runScripted(task); tools = r.tools; }
-  catch (e) { /* el solver falló */ }
+  try {
+    if (SOLVER === 'model') {
+      // recargar para historial de agente limpio; el modelo carga desde caché
+      await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
+      await waitModel();
+      const r = await runModel(task); tools = r.tools;
+    } else {
+      const r = await runScripted(task); tools = r.tools;
+    }
+  } catch (e) { /* el solver falló */ }
   const v = await verify(task);
   if (v.passed) resolved++;
   console.log(task.id.padEnd(12), (v.passed ? '  ✅   ' : '  ❌   '), String(tools).padStart(4), '  ', v.err || '');
