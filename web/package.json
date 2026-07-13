@@ -1,0 +1,6 @@
+{
+  "name": "elffuss-claw-web",
+  "private": true,
+  "type": "module",
+  "description": "Elffuss Code: IDE web con agente élfico. Sin build: ES modules vanilla."
+}
