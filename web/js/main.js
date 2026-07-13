@@ -21,7 +21,8 @@ function addMsg(cls, text) {
   // lo del usuario y los errores, como texto plano
   if (/^(assistant$|sys)/.test(cls)) {
     div.classList.add('md');
-    div.innerHTML = renderMarkdown(text);
+    // cap defensivo: no volcar miles de nodos si una respuesta trae un archivo entero
+    div.innerHTML = renderMarkdown(text.length > 8000 ? text.slice(0, 8000) + '\n… (recortado)' : text);
   } else {
     div.textContent = text;
   }
