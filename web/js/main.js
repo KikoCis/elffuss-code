@@ -406,7 +406,6 @@ $('btn-settings').innerHTML = UI.gear;
 $('btn-send').innerHTML = UI.send;
 $('btn-plus').innerHTML = UI.add;
 $('btn-slash').innerHTML = UI.slash;
-$('model-label').innerHTML = UI.code;
 const paintFlip = editor => { $('code-flip').innerHTML = (editor ? UI.chat : UI.editor) + `<span>${editor ? 'Chat' : 'Editor'}</span>`; };
 paintFlip(false);
 
