@@ -65,6 +65,8 @@
     <nav id="activity">
       <button id="act-files" class="on" title="Explorador"></button>
       <button id="act-search" title="Buscar (Cmd/Ctrl+P)"></button>
+      <button id="act-arch" title="Arquitectura (grafo de dependencias)"></button>
+      <button id="act-city" title="Ciudad 3D"></button>
       <button id="act-skills" title="Skills"></button>
       <button id="act-settings" title="Ajustes y modelo"></button>
       <img src="img/elffuss-code.svg" alt="Elffuss" title="Elffuss Code">
@@ -76,6 +78,10 @@
     <section id="editor-wrap">
       <div id="tabs-bar"></div>
       <div id="editor"></div>
+      <div id="view-overlay" hidden>
+        <button id="view-close" title="cerrar">✕</button>
+        <div id="view-body"></div>
+      </div>
       <div id="statusbar"></div>
     </section>
     <section id="chat">

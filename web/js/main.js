@@ -405,6 +405,28 @@ $('code-flip').addEventListener('click', () => {
   paintFlip(showEditor);
 });
 
+// vistas Arquitectura (grafo) y Ciudad 3D — leen el proyecto abierto y al
+// hacer clic abren el fichero en Monaco (inspirado en CodeFlow + VibeCodeViewer)
+$('act-arch').innerHTML = UI.graph || UI.code;
+$('act-city').innerHTML = UI.city || UI.code;
+async function openView(kind) {
+  const overlay = $('view-overlay'), body = $('view-body');
+  overlay.hidden = false;
+  document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-' + kind));
+  try {
+    if (kind === 'arch') { const m = await import('./arch.js'); await m.renderArchitecture(body, p => { closeView(); openFile(p); }); }
+    else { const m = await import('./city.js'); await m.renderCity(body, p => { closeView(); openFile(p); }); }
+  } catch (e) { body.innerHTML = '<div class="view-loading">No pude construir la vista: ' + (e?.message || e) + '</div>'; }
+}
+function closeView() {
+  $('view-overlay').hidden = true;
+  import('./city.js').then(m => m.disposeCity()).catch(() => {});
+  document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-files'));
+}
+$('act-arch').addEventListener('click', () => openView('arch'));
+$('act-city').addEventListener('click', () => openView('city'));
+$('view-close').addEventListener('click', closeView);
+
 // iconos VS Code (sin emojis) en cabecera, composer y flip
 $('btn-clear').innerHTML = UI.clear;
 $('btn-settings').innerHTML = UI.gear;
