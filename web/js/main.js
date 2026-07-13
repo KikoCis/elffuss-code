@@ -170,9 +170,14 @@ async function resolveProvider(id) {
   return null;
 }
 
+// El E4B healed (4.12 GB) NO carga aún en navegador (export prefill_decode, no
+// artisan) — descargarlo y fallar deja la GPU en estado inválido y TUMBA la
+// pestaña. Se oculta hasta el reexport artisan. Poner true para reactivarlo.
+const LITERT_READY = false;
+
 function modelOptions() {
   const opts = [];
-  if (navigator.gpu) opts.push({ id: 'litert', label: 'Local · Elffuss Gemma-4 E4B (healed) ★' });
+  if (navigator.gpu && LITERT_READY) opts.push({ id: 'litert', label: 'Local · Elffuss Gemma-4 E4B ★' });
   if (navigator.gpu) opts.push({ id: 'onnx', label: 'Local · LFM2.5 (WebGPU, ligero)' });
   opts.push({ id: 'rules', label: 'Básico (sin modelo)' });
   return [...opts, ...settings.enabledExternals()];
@@ -259,12 +264,10 @@ async function changeModel(id) {
 async function preloadModel() {
   const saved = localStorage.getItem('elffusscode.model');
   if (saved === 'rules') return;
-  const chain = [...new Set([saved, navigator.gpu ? 'litert' : null, navigator.gpu ? 'onnx' : null]
-    .filter(id => id && id !== 'rules'))];
-  for (const id of chain) {
-    if (await changeModel(id)) return;
-    if (id === 'litert') $('statusbar').textContent = 'Gemma no cargó aquí; probando LFM2.5…';
-  }
+  const avail = new Set(modelOptions().map(o => o.id)); // filtra el E4B roto
+  const chain = [...new Set([saved, navigator.gpu ? 'onnx' : null]
+    .filter(id => id && id !== 'rules' && avail.has(id)))];
+  for (const id of chain) if (await changeModel(id)) return;
 }
 
 // ---------- panel ⚙️ Ajustes: modelo (cerebro) + API keys ----------
@@ -286,14 +289,16 @@ function renderSettings() {
   // --- Cerebro (modelo) ---
   box.append(el('div', 'sk-h', 'Cerebro (modelo)'));
   const LOCAL = [
-    { id: 'litert', name: 'Gemma-4 E4B (healed) ★', sub: 'Modelo propio · WebGPU local · el mejor', need: 'gpu' },
+    ...(LITERT_READY ? [{ id: 'litert', name: 'Elffuss Gemma-4 E4B ★', sub: 'Modelo propio · WebGPU local · el mejor', need: 'gpu' }]
+      : [{ id: 'soon', name: 'Elffuss Gemma-4 E4B ★', sub: 'Modelo propio · reexport en curso (aún no carga en navegador)', disabled: true }]),
     { id: 'onnx', name: 'LFM2.5-1.2B', sub: 'Ligero · WebGPU local · arranca rápido', need: 'gpu' },
     { id: 'rules', name: 'Básico (sin modelo)', sub: 'Órdenes directas, cero descarga' },
   ];
   const grid = el('div', 'model-grid');
   for (const m of LOCAL) {
     if (m.need === 'gpu' && !navigator.gpu) continue;
-    const card = el('button', 'model-card' + (activeModel === m.id ? ' active' : ''));
+    const card = el('button', 'model-card' + (activeModel === m.id ? ' active' : '') + (m.disabled ? ' disabled' : ''));
+    if (m.disabled) card.disabled = true;
     card.innerHTML = `<b>${m.name}</b><span>${m.sub}</span>`;
     card.onclick = () => { changeModel(m.id); renderSettings(); };
     grid.appendChild(card);
@@ -438,7 +443,9 @@ $('btn-settings').addEventListener('click', () => {
 // ---------- composer estilo plugin: +, /, medidor de contexto, Auto ----------
 
 // medidor de contexto: chars del historial / presupuesto (~4 chars/token)
-const CTX_BUDGET_TOK = 6000;
+// Al máximo del modelo de serie: LFM2.5-1.2B soporta 32K nativo; reservamos
+// ~2K de sistema + 2K de generación → 28K para historial.
+const CTX_BUDGET_TOK = 28000;
 function updateCtxMeter() {
   if (!$('ctx-text')) return; // aún en la landing
   const chars = agent.history.reduce((s, m) => s + (m.content || '').length, 0);
