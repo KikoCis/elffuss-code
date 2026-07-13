@@ -178,7 +178,7 @@ const LITERT_READY = false;
 function modelOptions() {
   const opts = [];
   if (navigator.gpu && LITERT_READY) opts.push({ id: 'litert', label: 'Local · Elffuss Gemma-4 E4B ★' });
-  if (navigator.gpu) opts.push({ id: 'onnx', label: 'Local · LFM2.5 (WebGPU, ligero)' });
+  if (navigator.gpu) opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) ★' });
   opts.push({ id: 'rules', label: 'Básico (sin modelo)' });
   return [...opts, ...settings.enabledExternals()];
 }
@@ -291,7 +291,7 @@ function renderSettings() {
   const LOCAL = [
     ...(LITERT_READY ? [{ id: 'litert', name: 'Elffuss Gemma-4 E4B ★', sub: 'Modelo propio · WebGPU local · el mejor', need: 'gpu' }]
       : [{ id: 'soon', name: 'Elffuss Gemma-4 E4B ★', sub: 'Modelo propio · reexport en curso (aún no carga en navegador)', disabled: true }]),
-    { id: 'onnx', name: 'LFM2.5-1.2B', sub: 'Ligero · WebGPU local · arranca rápido', need: 'gpu' },
+    { id: 'onnx', name: 'Elffuss LM (healed) ★', sub: 'Modelo propio · 850 MB · tool-calls + apps', need: 'gpu' },
     { id: 'rules', name: 'Básico (sin modelo)', sub: 'Órdenes directas, cero descarga' },
   ];
   const grid = el('div', 'model-grid');
