@@ -2,3 +2,5 @@
 *.log
 tests/node_modules/
 tests/out_*.png
+tests/node_modules
+tests/node_modules/
