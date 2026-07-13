@@ -31,10 +31,16 @@ export async function snapshot() {
   ];
   try { parts.push('Árbol del proyecto (resumen):\n' + await code.tree({ depth: 2 })); }
   catch { /* aún sin proyecto */ }
+  // GROUNDING: incluye el contenido REAL de los archivos clave (README, config)
+  // para que el modelo NO alucine sobre el proyecto — el heal no domina las
+  // herramientas code.* así que le damos el material masticado.
+  for (const key of ['README.md', 'readme.md', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod']) {
+    try { const body = await code.read({ path: key }); parts.push(`Contenido REAL de ${key}:\n${body.slice(0, 1400)}`); break; } catch { /* siguiente */ }
+  }
   if (currentFile) {
     try {
       const body = await code.read({ path: currentFile });
-      parts.push(`Contenido de ${currentFile} (recortado):\n` + body.slice(0, 1500));
+      parts.push(`Contenido REAL del archivo abierto ${currentFile}:\n` + body.slice(0, 2000));
     } catch { /* borrado */ }
   }
   return parts.join('\n');
