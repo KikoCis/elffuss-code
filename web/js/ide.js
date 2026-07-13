@@ -142,6 +142,98 @@ export async function refreshTree(handle = null) {
   window.__elffussProject = rootHandle;
   const cont = $('tree');
   cont.replaceChildren(await renderDir(rootHandle, ''));
+  setupTreeMenu();
+}
+
+// ---------- menú contextual del árbol (botón derecho, estilo VS Code) ----------
+let treeMenuWired = false;
+function setupTreeMenu() {
+  if (treeMenuWired) return;
+  treeMenuWired = true;
+  const tree = $('tree');
+  tree.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const node = e.target.closest('[data-path]');
+    const path = node ? node.dataset.path : '';
+    const kind = node ? node.dataset.kind : 'directory'; // vacío = raíz
+    openTreeMenu(e.clientX, e.clientY, path, kind);
+  });
+}
+
+// resuelve el handle de un directorio por su ruta (segmentos desde la raíz)
+async function dirByPath(path) {
+  let dir = code.handle();
+  for (const s of (path || '').split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(s);
+  return dir;
+}
+const parentOf = p => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+const baseOf = p => p.split('/').pop();
+
+async function fsCreate(parentPath, name, isDir) {
+  const dir = await dirByPath(parentPath);
+  if (isDir) await dir.getDirectoryHandle(name, { create: true });
+  else { const fh = await dir.getFileHandle(name, { create: true }); const w = await fh.createWritable(); await w.close(); }
+}
+async function fsDelete(path, kind) {
+  const dir = await dirByPath(parentOf(path));
+  await dir.removeEntry(baseOf(path), { recursive: kind === 'directory' });
+}
+// copia recursiva (la File System API no tiene rename nativo)
+async function fsCopy(srcDir, name, dstDir, newName) {
+  const src = await (srcDir.getDirectoryHandle(name).catch(() => null));
+  if (src) { // directorio
+    const nd = await dstDir.getDirectoryHandle(newName, { create: true });
+    for await (const e of src.values()) await fsCopy(src, e.name, nd, e.name);
+  } else { // fichero
+    const text = await (await (await srcDir.getFileHandle(name)).getFile()).text();
+    const fh = await dstDir.getFileHandle(newName, { create: true });
+    const w = await fh.createWritable(); await w.write(text); await w.close();
+  }
+}
+async function fsRename(path, kind, newName) {
+  const parent = await dirByPath(parentOf(path));
+  await fsCopy(parent, baseOf(path), parent, newName);
+  await parent.removeEntry(baseOf(path), { recursive: kind === 'directory' });
+}
+
+function openTreeMenu(x, y, path, kind) {
+  document.getElementById('tree-menu')?.remove();
+  const menu = document.createElement('div');
+  menu.id = 'tree-menu';
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:200`;
+  // en un fichero, el "aquí dentro" es su carpeta; en carpeta/raíz, ella misma
+  const container = kind === 'file' ? parentOf(path) : path;
+  const items = [];
+  items.push(['Nuevo archivo…', async () => {
+    const name = prompt('Nombre del nuevo archivo:'); if (!name) return;
+    await fsCreate(container, name.trim(), false); code.invalidateFileList?.();
+    await refreshTree(); openFile(container ? container + '/' + name.trim() : name.trim());
+  }]);
+  items.push(['Nueva carpeta…', async () => {
+    const name = prompt('Nombre de la nueva carpeta:'); if (!name) return;
+    await fsCreate(container, name.trim(), true); code.invalidateFileList?.(); await refreshTree();
+  }]);
+  if (path) {
+    if (kind === 'file') items.push(['Abrir', () => openFile(path)]);
+    items.push(['Renombrar…', async () => {
+      const name = prompt('Nuevo nombre:', baseOf(path)); if (!name || name === baseOf(path)) return;
+      await fsRename(path, kind, name.trim()); code.invalidateFileList?.(); await refreshTree();
+    }]);
+    items.push(['Eliminar', async () => {
+      if (!confirm(`¿Eliminar «${baseOf(path)}»?`)) return;
+      await fsDelete(path, kind); code.invalidateFileList?.(); await refreshTree();
+    }, 'danger']);
+  }
+  for (const [label, fn, cls] of items) {
+    const b = document.createElement('button');
+    b.className = 'tm-item' + (cls ? ' ' + cls : '');
+    b.textContent = label;
+    b.onclick = async () => { menu.remove(); try { await fn(); } catch (err) { alert('No se pudo: ' + err.message); } };
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const close = ev => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', close); } };
+  setTimeout(() => document.addEventListener('mousedown', close), 0);
 }
 
 async function renderDir(dir, prefix) {
@@ -157,6 +249,7 @@ async function renderDir(dir, prefix) {
       const sum = document.createElement('summary');
       sum.innerHTML = folderIcon();
       sum.appendChild(document.createTextNode(e.name));
+      sum.dataset.path = p; sum.dataset.kind = 'directory';
       det.appendChild(sum);
       det.addEventListener('toggle', async () => {
         if (det.open && det.children.length === 1)
@@ -168,6 +261,7 @@ async function renderDir(dir, prefix) {
       a.className = 'file';
       a.innerHTML = fileIcon(e.name);
       a.appendChild(document.createTextNode(e.name));
+      a.dataset.path = p; a.dataset.kind = 'file';
       a.onclick = () => openFile(p);
       li.appendChild(a);
     }

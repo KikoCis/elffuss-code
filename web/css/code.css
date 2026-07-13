@@ -104,6 +104,13 @@ body.hide-tree #sidebar { display: none; }
 .tab b.dirty:hover::before { content: ''; }
 #editor { flex: 1; min-height: 0; }
 
+/* menú contextual del árbol (botón derecho) */
+#tree-menu { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-width: 168px; box-shadow: 0 10px 34px rgba(0,0,0,.5); display: flex; flex-direction: column; }
+.tm-item { text-align: left; background: none; border: none; color: var(--fg); font-size: .82rem; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.tm-item:hover { background: var(--bg3); }
+.tm-item.danger { color: #ff6b8b; }
+.tm-item.danger:hover { background: #3a1420; }
+
 /* panel del terminal (abajo del editor, estilo VS Code) */
 #terminal-panel { display: flex; flex-direction: column; height: 260px; flex: 0 0 auto; background: #0b0d12; border-top: 1px solid var(--line); position: relative; }
 #terminal-panel[hidden] { display: none; }
