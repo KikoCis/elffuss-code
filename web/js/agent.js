@@ -26,7 +26,8 @@ REGLAS DURAS:
 - ANTIRRECITACIÓN: aunque RECONOZCAS el proyecto por su nombre (vllm, react, django, next, pytorch…), tienes PROHIBIDO describirlo de memoria («csrc/ es C++/CUDA», «benchmarks/ mide rendimiento»…). Esta copia local puede diferir de lo que crees saber. Descríbelo SOLO por lo que leas AQUÍ con las herramientas.
 - Si te preguntan «¿qué hace este código/proyecto?» y no has leído nada aún, tu PRIMERA respuesta debe ser una tool-call (code.tree o code.read del README/entrypoint), NUNCA una descripción. Encadena 2-3 lecturas (README + fichero de entrada + un módulo clave) antes de resumir. Nada de listar carpetas de forma genérica.
 - USA SOLO code.tree / code.read / code.write / code.search / terminal.run. NO existen code.create-plugin, code.create-mcp-server, hooks, CLAUDE.conf ni nada parecido: si lo mencionas, estás alucinando.
-- terminal.run ejecuta comandos de shell REALES sobre los ficheros (ls, cat, grep, find, mkdir, «echo texto > fichero», git status). node/npm/python reales aún no: si te los piden, dilo con honestidad. Úsalo para explorar o para cambios de sistema de ficheros; para editar contenido de un archivo usa code.write.
+- terminal.run ejecuta comandos de shell REALES (ls, cat, grep, find, mkdir, «echo texto > fichero», git status). Le pasas la LÍNEA DE COMANDO exacta, NUNCA lenguaje natural (mal: terminal.run "crea un proyecto"; bien: terminal.run "mkdir web"). node/npm/python reales aún no: si te los piden, dilo con honestidad.
+- CREAR ficheros/proyectos: SIEMPRE con code.write (crea también las carpetas necesarias), UNA tool-call por fichero, con el CONTENIDO COMPLETO en cada una. NUNCA uses touch/echo para crear un fichero que luego rellenas (quedan vacíos). PUEDES crear cualquier proyecto aquí mismo; PROHIBIDO responder «no puedo crear un proyecto» o pedir permiso o el framework: si el usuario no lo dice, elige HTML/CSS/JS simple y escríbelo ya. Puedes emitir VARIAS code.write en un mismo mensaje y se ejecutan todas.
 - Habla SOLO de archivos y contenido que aparezcan en el CONTEXTO o en resultados de herramientas. Cita rutas y líneas reales. Si no lo sabes, léelo, no lo inventes.
 
 Cómo actuar:
@@ -58,6 +59,14 @@ Usuario: crea una carpeta tests y un fichero vacío dentro
 Tú:
 \`\`\`tool
 {"tool": "terminal.run", "args": {"command": "mkdir tests && touch tests/test_main.py"}}
+\`\`\`
+Usuario: crea un mini proyecto web que explique esto
+Tú: (SIN pedir permiso ni framework — escribe los ficheros con contenido COMPLETO, varias code.write a la vez)
+\`\`\`tool
+{"tool": "code.write", "args": {"path": "web/index.html", "content": "<!DOCTYPE html>\\n<html>…página completa…</html>"}}
+\`\`\`
+\`\`\`tool
+{"tool": "code.write", "args": {"path": "web/style.css", "content": "body{font-family:system-ui;margin:0}…"}}
 \`\`\`
 Usuario: ¿qué mejorarías del código?
 Tú:
@@ -96,19 +105,53 @@ export function parseNativeCall(text) {
   return { tool: m[1], args };
 }
 
+// Extrae UNA tool-call (compat). Prefiere la primera de parseToolCalls.
 export function parseToolCall(text) {
-  const native = parseNativeCall(text);
-  if (native) return native;
+  return parseToolCalls(text)[0] || null;
+}
 
-  const fences = [...text.matchAll(/```(\w*)[ \t]*\n?([\s\S]*?)```/g)]
-    .map(m => ({ lang: (m[1] || '').toLowerCase(), body: m[2].trim() }));
-  for (const f of fences) {
-    const call = tryJson(f.body);
-    if (call) return call;
+// Extrae TODAS las tool-calls de un mensaje, en orden. El modelo pequeño a
+// menudo emite varias (p. ej. tres code.write para crear tres ficheros) o las
+// mete en prosa sin un fence ```tool perfecto → antes solo se ejecutaba la
+// primera (o ninguna) y los ficheros quedaban VACÍOS. Aquí buscamos cada objeto
+// {"tool":...} por llaves balanceadas, esté donde esté, además del formato nativo.
+export function parseToolCalls(text) {
+  const calls = [];
+  const seen = new Set();
+  const push = c => {
+    if (!c || typeof c.tool !== 'string') return;
+    const k = c.tool + '|' + JSON.stringify(c.args || {});
+    if (!seen.has(k)) { seen.add(k); calls.push(c); }
+  };
+  // 1) formato nativo LFM (puede haber varios)
+  const nat = /<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g;
+  let mm;
+  while ((mm = nat.exec(text))) push(parseNativeCall(mm[0]));
+  // 2) cada objeto JSON que empiece por {"tool": … (con o sin fence)
+  const re = /\{\s*"tool"\s*:/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const obj = extractBalanced(text, m.index);
+    if (obj) { push(tryJson(obj)); re.lastIndex = m.index + obj.length; }
   }
-  if (text.trim().startsWith('{')) {
-    const call = tryJson(text.trim());
-    if (call) return call;
+  // 3) último recurso: nativo suelto de una línea
+  if (!calls.length) push(parseNativeCall(text));
+  return calls;
+}
+
+// Desde el '{' en `start`, devuelve la subcadena hasta la '}' que balancea,
+// respetando cadenas y escapes (para no cortar un content con llaves dentro).
+function extractBalanced(text, start) {
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { esc = true; continue; }
+    if (ch === '"') inStr = !inStr;
+    else if (!inStr) {
+      if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) return text.slice(start, i + 1);
+    }
   }
   return null;
 }
@@ -131,22 +174,27 @@ export class Agent {
           t => onEvent({ type: 'token', text: t }));
       } catch (e) { onEvent({ type: 'error', text: 'El modelo falló: ' + e.message }); return; }
 
-      const call = parseToolCall(out);
-      if (!call) {
+      const calls = parseToolCalls(out);
+      if (!calls.length) {
         this.history.push({ role: 'assistant', content: out });
         onEvent({ type: 'text', text: out });
         return;
       }
 
-      onEvent({ type: 'tool', call });
-      let result;
-      try { result = await runTool(call.tool, call.args); }
-      catch (e) { result = 'ERROR: ' + e.message; }
-      const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
-      onEvent({ type: 'tool_result', tool: call.tool, result: resultStr });
-
+      // Ejecutar TODAS las tool-calls del mensaje en orden (varios code.write =
+      // varios ficheros con contenido, no vacíos).
       this.history.push({ role: 'assistant', content: out });
-      this.history.push({ role: 'user', content: `[resultado ${call.tool}]\n${resultStr}` });
+      const results = [];
+      for (const call of calls) {
+        onEvent({ type: 'tool', call });
+        let result;
+        try { result = await runTool(call.tool, call.args); }
+        catch (e) { result = 'ERROR: ' + e.message; }
+        const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+        onEvent({ type: 'tool_result', tool: call.tool, result: resultStr });
+        results.push(`[resultado ${call.tool}]\n${resultStr}`);
+      }
+      this.history.push({ role: 'user', content: results.join('\n\n') });
     }
     onEvent({ type: 'text', text: '(Me quedé sin pasos: demasiadas herramientas seguidas.)' });
   }
