@@ -48,6 +48,8 @@ export const UI = {
   puzzle: ico('<path d="M10 4h4a1 1 0 0 1 1 1v2a1.5 1.5 0 1 0 3 0V6h2a1 1 0 0 1 1 1v4h-1a1.5 1.5 0 1 0 0 3h1v4a1 1 0 0 1-1 1h-4v-1a1.5 1.5 0 1 0-3 0v1H6a1 1 0 0 1-1-1v-4h1a1.5 1.5 0 1 0 0-3H5V7a1 1 0 0 1 1-1h4z"/>'),
   close: ico('<path d="M6 6l12 12M18 6L6 18"/>', 1.8),
   code: ico('<path d="M9 8l-5 4 5 4M15 8l5 4-5 4"/>'),
+  graph: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="8" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M8 7l8 1M7 8l4 8M16 10l-3 6"/></svg>`,
+  city: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 21h18"/><rect x="4" y="10" width="5" height="11"/><rect x="10" y="5" width="5" height="16"/><rect x="16" y="13" width="4" height="8"/></svg>`,
 };
 
 // Codicons de la barra de actividad (trazos simples estilo VS Code).

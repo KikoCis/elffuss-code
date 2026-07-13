@@ -316,3 +316,18 @@ button.wide { width: 100%; padding: 9px; border-radius: 8px; }
 
 .model-card.disabled { opacity: .5; cursor: not-allowed; }
 .model-card.disabled:hover { border-color: var(--line); }
+
+/* ---------- vistas Arquitectura / Ciudad 3D (overlay sobre el editor) ---------- */
+#view-overlay { position: absolute; inset: 34px 0 22px 0; z-index: 30; background: #0b0d12; overflow: hidden; }
+#view-overlay[hidden] { display: none; }
+#editor-wrap { position: relative; }
+#view-close { position: absolute; top: 10px; right: 12px; z-index: 32; background: var(--bg3); border: 1px solid var(--line); color: var(--muted); width: 30px; height: 28px; border-radius: 7px; cursor: pointer; }
+#view-close:hover { color: var(--accent); }
+#view-body { width: 100%; height: 100%; position: relative; }
+#view-body svg#arch-svg { width: 100%; height: 100%; display: block; cursor: grab; }
+.arch-node { cursor: pointer; }
+.arch-node:hover circle { stroke-width: 3; }
+.view-head { position: absolute; top: 10px; left: 14px; z-index: 31; font-size: .8rem; color: #c8cede; background: #0d1117cc; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); }
+.view-hint { color: var(--muted); font-size: .72rem; margin-left: 8px; }
+.view-loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: .9rem; }
+#city-canvas { width: 100%; height: 100%; display: block; }
