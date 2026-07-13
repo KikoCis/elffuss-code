@@ -1,6 +1,7 @@
-// Registro de herramientas de Elffuss Code: solo toca el proyecto abierto.
+// Registro de herramientas de Elffuss Code: proyecto abierto + shell + web.
 import * as code from './code.js';
 import * as shell from '../shell.js';
+import * as web from './web.js';
 
 export { code };
 
@@ -14,6 +15,8 @@ export const TOOLS = {
   'code.write':  { desc: 'Escribir/crear un archivo (contenido COMPLETO; se refleja al instante en el editor)', params: { path: 'ruta', content: 'contenido íntegro' }, run: a => code.write(a) },
   'code.search': { desc: 'Buscar texto en el proyecto (grep)', params: { query: 'texto', ext: 'filtro extensión (opcional)' }, run: a => code.search(a) },
   'terminal.run': { desc: 'Ejecutar un comando de shell sobre los ficheros del proyecto (ls, cat, grep, find, mkdir, echo>fichero, git status…). node/npm reales necesitan WebContainers', params: { command: 'la línea de comando' }, run: async a => { const out = await shell.runForAgent(a.command || ''); onTerminalEcho(a.command || '', out); return out; } },
+  'web.search': { desc: 'Buscar en internet (docs, errores, APIs) — devuelve títulos, URLs y fragmentos', params: { query: 'qué buscar' }, run: a => web.search(a) },
+  'web.fetch':  { desc: 'Leer el contenido de texto de una URL (documentación, referencia)', params: { url: 'https://…' }, run: a => web.fetchUrl(a) },
 };
 
 export function toolHelp() {
