@@ -297,11 +297,12 @@ header { position: relative; }
 .panel-close:hover { color: var(--accent); }
 .panel-close svg { width: 16px; height: 16px; }
 .model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 6px; }
-.model-card { text-align: left; background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.model-card { text-align: left; background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; color: var(--fg); }
 .model-card:hover { border-color: var(--accent2); }
 .model-card.active { border-color: var(--accent); background: linear-gradient(135deg, #2a1840, #1a1428); }
-.model-card b { font-size: .84rem; }
-.model-card span { color: var(--muted); font-size: .72rem; }
+.model-card b { font-size: .84rem; color: var(--fg); }
+.model-card.active b { color: #fff; }
+.model-card span { color: #aab2c8; font-size: .72rem; }
 .prov-card { background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 7px; }
 .prov-card.on { border-color: var(--accent2); }
 .prov-head { display: flex; align-items: center; gap: 8px; }
