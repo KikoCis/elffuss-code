@@ -67,6 +67,7 @@
       <button id="act-search" title="Buscar (Cmd/Ctrl+P)"></button>
       <button id="act-arch" title="Arquitectura (grafo de dependencias)"></button>
       <button id="act-city" title="Ciudad 3D"></button>
+      <button id="act-term" title="Terminal (Ctrl+`)"></button>
       <button id="act-skills" title="Skills"></button>
       <button id="act-settings" title="Ajustes y modelo"></button>
       <img src="img/elffuss-code.svg" alt="Elffuss" title="Elffuss Code">
@@ -81,6 +82,16 @@
       <div id="view-overlay" hidden>
         <button id="view-close" title="cerrar">✕</button>
         <div id="view-body"></div>
+      </div>
+      <div id="terminal-panel" hidden>
+        <div id="term-resize" title="arrastra para redimensionar"></div>
+        <div id="term-head">
+          <span class="term-title">TERMINAL</span>
+          <span id="term-caps"></span>
+          <button id="term-clear" class="term-btn" title="limpiar">limpiar</button>
+          <button id="term-close" class="term-btn" title="cerrar (Ctrl+`)">✕</button>
+        </div>
+        <div id="terminal-host"></div>
       </div>
       <div id="statusbar"></div>
     </section>

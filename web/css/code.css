@@ -102,6 +102,20 @@ body.hide-tree #sidebar { display: none; }
 .tab b.dirty { opacity: 1; color: var(--fg); }
 .tab b.dirty:hover::before { content: ''; }
 #editor { flex: 1; min-height: 0; }
+
+/* panel del terminal (abajo del editor, estilo VS Code) */
+#terminal-panel { display: flex; flex-direction: column; height: 260px; flex: 0 0 auto; background: #0b0d12; border-top: 1px solid var(--line); position: relative; }
+#terminal-panel[hidden] { display: none; }
+#term-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: ns-resize; z-index: 3; }
+#term-resize:hover { background: var(--accent2); opacity: .4; }
+#term-head { display: flex; align-items: center; gap: 10px; padding: 3px 10px; background: #0d0f15; border-bottom: 1px solid var(--line); }
+#term-head .term-title { font-size: .68rem; letter-spacing: .08em; color: var(--fg); font-weight: 700; }
+#term-caps { font-size: .68rem; color: var(--muted); flex: 1; }
+.term-btn { background: none; border: none; color: var(--muted); font-size: .72rem; cursor: pointer; padding: 2px 6px; border-radius: 5px; }
+.term-btn:hover { color: var(--fg); background: var(--bg3); }
+#terminal-host { flex: 1; min-height: 0; padding: 4px 6px; overflow: hidden; }
+#terminal-host .xterm { height: 100%; }
+
 #statusbar {
   padding: 3px 12px; font-size: .74rem; color: #fff; min-height: 22px;
   background: linear-gradient(90deg, #3d2a68, #4c2050);
