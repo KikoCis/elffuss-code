@@ -1,13 +1,19 @@
 // Registro de herramientas de Elffuss Code: solo toca el proyecto abierto.
 import * as code from './code.js';
+import * as shell from '../shell.js';
 
 export { code };
+
+// El terminal (UI) se engancha aquí para reflejar lo que ejecuta la elfa.
+let onTerminalEcho = () => {};
+export function setTerminalEcho(fn) { onTerminalEcho = fn; }
 
 export const TOOLS = {
   'code.tree':   { desc: 'Ver el árbol de archivos del proyecto', params: { path: 'subcarpeta (opcional)', depth: 'niveles (3)' }, run: a => code.tree(a) },
   'code.read':   { desc: 'Leer un archivo del proyecto', params: { path: 'ruta relativa' }, run: a => code.read(a) },
   'code.write':  { desc: 'Escribir/crear un archivo (contenido COMPLETO; se refleja al instante en el editor)', params: { path: 'ruta', content: 'contenido íntegro' }, run: a => code.write(a) },
   'code.search': { desc: 'Buscar texto en el proyecto (grep)', params: { query: 'texto', ext: 'filtro extensión (opcional)' }, run: a => code.search(a) },
+  'terminal.run': { desc: 'Ejecutar un comando de shell sobre los ficheros del proyecto (ls, cat, grep, find, mkdir, echo>fichero, git status…). node/npm reales necesitan WebContainers', params: { command: 'la línea de comando' }, run: async a => { const out = await shell.runForAgent(a.command || ''); onTerminalEcho(a.command || '', out); return out; } },
 };
 
 export function toolHelp() {

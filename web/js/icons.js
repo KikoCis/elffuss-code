@@ -50,6 +50,7 @@ export const UI = {
   code: ico('<path d="M9 8l-5 4 5 4M15 8l5 4-5 4"/>'),
   graph: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="8" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M8 7l8 1M7 8l4 8M16 10l-3 6"/></svg>`,
   city: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 21h18"/><rect x="4" y="10" width="5" height="11"/><rect x="10" y="5" width="5" height="16"/><rect x="16" y="13" width="4" height="8"/></svg>`,
+  terminal: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>`,
 };
 
 // Codicons de la barra de actividad (trazos simples estilo VS Code).

@@ -8,6 +8,9 @@ import { initEditor, refreshTree, openFile, gotoLine, triggerEditor, hasEditor }
 import { ACTIVITY, UI } from './icons.js';
 import { renderMarkdown } from './md.js';
 import * as skills from './skills.js';
+import * as terminal from './terminal.js';
+import * as shell from './shell.js';
+import { setTerminalEcho } from './tools/index.js';
 
 const $ = id => document.getElementById(id);
 const agent = new Agent(rules);
@@ -369,6 +372,7 @@ function labeled(label, input) {
 let galaxy = null;
 async function enterIDE(handle) {
   const name = await codeTools.openProject(handle);
+  shell.reset();                 // el terminal arranca en la raíz del proyecto
   galaxy?.stop();
   $('landing').hidden = true;
   $('ide').hidden = false;
@@ -413,11 +417,41 @@ async function boot() {
   }
 }
 
+// Historial del prompt del chat: ↑/↓ recuperan lo enviado (como una shell).
+// Persistente entre recargas (localStorage, últimos 100).
+const PROMPT_HIST_KEY = 'elffusscode.promptHistory';
+let promptHistory = [];
+try { promptHistory = JSON.parse(localStorage.getItem(PROMPT_HIST_KEY) || '[]'); } catch { /* corrupto */ }
+let promptHistIdx = -1, promptDraft = '';
+function pushPromptHistory(text) {
+  if (promptHistory[promptHistory.length - 1] !== text) promptHistory.push(text);
+  if (promptHistory.length > 100) promptHistory = promptHistory.slice(-100);
+  try { localStorage.setItem(PROMPT_HIST_KEY, JSON.stringify(promptHistory)); } catch { /* lleno */ }
+  promptHistIdx = -1; promptDraft = '';
+}
+$('prompt').addEventListener('keydown', e => {
+  if (!$('menu').hidden) return;                 // el menú «/» ya usa ↑/↓
+  const inp = e.target;
+  if (e.key === 'ArrowUp') {
+    if (!promptHistory.length) return;
+    if (promptHistIdx === -1) { promptDraft = inp.value; promptHistIdx = promptHistory.length; }
+    promptHistIdx = Math.max(0, promptHistIdx - 1);
+    inp.value = promptHistory[promptHistIdx];
+    e.preventDefault();
+    requestAnimationFrame(() => inp.setSelectionRange(inp.value.length, inp.value.length));
+  } else if (e.key === 'ArrowDown') {
+    if (promptHistIdx === -1) return;
+    promptHistIdx++;
+    inp.value = promptHistIdx >= promptHistory.length ? (promptHistIdx = -1, promptDraft) : promptHistory[promptHistIdx];
+    e.preventDefault();
+  }
+});
 $('composer').addEventListener('submit', e => {
   e.preventDefault();
   const text = $('prompt').value.trim();
   if (!text) return;
   $('prompt').value = '';
+  pushPromptHistory(text);
   send(text);
 });
 $('model-select').addEventListener('change', e => changeModel(e.target.value));
@@ -449,6 +483,39 @@ function closeView() {
 $('act-arch').addEventListener('click', () => openView('arch'));
 $('act-city').addEventListener('click', () => openView('city'));
 $('view-close').addEventListener('click', closeView);
+
+// terminal integrado: xterm.js + shell sobre los ficheros REALES del proyecto.
+// La elfa comparte este shell (tool terminal.run) y su salida se refleja aquí.
+$('act-term').innerHTML = UI.terminal;
+shell.setHooks({ fsChange: () => refreshTree().catch(() => {}), openFile });
+setTerminalEcho((cmd, out) => terminal.echoAgent(cmd, out));
+async function toggleTerminal(force) {
+  const show = force != null ? force : $('terminal-panel').hidden;
+  $('terminal-panel').hidden = !show;
+  $('act-term').classList.toggle('on', show);
+  if (show) {
+    const cap = shell.capabilities();
+    $('term-caps').textContent = cap.webcontainers ? 'node/npm reales (WebContainers)' : 'shell del proyecto · node/npm → WebContainers';
+    await terminal.mount($('terminal-host'));
+    terminal.refit();
+  }
+}
+$('act-term').addEventListener('click', () => toggleTerminal());
+$('term-close').addEventListener('click', () => toggleTerminal(false));
+$('term-clear').addEventListener('click', () => terminal.clearScreen());
+// Ctrl+` (o Cmd+`) alterna el terminal, como en VS Code
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === '`') { e.preventDefault(); toggleTerminal(); }
+});
+// redimensionar arrastrando la barra superior del panel
+(() => {
+  const panel = $('terminal-panel'), handle = $('term-resize');
+  let sy = 0, sh = 0;
+  const move = e => { const h = Math.max(120, Math.min(window.innerHeight - 160, sh + (sy - e.clientY))); panel.style.height = h + 'px'; terminal.refit(); };
+  const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+  handle.addEventListener('mousedown', e => { sy = e.clientY; sh = panel.offsetHeight; document.addEventListener('mousemove', move); document.addEventListener('mouseup', up); e.preventDefault(); });
+})();
+window.addEventListener('resize', () => terminal.refit());
 
 // iconos VS Code (sin emojis) en cabecera, composer y flip
 $('btn-clear').innerHTML = UI.clear;
@@ -694,6 +761,7 @@ const COMMANDS = [
   { label: 'Gestionar skills', run: () => { closePalette(); openSkillsPanel(); } },
   { label: 'Ajustes y modelo', run: () => { closePalette(); renderSettings(); } },
   { label: 'Alternar explorador', run: () => $('act-files').click() },
+  { label: 'Alternar terminal', hint: 'Ctrl+`', run: () => { closePalette(); toggleTerminal(); } },
   { label: 'Guardar (Ctrl+S)', run: () => triggerEditor('') || (hasEditor() && triggerEditor('workbench.action.files.save')) },
 ];
 
@@ -779,6 +847,9 @@ async function menuFor(which) {
   ];
   if (which === 'view') return [
     { label: 'Explorador', run: () => $('act-files').click() },
+    { label: 'Terminal', hint: 'Ctrl+`', run: () => toggleTerminal(true) },
+    { label: 'Arquitectura', run: () => openView('arch') },
+    { label: 'Ciudad 3D', run: () => openView('city') },
     { label: 'Command Palette', hint: 'Cmd+Shift+P', run: () => openPalette('>') },
     { label: 'Skills', run: () => openSkillsPanel() },
   ];
