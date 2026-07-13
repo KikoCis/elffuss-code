@@ -55,23 +55,22 @@ const runScripted = task => p.evaluate(async t => {
   return { tools: ev.filter(x => x.startsWith('tool_result')).length };
 }, { target: task.target, solution: task.solution, task: task.task });
 
-// Solver con MODELO real: envía la tarea por el composer y espera a que el
-// modelo REESCRIBA el fichero objetivo (contenido distinto al sembrado) o timeout.
-// (La página se recarga por tarea en el bucle → historial del agente limpio.)
-const runModel = async task => {
-  const original = task.files[task.target];
-  await p.fill('#prompt', task.task + ' Usa code.read y luego code.write con el contenido corregido COMPLETO. No pidas permiso.');
-  await p.press('#prompt', 'Enter');
-  const t0 = Date.now();
-  while (Date.now() - t0 < TIMEOUT) {
-    await p.waitForTimeout(2500);
-    const cur = await p.evaluate(async target => {
-      try { const o = await navigator.storage.getDirectory(); const parts = target.split('/'); const name = parts.pop(); let d = o; for (const x of parts) d = await d.getDirectoryHandle(x); return await (await (await d.getFileHandle(name)).getFile()).text(); } catch { return null; }
-    }, task.target);
-    if (cur != null && cur !== original) { await p.waitForTimeout(1500); break; }
-  }
-  return { tools: -1 };
-};
+// Solver con MODELO real: conduce el Agent con el PROVEEDOR ya cargado por la app
+// (mismo singleton del módulo → generator listo) y captura los eventos, así vemos
+// SI tool-callea y qué produce (diagnóstico del score, no solo pass/fail).
+const runModel = async task => p.evaluate(async ({ task, model, timeout }) => {
+  const provPath = model.startsWith('litert') ? '/js/providers/litert.js' : '/js/providers/onnx.js';
+  const prov = await import(provPath);
+  const { Agent } = await import('/js/agent.js');
+  const a = new Agent({ chat: (h, s, cb) => prov.chat(h, s, cb) });
+  const ev = []; let lastText = '';
+  const done = a.handle(task + ' Lee el fichero con code.read y escríbelo corregido con code.write (contenido COMPLETO). No pidas permiso.',
+    e => { ev.push(e.type + (e.tool ? ':' + e.tool : '')); if (e.type === 'text') lastText = (e.text || '').slice(0, 140); });
+  await Promise.race([done, new Promise(r => setTimeout(r, timeout))]);
+  const reads = ev.filter(x => x === 'tool_result:code.read').length;
+  const writes = ev.filter(x => x === 'tool_result:code.write').length;
+  return { tools: reads + writes, reads, writes, note: writes ? '' : (lastText || 'sin write') };
+}, { task: task.task, model: MODEL, timeout: TIMEOUT });
 async function waitModel() {
   await p.waitForFunction(() => document.getElementById('model-dot')?.classList.contains('on'), null, { timeout: 300000 })
     .catch(() => console.log('  (aviso: modelo no confirmó carga; continúo)'));
@@ -97,23 +96,23 @@ let resolved = 0;
 for (const task of BATCH) {
   await clearOPFS();
   await seed(task.files);
-  let tools = '-';
+  let tools = '-', diag = '';
   try {
     if (SOLVER === 'model') {
       // recargar para historial de agente limpio; el modelo carga desde caché
       await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
       await waitModel();
-      const r = await runModel(task); tools = r.tools;
+      const r = await runModel(task); tools = r.tools; diag = `r${r.reads}/w${r.writes} ${r.note}`;
     } else {
       const r = await runScripted(task); tools = r.tools;
     }
-  } catch (e) { /* el solver falló */ }
+  } catch (e) { diag = 'ERR ' + String(e.message || e).slice(0, 50); }
   const v = await verify(task);
   if (v.passed) resolved++;
-  console.log(task.id.padEnd(12), (v.passed ? '  ✅   ' : '  ❌   '), String(tools).padStart(4), '  ', v.err || '');
+  console.log(task.id.padEnd(12), (v.passed ? '  ✅   ' : '  ❌   '), String(tools).padStart(4), '  ', (v.err || diag).slice(0, 70));
 }
-const pct = Math.round(resolved / TASKS.length * 100);
-console.log(`\n📊 resolved ${resolved}/${TASKS.length} (${pct}%) · solver=${SOLVER}${SOLVER === 'model' ? ' modelo=' + MODEL : ''}`);
+const pct = Math.round(resolved / BATCH.length * 100);
+console.log(`\n📊 resolved ${resolved}/${BATCH.length} (${pct}%) · solver=${SOLVER}${SOLVER === 'model' ? ' modelo=' + MODEL : ''}`);
 await b.close();
 // en modo scripted exigimos 100% (valida el arnés); en modo modelo solo informamos
-process.exit(SOLVER === 'scripted' && resolved !== TASKS.length ? 1 : 0);
+process.exit(SOLVER === 'scripted' && resolved !== BATCH.length ? 1 : 0);
