@@ -1,0 +1,48 @@
+// Iconos estilo VS Code, en SVG inline propio (sin dependencias).
+// Archivos: insignia con la abreviatura y el color canónico del lenguaje.
+const FILE_TYPES = {
+  js: ['JS', '#f1dd3f'], mjs: ['JS', '#f1dd3f'], cjs: ['JS', '#f1dd3f'],
+  ts: ['TS', '#3178c6'], tsx: ['TS', '#3178c6'], jsx: ['JS', '#61dafb'],
+  py: ['PY', '#4b8bbe'], rs: ['RS', '#dea584'], go: ['GO', '#00add8'],
+  java: ['J', '#e76f00'], c: ['C', '#659ad2'], h: ['H', '#659ad2'],
+  cpp: ['C+', '#f34b7d'], cs: ['C#', '#178600'],
+  json: ['{}', '#cbcb41'], yaml: ['Y', '#cb4b4b'], yml: ['Y', '#cb4b4b'],
+  toml: ['T', '#9c4221'], xml: ['<>', '#e37933'],
+  html: ['<>', '#e34c26'], css: ['#', '#9b7cf6'], scss: ['#', '#c6538c'],
+  md: ['M', '#519aba'], txt: ['≡', '#8b93a8'], csv: ['⊞', '#89e051'],
+  sh: ['$', '#89e051'], sql: ['DB', '#e38c00'],
+  svg: ['SV', '#ffb13b'], png: ['IMG', '#a074c4'], jpg: ['IMG', '#a074c4'],
+  gif: ['IMG', '#a074c4'], ico: ['IMG', '#a074c4'],
+  lock: ['🔒', '#8b93a8'], gitignore: ['GIT', '#f05033'],
+};
+
+export function fileIcon(name) {
+  const base = name.toLowerCase();
+  const ext = base.startsWith('.git') ? 'gitignore' : (base.split('.').pop() || '');
+  const [label, color] = FILE_TYPES[ext] || ['·', '#6b7391'];
+  const fontSize = label.length > 2 ? 5 : (label.length === 2 ? 6.5 : 8);
+  return `<svg class="fico" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="${color}1f" stroke="${color}" stroke-width="1"/>
+    <text x="8" y="${label.length > 2 ? 10.4 : 10.8}" font-size="${fontSize}" text-anchor="middle"
+      fill="${color}" font-family="system-ui" font-weight="700">${label}</text></svg>`;
+}
+
+export function folderIcon() {
+  return `<svg class="fico chev" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <path class="chevron" d="M6 4.5 L10 8 L6 11.5" fill="none" stroke="#8b93a8" stroke-width="1.6" stroke-linecap="round"/>
+  </svg><svg class="fico" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M1.5 4 a1 1 0 0 1 1-1 h3.2 l1.6 1.8 h6.2 a1 1 0 0 1 1 1 v6.7 a1 1 0 0 1 -1 1 h-11 a1 1 0 0 1 -1-1 Z"
+      fill="#dcb67a33" stroke="#dcb67a" stroke-width="1"/></svg>`;
+}
+
+// Codicons de la barra de actividad (trazos simples estilo VS Code).
+export const ACTIVITY = {
+  files: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+    <path d="M7 4h7l4 4v12H7z"/><path d="M14 4v4h4"/><path d="M4 8v13h10" opacity=".55"/></svg>`,
+  search: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+    <circle cx="10.5" cy="10.5" r="5.5"/><path d="M15 15l5 5"/></svg>`,
+  gear: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+    <circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/></svg>`,
+  chat: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+    <path d="M4 5h16v11H9l-5 4z"/></svg>`,
+};

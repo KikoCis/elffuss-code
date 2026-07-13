@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elffuss Claw — tu IDE con alma, en el navegador</title>
+<meta name="description" content="Abre una carpeta de código y programa con Elffuss: IDE web + agente local. Nada sale de tu máquina.">
+<link rel="icon" href="img/elffuss-claw.svg">
+<link rel="stylesheet" href="css/code.css">
+</head>
+<body>
+
+<!-- landing: primero se abre la carpeta -->
+<div id="landing">
+  <div class="l-inner">
+    <img src="img/elffuss-claw.svg" alt="Elffuss Claw" class="hero">
+    <h1><b>Elffuss</b> Code</h1>
+    <p class="tag">Abre tu carpeta de código y programa con una elfa al lado.<br>
+      Editor tipo VS Code + agente <b>en tu navegador</b>. Nada sale de tu máquina. 😉</p>
+    <button id="open-project">📁 Abrir carpeta de código</button>
+    <button id="reopen-project" class="ghost" hidden></button>
+    <p class="mini">Chrome/Edge · File System Access · modelo local WebGPU</p>
+  </div>
+</div>
+
+<!-- IDE -->
+<div id="ide" hidden>
+  <header>
+    <div class="brand"><img src="img/elffuss-claw.svg" alt=""><b>Elffuss Claw</b>
+      <span id="project-name" class="proj"></span><span id="build" class="proj">__BUILD__</span></div>
+    <div class="controls">
+      🧠 <select id="model-select"></select>
+      <span id="model-dot" class="dot off"></span>
+      <button id="btn-clear" class="ghost" title="Nueva conversación">🧹</button>
+      <button id="btn-settings" class="ghost" title="proveedores externos">⚙️</button>
+    </div>
+  </header>
+  <div id="settings-panel" hidden></div>
+  <main>
+    <nav id="activity">
+      <button id="act-files" class="on" title="Explorador"></button>
+      <button id="act-search" title="Buscar en el proyecto"></button>
+      <button id="act-settings" title="Proveedores externos"></button>
+      <img src="img/elffuss-claw.svg" alt="Elffuss" title="Elffuss Claw">
+    </nav>
+    <aside id="sidebar">
+      <div id="explorer-head">EXPLORER<span id="explorer-proj"></span></div>
+      <div id="tree"></div>
+    </aside>
+    <section id="editor-wrap">
+      <div id="tabs-bar"></div>
+      <div id="editor"></div>
+      <div id="statusbar"></div>
+    </section>
+    <section id="chat">
+      <div id="chat-log"></div>
+      <div id="menu" hidden></div>
+      <div id="composer-wrap">
+        <div id="ctx-meter" title="contexto acumulado en la conversación">
+          <span id="ctx-text">ctx 0 / 6k</span>
+          <div class="ctx-track"><div id="ctx-bar"></div></div>
+        </div>
+        <form id="composer">
+          <button type="button" id="btn-plus" class="cbtn" title="Adjuntar archivo del proyecto (@)">+</button>
+          <button type="button" id="btn-slash" class="cbtn" title="Comandos">/</button>
+          <input id="prompt" autocomplete="off" placeholder="Pídele código a Elffuss…">
+          <button type="button" id="btn-autoedit" class="cbtn autoedit on" title="Editar archivos automáticamente"><span class="ae-ico">&lt;/&gt;</span> <span class="ae-txt">Auto</span></button>
+          <button type="submit" id="btn-send">➤</button>
+        </form>
+      </div>
+    </section>
+  </main>
+</div>
+
+<button id="code-flip" title="cambiar entre chat y editor">📝 Editor</button>
+
+<div id="model-progress" hidden>
+  <img src="img/elffuss-claw.svg" alt="">
+  <div class="mp-body">
+    <span id="model-progress-text">Preparando el cerebro local…</span>
+    <div class="track"><div id="model-bar"></div></div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
