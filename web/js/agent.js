@@ -2,7 +2,7 @@
 import { runTool, toolHelp, snapshot } from './tools/index.js';
 import { skillsPromptBlock } from './skills.js';
 
-const MAX_STEPS = 6;
+const MAX_STEPS = 12; // margen para tareas largas (leer→editar→verificar→arreglar…)
 
 const LANGS = {
   es: 'español', en: 'English', uk: 'українська', ru: 'русский', fr: 'français',
