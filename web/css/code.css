@@ -56,8 +56,8 @@ select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line)
 #settings-panel .card { background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; font-size: .8rem; min-width: 200px; }
 #settings-panel input[type=text], #settings-panel input:not([type]) , #settings-panel input[type=password] { background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: .78rem; }
 
-main { flex: 1; display: grid; grid-template-columns: 46px 235px 1fr 350px; min-height: 0; }
-body.hide-tree main { grid-template-columns: 46px 0 1fr 350px; }
+main { flex: 1; display: grid; grid-template-columns: 46px 235px minmax(0, 1fr) minmax(440px, 34%); min-height: 0; }
+body.hide-tree main { grid-template-columns: 46px 0 minmax(0, 1fr) minmax(440px, 34%); }
 body.hide-tree #sidebar { display: none; }
 
 /* barra de actividad estilo VS Code */
@@ -248,3 +248,68 @@ body.hide-tree #sidebar { display: none; }
 /* el panel de ajustes/skills se SUPERPONE (no empuja el IDE) */
 #settings-panel { position: fixed; top: 46px; left: 46px; right: 0; z-index: 90; max-height: 78vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
 @media (max-width: 760px) { #settings-panel { left: 0; } }
+
+/* barra indeterminada (descargas sin loaded/total, p. ej. Gemma vía LiteRT-LM) */
+#model-progress .track { overflow: hidden; }
+#model-bar.indet { width: 35%; animation: indet 1.1s ease-in-out infinite; }
+@keyframes indet { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+
+/* ===== chrome estilo VS Code: menubar + palette + settings + git ===== */
+header { position: relative; }
+#model-select[hidden] { display: none; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; padding: 0; }
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-inline svg { vertical-align: -3px; }
+
+/* barra de menú File/Edit/View/Git en la MISMA línea */
+#menubar { display: flex; gap: 1px; margin-left: 6px; }
+#menubar button { background: none; border: none; color: var(--muted); padding: 4px 9px; font-size: .8rem; cursor: pointer; border-radius: 5px; }
+#menubar button:hover, #menubar button.open { color: var(--fg); background: #ffffff10; }
+@media (max-width: 900px) { #menubar { display: none; } }
+
+/* dropdown del menú (fixed, anclado al botón) */
+#topmenu { position: fixed; z-index: 110; min-width: 220px; background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 34px rgba(0,0,0,.55); padding: 4px; }
+#topmenu[hidden] { display: none; }
+#topmenu .menu-item { display: flex; justify-content: space-between; gap: 12px; width: 100%; text-align: left; background: none; border: none; color: var(--fg); padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: .82rem; }
+#topmenu .menu-item:hover { background: #ffffff10; }
+#topmenu .menu-item span { color: var(--muted); font-size: .74rem; }
+
+/* chip de rama git */
+.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg3); border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 3px 10px; font-size: .74rem; cursor: pointer; }
+.chip[hidden] { display: none; }
+.chip:hover { color: var(--fg); border-color: var(--accent2); }
+.chip svg { width: 12px; height: 12px; }
+
+/* command palette */
+#palette { position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 130; width: min(640px, 92vw); background: var(--bg3); border: 1px solid var(--accent2); border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.6); overflow: hidden; }
+#palette[hidden] { display: none; }
+#pal-input { width: 100%; background: var(--bg); border: none; border-bottom: 1px solid var(--line); color: var(--fg); padding: 12px 14px; font-size: .92rem; outline: none; }
+#pal-list { max-height: 50vh; overflow-y: auto; padding: 4px; }
+.pal-item { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; background: none; border: none; color: var(--fg); padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: .84rem; }
+.pal-item.sel, .pal-item:hover { background: #7c5cff33; }
+.pal-item .pi-name { font-weight: 500; }
+.pal-item .pi-hint { color: var(--muted); font-size: .72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-empty { padding: 12px 14px; color: var(--muted); font-size: .82rem; }
+
+/* settings: título, cierre y tarjetas de modelo/proveedor */
+.panel-title { margin: 2px 0 8px; font-size: 1rem; }
+.panel-close { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; }
+.panel-close:hover { color: var(--accent); }
+.panel-close svg { width: 16px; height: 16px; }
+.model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 6px; }
+.model-card { text-align: left; background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.model-card:hover { border-color: var(--accent2); }
+.model-card.active { border-color: var(--accent); background: linear-gradient(135deg, #2a1840, #1a1428); }
+.model-card b { font-size: .84rem; }
+.model-card span { color: var(--muted); font-size: .72rem; }
+.prov-card { background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 7px; }
+.prov-card.on { border-color: var(--accent2); }
+.prov-head { display: flex; align-items: center; gap: 8px; }
+.prov-head b { flex: 1; font-size: .84rem; }
+.prov-use { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 6px; padding: 4px 10px; font-size: .74rem; cursor: pointer; }
+.prov-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.prov-fields.hide { display: none; }
+.prov-fields input { background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 9px; font-size: .78rem; width: 100%; }
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field .muted { font-size: .7rem; }
+button.wide { width: 100%; padding: 9px; border-radius: 8px; }

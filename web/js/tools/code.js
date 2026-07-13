@@ -10,6 +10,55 @@ let onFileWritten = () => {};        // el IDE refresca pestañas/árbol
 export function setOnFileWritten(fn) { onFileWritten = fn; }
 export function setCurrentFile(path) { currentFile = path; }
 export function current() { return { projectName, currentFile }; }
+export function handle() { return projectHandle; }
+
+// Lee un archivo de texto dentro de un dir handle por ruta (soporta subdirs).
+async function readIn(dir, path) {
+  const parts = path.split('/'); const name = parts.pop();
+  for (const p of parts) dir = await dir.getDirectoryHandle(p);
+  return (await (await dir.getFileHandle(name)).getFile()).text();
+}
+
+// Integración git SIN dependencias: parsea el .git directamente (rama + último
+// commit). Suficiente para orientar; commitear se le pide al agente/terminal.
+export async function gitInfo() {
+  if (!projectHandle) return { isRepo: false };
+  let git;
+  try { git = await projectHandle.getDirectoryHandle('.git'); }
+  catch { return { isRepo: false }; }
+  const out = { isRepo: true, branch: '(detached)', lastCommit: null };
+  try {
+    const head = (await readIn(git, 'HEAD')).trim();
+    out.branch = head.match(/ref:\s*refs\/heads\/(.+)/)?.[1] || head.slice(0, 7);
+  } catch { /* sin HEAD */ }
+  try {
+    const last = (await readIn(git, 'logs/HEAD')).trim().split('\n').pop();
+    const m = last.match(/^\S+ \S+ (.+?) <[^>]*> (\d+)[^\t]*\t(.+)$/);
+    if (m) out.lastCommit = { author: m[1], when: new Date(+m[2] * 1000), msg: m[3] };
+  } catch { /* sin logs (repo recién creado) */ }
+  return out;
+}
+
+// Lista plana de archivos (para el command palette). Cacheada por proyecto.
+let fileListCache = null;
+export function invalidateFileList() { fileListCache = null; }
+export async function fileList() {
+  if (fileListCache) return fileListCache;
+  if (!projectHandle) return [];
+  const files = [];
+  async function walk(dir, prefix, depth) {
+    if (depth > 8 || files.length > 4000) return;
+    for await (const e of dir.values()) {
+      if (IGNORE.has(e.name)) continue;
+      const p = prefix ? prefix + '/' + e.name : e.name;
+      if (e.kind === 'directory') await walk(e, p, depth + 1);
+      else files.push(p);
+    }
+  }
+  await walk(projectHandle, '', 0);
+  fileListCache = files;
+  return files;
+}
 
 export async function openProject(handle) {
   projectHandle = handle;
@@ -125,6 +174,7 @@ export async function write({ path, content = '' } = {}) {
   const w = await fh.createWritable();
   await w.write(content);
   await w.close();
+  invalidateFileList();
   onFileWritten(path, content);
   return `Escrito ${path} (${content.split('\n').length} líneas)`;
 }

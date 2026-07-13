@@ -35,6 +35,21 @@ export function folderIcon() {
       fill="#dcb67a33" stroke="#dcb67a" stroke-width="1"/></svg>`;
 }
 
+// Codicons de UI (estilo VS Code, sin emojis). Trazos con currentColor.
+const ico = (p, sw = 1.6) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+export const UI = {
+  clear: ico('<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>'),
+  gear: ico('<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/>'),
+  send: ico('<path d="M4 12l16-8-6 16-3.5-6.5L4 12z"/>'),
+  add: ico('<path d="M12 5v14M5 12h14"/>', 1.8),
+  slash: ico('<path d="M15 5L9 19"/>', 1.8),
+  editor: ico('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>'),
+  chat: ico('<path d="M4 5h16v11H9l-5 4z"/>'),
+  puzzle: ico('<path d="M10 4h4a1 1 0 0 1 1 1v2a1.5 1.5 0 1 0 3 0V6h2a1 1 0 0 1 1 1v4h-1a1.5 1.5 0 1 0 0 3h1v4a1 1 0 0 1-1 1h-4v-1a1.5 1.5 0 1 0-3 0v1H6a1 1 0 0 1-1-1v-4h1a1.5 1.5 0 1 0 0-3H5V7a1 1 0 0 1 1-1h4z"/>'),
+  close: ico('<path d="M6 6l12 12M18 6L6 18"/>', 1.8),
+  code: ico('<path d="M9 8l-5 4 5 4M15 8l5 4-5 4"/>'),
+};
+
 // Codicons de la barra de actividad (trazos simples estilo VS Code).
 export const ACTIVITY = {
   files: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">

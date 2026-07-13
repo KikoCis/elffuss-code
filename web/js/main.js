@@ -4,8 +4,8 @@ import * as rules from './providers/rules.js';
 import * as codeTools from './tools/code.js';
 import * as db from './db.js';
 import * as settings from './settings.js';
-import { initEditor, refreshTree, openFile } from './ide.js';
-import { ACTIVITY } from './icons.js';
+import { initEditor, refreshTree, openFile, gotoLine, triggerEditor, hasEditor } from './ide.js';
+import { ACTIVITY, UI } from './icons.js';
 import { renderMarkdown } from './md.js';
 import * as skills from './skills.js';
 
@@ -196,7 +196,14 @@ function showModelProgress(text, pct = null) {
   if (text == null) { box.hidden = true; return; }
   box.hidden = false;
   $('model-progress-text').textContent = text;
-  if (pct != null) $('model-bar').style.width = pct + '%';
+  const bar = $('model-bar');
+  if (pct == null) {
+    bar.classList.add('indet');      // sin % conocido → barra animada
+    bar.style.width = '';
+  } else {
+    bar.classList.remove('indet');
+    bar.style.width = pct + '%';
+  }
 }
 
 let loadingId = null;
@@ -246,45 +253,88 @@ async function changeModel(id) {
 // El cerebro empieza a descargarse desde el PRIMER segundo, en segundo plano,
 // mientras el usuario elige la carpeta. Solo el modelo local — los externos
 // jamás se activan solos.
-function preloadModel() {
+// Cadena de respaldo: el modelo preferido → LFM2.5 local → básico. Si el E4B
+// healed falla (p. ej. «HF_Tokenizer_Zlib not supported» del runtime LiteRT),
+// cae solo a LFM2.5 en vez de dejar al usuario sin cerebro.
+async function preloadModel() {
   const saved = localStorage.getItem('elffussclaw.model');
   if (saved === 'rules') return;
-  if (saved && saved !== 'onnx') { changeModel(saved); return; } // externo ya elegido antes
-  if (navigator.gpu) changeModel('litert');
+  const chain = [...new Set([saved, navigator.gpu ? 'litert' : null, navigator.gpu ? 'onnx' : null]
+    .filter(id => id && id !== 'rules'))];
+  for (const id of chain) {
+    if (await changeModel(id)) return;
+    if (id === 'litert') $('statusbar').textContent = 'Gemma no cargó aquí; probando LFM2.5…';
+  }
 }
 
-// ---------- panel ⚙️ (proveedores externos) ----------
-function renderSettings() {
+// ---------- panel ⚙️ Ajustes: modelo (cerebro) + API keys ----------
+const el = (t, cls, txt) => { const e = document.createElement(t); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+
+function settingsShell(title) {
   const box = $('settings-panel');
+  box.hidden = false;
   box.replaceChildren();
-  const close = document.createElement('button');
-  close.id = 'settings-close';
-  close.textContent = '✕';
-  close.title = 'cerrar';
+  const close = el('button', 'panel-close'); close.innerHTML = UI.close; close.title = 'cerrar';
   close.onclick = () => { box.hidden = true; };
-  box.appendChild(close);
+  box.append(close, el('h3', 'panel-title', title));
+  return box;
+}
+
+function renderSettings() {
+  const box = settingsShell('Ajustes');
+
+  // --- Cerebro (modelo) ---
+  box.append(el('div', 'sk-h', 'Cerebro (modelo)'));
+  const LOCAL = [
+    { id: 'litert', name: 'Gemma-4 E4B (healed) ★', sub: 'Modelo propio · WebGPU local · el mejor', need: 'gpu' },
+    { id: 'onnx', name: 'LFM2.5-1.2B', sub: 'Ligero · WebGPU local · arranca rápido', need: 'gpu' },
+    { id: 'rules', name: 'Básico (sin modelo)', sub: 'Órdenes directas, cero descarga' },
+  ];
+  const grid = el('div', 'model-grid');
+  for (const m of LOCAL) {
+    if (m.need === 'gpu' && !navigator.gpu) continue;
+    const card = el('button', 'model-card' + (activeModel === m.id ? ' active' : ''));
+    card.innerHTML = `<b>${m.name}</b><span>${m.sub}</span>`;
+    card.onclick = () => { changeModel(m.id); renderSettings(); };
+    grid.appendChild(card);
+  }
+  box.appendChild(grid);
+
+  // --- Proveedores externos (API keys) ---
+  box.append(el('div', 'sk-h', 'Proveedores externos (opcional · la clave se queda en tu navegador)'));
   for (const [id, c] of Object.entries(settings.configs())) {
-    const card = document.createElement('div');
-    card.className = 'card';
-    const head = document.createElement('label');
-    const toggle = document.createElement('input');
-    toggle.type = 'checkbox';
-    toggle.checked = c.enabled;
-    head.append(toggle, document.createTextNode(' ' + c.label));
-    const model = document.createElement('input');
-    model.value = c.model;
-    model.placeholder = 'modelo';
-    const key = document.createElement('input');
-    key.type = 'password';
-    key.value = c.apiKey || '';
-    key.placeholder = 'API key';
-    const save = () => { settings.update(id, { enabled: toggle.checked, model: model.value.trim(), apiKey: key.value }); rebuildSelect(); };
-    toggle.onchange = save;
-    model.onchange = save;
-    key.onchange = save;
-    card.append(head, model, key);
+    const card = el('div', 'prov-card' + (c.enabled ? ' on' : ''));
+    const head = el('div', 'prov-head');
+    const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = c.enabled;
+    const title = el('b', null, c.label);
+    const use = el('button', 'prov-use', 'Usar');
+    use.hidden = !c.enabled || activeModel === 'ext:' + id;
+    use.onclick = () => { changeModel('ext:' + id); renderSettings(); };
+    head.append(toggle, title, use);
+    const fields = el('div', 'prov-fields' + (c.enabled ? '' : ' hide'));
+    const model = document.createElement('input'); model.value = c.model || ''; model.placeholder = 'modelo (p. ej. gpt-4o-mini)';
+    const key = document.createElement('input'); key.type = 'password'; key.value = c.apiKey || '';
+    key.placeholder = c.kind === 'anthropic' ? 'sk-ant-…' : (id === 'ollama' || id === 'server' ? 'clave (no necesaria)' : 'sk-…');
+    fields.append(labeled('Modelo', model), labeled('API key', key));
+    const save = () => {
+      settings.update(id, { enabled: toggle.checked, model: model.value.trim(), apiKey: key.value });
+      rebuildSelect();
+    };
+    toggle.onchange = () => { save(); renderSettings(); };
+    model.onchange = key.onchange = save;
+    card.append(head, fields);
     box.appendChild(card);
   }
+
+  // --- Skills ---
+  box.append(el('div', 'sk-h', 'Skills'));
+  const skBtn = el('button', 'primary wide', '🧩 Gestionar skills de Claude Code');
+  skBtn.textContent = 'Gestionar skills de Claude Code';
+  skBtn.onclick = openSkillsPanel;
+  box.appendChild(skBtn);
+}
+function labeled(label, input) {
+  const w = el('label', 'field'); w.append(el('span', 'muted', label), input); return w;
 }
 
 // ---------- arranque ----------
@@ -301,6 +351,7 @@ async function enterIDE(handle) {
   addMsg('sys', `Привіт 👋 Proyecto «${name}» abierto. Pregúntame por el código, pídeme cambios o dime «árbol». Todo se queda en tu máquina.`);
   await restoreHistory();
   await restoreQueue();
+  refreshGit();
   preloadModel(); // por si el arranque en la landing no llegó a dispararse
 }
 
@@ -346,8 +397,18 @@ $('model-select').addEventListener('change', e => changeModel(e.target.value));
 $('code-flip').addEventListener('click', () => {
   const showEditor = !document.body.classList.contains('show-editor');
   document.body.classList.toggle('show-editor', showEditor);
-  $('code-flip').textContent = showEditor ? '💬 Chat' : '📝 Editor';
+  paintFlip(showEditor);
 });
+
+// iconos VS Code (sin emojis) en cabecera, composer y flip
+$('btn-clear').innerHTML = UI.clear;
+$('btn-settings').innerHTML = UI.gear;
+$('btn-send').innerHTML = UI.send;
+$('btn-plus').innerHTML = UI.add;
+$('btn-slash').innerHTML = UI.slash;
+$('model-label').innerHTML = UI.code;
+const paintFlip = editor => { $('code-flip').innerHTML = (editor ? UI.chat : UI.editor) + `<span>${editor ? 'Chat' : 'Editor'}</span>`; };
+paintFlip(false);
 
 // barra de actividad estilo VS Code
 $('act-files').innerHTML = ACTIVITY.files;
@@ -569,6 +630,152 @@ async function browseRepo(repo, box) {
     list.innerHTML = `<div class="sk-h">⚠️ ${e.message}</div>`;
   }
 }
+
+// ---------- command palette (Cmd/Ctrl+P) ----------
+let palItems = [], palSel = 0;
+const COMMANDS = [
+  { label: 'Nueva conversación', run: () => $('btn-clear').click() },
+  { label: 'Buscar en el código…', run: () => { closePalette(); $('prompt').value = 'busca '; $('prompt').focus(); } },
+  { label: 'Gestionar skills', run: () => { closePalette(); openSkillsPanel(); } },
+  { label: 'Ajustes y modelo', run: () => { closePalette(); renderSettings(); } },
+  { label: 'Alternar explorador', run: () => $('act-files').click() },
+  { label: 'Guardar (Ctrl+S)', run: () => triggerEditor('') || (hasEditor() && triggerEditor('workbench.action.files.save')) },
+];
+
+function openPalette(prefix = '') {
+  $('palette').hidden = false;
+  const inp = $('pal-input');
+  inp.value = prefix;
+  inp.focus();
+  renderPalette();
+}
+function closePalette() { $('palette').hidden = true; }
+
+function fuzzy(q, s) {
+  q = q.toLowerCase(); s = s.toLowerCase();
+  let i = 0, score = 0, streak = 0;
+  for (const ch of s) {
+    if (i < q.length && ch === q[i]) { i++; streak++; score += streak; }
+    else streak = 0;
+  }
+  return i === q.length ? score + (s.endsWith(q) ? 20 : 0) : -1;
+}
+
+async function renderPalette() {
+  const raw = $('pal-input').value;
+  const list = $('pal-list');
+  list.replaceChildren();
+  palItems = [];
+
+  if (raw.startsWith('>')) {                       // comandos
+    const q = raw.slice(1).trim().toLowerCase();
+    palItems = COMMANDS.filter(c => c.label.toLowerCase().includes(q)).map(c => ({ label: c.label, hint: 'comando', run: c.run }));
+  } else if (raw.startsWith('@')) {                // símbolos del archivo abierto (Monaco)
+    palItems = [{ label: 'Ir a símbolo en el editor…', hint: '@', run: () => { closePalette(); triggerEditor('editor.action.quickOutline'); } }];
+  } else {                                          // archivos (con :línea opcional)
+    const [pathQ, lineQ] = raw.split(':');
+    const files = await codeTools.fileList().catch(() => []);
+    const scored = pathQ.trim()
+      ? files.map(f => ({ f, s: fuzzy(pathQ.trim(), f.split('/').pop()) * 2 + fuzzy(pathQ.trim(), f) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s)
+      : files.slice(0, 40).map(f => ({ f, s: 0 }));
+    palItems = scored.slice(0, 40).map(({ f }) => ({
+      label: f.split('/').pop(), hint: f, icon: true,
+      run: () => { closePalette(); openFile(f); if (lineQ && +lineQ) setTimeout(() => gotoLine(+lineQ), 300); },
+    }));
+  }
+  palSel = 0;
+  palItems.forEach((it, i) => {
+    const row = el('button', 'pal-item' + (i === 0 ? ' sel' : ''));
+    row.innerHTML = `<span class="pi-name">${it.label}</span><span class="pi-hint">${it.hint || ''}</span>`;
+    row.onmouseenter = () => { palSel = i; paintPalSel(); };
+    row.onclick = () => it.run();
+    list.appendChild(row);
+  });
+  if (!palItems.length) list.appendChild(el('div', 'pal-empty', 'Sin resultados'));
+}
+function paintPalSel() {
+  [...$('pal-list').children].forEach((c, i) => c.classList.toggle('sel', i === palSel));
+  $('pal-list').children[palSel]?.scrollIntoView({ block: 'nearest' });
+}
+$('pal-input').addEventListener('input', renderPalette);
+$('pal-input').addEventListener('keydown', e => {
+  if (e.key === 'Escape') return closePalette();
+  if (e.key === 'ArrowDown') { e.preventDefault(); palSel = Math.min(palSel + 1, palItems.length - 1); paintPalSel(); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); palSel = Math.max(palSel - 1, 0); paintPalSel(); }
+  if (e.key === 'Enter') { e.preventDefault(); palItems[palSel]?.run(); }
+});
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') { e.preventDefault(); openPalette(e.shiftKey ? '>' : ''); }
+  if (e.key === 'Escape' && !$('palette').hidden) closePalette();
+});
+document.addEventListener('click', e => { if (!e.target.closest('#palette')) closePalette(); });
+
+// ---------- barra de menú File/Edit/View/Git ----------
+async function menuFor(which) {
+  if (which === 'file') return [
+    { label: 'Nuevo archivo…', run: () => { const p = prompt('Ruta del nuevo archivo:'); if (p) codeTools.write({ path: p, content: '' }).then(() => { openFile(p); refreshTree(); }); } },
+    { label: 'Guardar', hint: 'Ctrl+S', run: () => triggerEditor('workbench.action.files.save') },
+    { label: 'Abrir carpeta…', run: async () => { try { await enterIDE(await window.showDirectoryPicker({ mode: 'readwrite' })); } catch {} } },
+  ];
+  if (which === 'edit') return [
+    { label: 'Buscar en el código', run: () => { $('prompt').value = 'busca '; $('prompt').focus(); } },
+    { label: 'Ir a archivo…', hint: 'Cmd+P', run: () => openPalette('') },
+    { label: 'Ir a símbolo…', run: () => triggerEditor('editor.action.quickOutline') },
+  ];
+  if (which === 'view') return [
+    { label: 'Explorador', run: () => $('act-files').click() },
+    { label: 'Command Palette', hint: 'Cmd+Shift+P', run: () => openPalette('>') },
+    { label: 'Skills', run: () => openSkillsPanel() },
+  ];
+  if (which === 'git') {
+    const g = await codeTools.gitInfo();
+    if (!g.isRepo) return [{ label: 'No es un repositorio git', hint: '', run: () => {} }];
+    const items = [{ label: 'Rama: ' + g.branch, hint: 'git', run: () => {} }];
+    if (g.lastCommit) items.push({ label: 'Último: ' + g.lastCommit.msg.slice(0, 40), hint: g.lastCommit.author, run: () => {} });
+    items.push({ label: 'Pídele a Elffuss que commitee', run: () => { $('prompt').value = 'resume los cambios y prepárame el mensaje de commit'; $('prompt').focus(); } });
+    return items;
+  }
+  return [];
+}
+document.querySelectorAll('#menubar button').forEach(b => {
+  b.addEventListener('click', async () => {
+    document.querySelectorAll('#menubar button').forEach(x => x.classList.toggle('open', x === b));
+    openMenuAt(await menuFor(b.dataset.menu), b);
+  });
+});
+function openMenuAt(items, anchor) {
+  const menu = $('topmenu');
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = r.left + 'px';
+  menu.style.top = (r.bottom + 3) + 'px';
+  menu.replaceChildren();
+  for (const it of items) {
+    const row = el('button', 'menu-item');
+    row.innerHTML = `<b>${it.label}</b>${it.hint ? `<span>${it.hint}</span>` : ''}`;
+    row.onclick = () => { menu.hidden = true; it.run(); };
+    menu.appendChild(row);
+  }
+  menu.hidden = false;
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#menubar, #topmenu')) {
+    document.querySelectorAll('#menubar button').forEach(x => x.classList.remove('open'));
+    $('topmenu').hidden = true;
+  }
+});
+
+// ---------- git en el header ----------
+async function refreshGit() {
+  const g = await codeTools.gitInfo().catch(() => ({ isRepo: false }));
+  const chip = $('git-branch');
+  if (g.isRepo) { chip.hidden = false; chip.innerHTML = UI.code + ' ' + g.branch; }
+  else chip.hidden = true;
+}
+$('git-branch').addEventListener('click', () => document.querySelector('#menubar button[data-menu="git"]').click());
+
+// icono de skills en la barra de actividad
+$('act-skills').innerHTML = UI.puzzle;
+$('act-skills').addEventListener('click', () => openSkillsPanel());
 
 rebuildSelect();
 skills.initSkills();
