@@ -35,14 +35,14 @@ export async function chat(history, system, onToken = () => {}) {
   // ACE-lite: eviction por relevancia. Presupuesto amplio (LFM2.5 aguanta
   // contexto largo); el tope POR MENSAJE (context.js) evita que un README
   // gigante dispare «Too many tokens requested».
-  const messages = [{ role: 'system', content: system }, ...packHistory(history, 28000)];
+  const messages = [{ role: 'system', content: system }, ...packHistory(history, 5000)];
   const streamer = new TextStreamer(generator.tokenizer, {
     skip_prompt: true,
     skip_special_tokens: true,
     callback_function: onToken,
   });
   const out = await generator(messages, {
-    max_new_tokens: 2048,
+    max_new_tokens: 1024,
     do_sample: false,          // determinista: los tool calls JSON lo agradecen
     repetition_penalty: 1.1,
     return_full_text: false,

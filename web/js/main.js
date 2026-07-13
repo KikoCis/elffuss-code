@@ -161,6 +161,11 @@ const localProviders = { litert: () => import('./providers/litert.js'), onnx: ()
 
 async function resolveProvider(id) {
   if (localProviders[id]) return localProviders[id]();
+  if (id.startsWith('litert:')) {            // Gemma vía LiteRT-LM (build elegido)
+    const mod = await import('./providers/litert.js');
+    mod.configure(id.slice(7));
+    return mod;
+  }
   if (id.startsWith('ext:')) {
     const cfg = settings.get(id.slice(4));
     const mod = await import('./providers/api.js');
@@ -175,10 +180,14 @@ async function resolveProvider(id) {
 // pestaña. Se oculta hasta el reexport artisan. Poner true para reactivarlo.
 const LITERT_READY = false;
 
+const isMobile = () => matchMedia('(max-width: 820px)').matches || matchMedia('(pointer: coarse)').matches;
+const defaultBrain = () => !navigator.gpu ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
+
 function modelOptions() {
   const opts = [];
-  if (navigator.gpu && LITERT_READY) opts.push({ id: 'litert', label: 'Local · Elffuss Gemma-4 E4B ★' });
-  if (navigator.gpu) opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) ★' });
+  if (navigator.gpu) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
+  if (navigator.gpu) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
+  opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) — ligero' });
   opts.push({ id: 'rules', label: 'Básico (sin modelo)' });
   return [...opts, ...settings.enabledExternals()];
 }
@@ -243,6 +252,17 @@ async function changeModel(id) {
     rebuildSelect();
     return true;
   } catch (e) {
+    console.error('[elffuss-code] fallo cargando', e);
+    // Un Gemma (LiteRT) que no cabe → cae al Elffuss LM healed (onnx, ligero).
+    if (id.startsWith('litert') && !_fellBack) {
+      _fellBack = true;
+      sessionStorage.setItem('elffusscode.skipGemma', '1');
+      showModelProgress('Ese Gemma no cargó (memoria/GPU) — uso Elffuss LM (ligero)…');
+      loadingId = null;
+      const okc = await changeModel('onnx');
+      _fellBack = false;
+      if (okc) return true;
+    }
     agent.setProvider(rules);
     activeModel = 'rules';
     $('model-dot').className = 'dot off';
@@ -254,6 +274,7 @@ async function changeModel(id) {
     loadingId = null;
   }
 }
+let _fellBack = false;
 
 // El cerebro empieza a descargarse desde el PRIMER segundo, en segundo plano,
 // mientras el usuario elige la carpeta. Solo el modelo local — los externos
@@ -264,8 +285,10 @@ async function changeModel(id) {
 async function preloadModel() {
   const saved = localStorage.getItem('elffusscode.model');
   if (saved === 'rules') return;
-  const avail = new Set(modelOptions().map(o => o.id)); // filtra el E4B roto
-  const chain = [...new Set([saved, navigator.gpu ? 'onnx' : null]
+  const avail = new Set(modelOptions().map(o => o.id));
+  const skipGemma = sessionStorage.getItem('elffusscode.skipGemma') === '1';
+  const def = skipGemma ? 'onnx' : defaultBrain();
+  const chain = [...new Set([saved, def, 'onnx']
     .filter(id => id && id !== 'rules' && avail.has(id)))];
   for (const id of chain) if (await changeModel(id)) return;
 }
@@ -289,9 +312,9 @@ function renderSettings() {
   // --- Cerebro (modelo) ---
   box.append(el('div', 'sk-h', 'Cerebro (modelo)'));
   const LOCAL = [
-    ...(LITERT_READY ? [{ id: 'litert', name: 'Elffuss Gemma-4 E4B ★', sub: 'Modelo propio · WebGPU local · el mejor', need: 'gpu' }]
-      : [{ id: 'soon', name: 'Elffuss Gemma-4 E4B ★', sub: 'Modelo propio · reexport en curso (aún no carga en navegador)', disabled: true }]),
-    { id: 'onnx', name: 'Elffuss LM (healed) ★', sub: 'Modelo propio · 850 MB · tool-calls + apps', need: 'gpu' },
+    { id: 'litert:gemma-e4b', name: 'Gemma-4 E4B ★', sub: 'El mejor · WebGPU local · ~4 GB', need: 'gpu' },
+    { id: 'litert:gemma-e2b', name: 'Gemma-4 E2B', sub: 'Ligero · WebGPU local · ~2 GB', need: 'gpu' },
+    { id: 'onnx', name: 'Elffuss LM (healed)', sub: 'Modelo propio · 850 MB · tool-calls + apps' },
     { id: 'rules', name: 'Básico (sin modelo)', sub: 'Órdenes directas, cero descarga' },
   ];
   const grid = el('div', 'model-grid');
@@ -648,8 +671,12 @@ async function browseRepo(repo, box) {
       btn.textContent = on ? 'Instalada ✓' : 'Instalar';
       btn.onclick = async () => {
         btn.textContent = '…';
-        try { await skills.installFromRepo(sk); btn.textContent = 'Instalada ✓'; btn.className = 'ghost'; }
-        catch (e) { btn.textContent = 'Instalar'; alert(e.message); }
+        try {
+          const entry = await skills.installFromRepo(sk);
+          btn.textContent = 'Instalada ✓'; btn.className = 'ghost';
+          $('settings-panel').hidden = true;            // cierra el panel
+          addMsg('assistant', skills.usageMessage(entry)); // «cómo usarla» en el chat
+        } catch (e) { btn.textContent = 'Instalar'; alert(e.message); }
       };
       row.appendChild(btn);
       list.appendChild(row);
