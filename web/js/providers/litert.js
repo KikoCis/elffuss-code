@@ -11,20 +11,38 @@ const MODEL_URL =
 
 let engine = null, conversation = null, sentCount = 0, sys = '';
 
+// Contexto: probamos de mayor a menor hasta el máximo que acepten el bundle y
+// la memoria GPU — así el contexto queda al tope permitido de serie.
+const CTX_LADDER = [32768, 16384, 8192, 4096];
+export let ctxTokens = 4096; // efectivo tras load() (la UI puede leerlo)
+
 export async function load(onProgress = () => {}) {
   if (!navigator.gpu) throw new Error('LiteRT-LM necesita WebGPU (Chrome/Edge modernos)');
   const litertlm = await import('https://cdn.jsdelivr.net/npm/@litert-lm/core/+esm');
-  // LiteRT-LM descarga los GB internamente sin reportar loaded/total → barra
-  // indeterminada con segundos transcurridos para que se VEA que avanza.
+  // LiteRT-LM descarga los GB sin reportar loaded/total → segundos + barra indeterminada.
   const t0 = performance.now();
   const beat = () => onProgress(`Descargando Gemma-4 E4B… ${Math.round((performance.now() - t0) / 1000)}s · varios GB la 1ª vez, luego queda cacheado`);
   beat();
   const hb = setInterval(beat, 1000);
   try {
-    engine = await litertlm.Engine.create({
-      model: MODEL_URL,
-      mainExecutorSettings: { maxNumTokens: 4096 },
-    });
+    let lastErr = null;
+    for (const n of CTX_LADDER) {
+      try {
+        engine = await litertlm.Engine.create({
+          model: MODEL_URL,
+          mainExecutorSettings: { maxNumTokens: n },
+        });
+        ctxTokens = n;
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        // Errores de formato/carga no dependen del contexto: no insistir con la escalera.
+        if (/not supported|tokenizer|format/i.test(String(e?.message))) throw e;
+        onProgress(`Contexto ${n} no cabe, probando ${n / 2}…`);
+      }
+    }
+    if (lastErr) throw lastErr;
   } finally { clearInterval(hb); }
 }
 

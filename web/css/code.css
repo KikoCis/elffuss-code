@@ -313,3 +313,6 @@ header { position: relative; }
 .field { display: flex; flex-direction: column; gap: 3px; }
 .field .muted { font-size: .7rem; }
 button.wide { width: 100%; padding: 9px; border-radius: 8px; }
+
+.model-card.disabled { opacity: .5; cursor: not-allowed; }
+.model-card.disabled:hover { border-color: var(--line); }
