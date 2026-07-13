@@ -2,7 +2,7 @@
 // LOCAL por defecto; esto solo se usa si el usuario lo activa a mano.
 // Las claves viven en localStorage de SU navegador y nunca salen de aquí
 // (las llamadas van directas del navegador al proveedor).
-const KEY = 'elffussclaw.providers';
+const KEY = 'elffusscode.providers';
 
 // Plantillas de proveedores externos. `kind` decide el dialecto de API.
 const DEFAULTS = {
@@ -23,7 +23,7 @@ const DEFAULTS = {
   },
   server: {
     kind: 'openai', label: 'Servidor Elffuss (Ornith 9B)', enabled: false,
-    baseURL: 'https://elffuss.utopiaia.com/v1', model: 'ornith-9b', apiKey: '',
+    baseURL: 'https://elffuss-claw.utopiaia.com/v1', model: 'ornith-9b', apiKey: '',
     temperature: 1.0, top_p: 0.95, thinking: false,
     help: 'El modelo grande en el servidor de UtopiaIA. No es local: los mensajes salen de tu máquina.',
   },

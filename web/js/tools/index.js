@@ -1,4 +1,4 @@
-// Registro de herramientas de Elffuss Claw: solo toca el proyecto abierto.
+// Registro de herramientas de Elffuss Code: solo toca el proyecto abierto.
 import * as code from './code.js';
 
 export { code };
