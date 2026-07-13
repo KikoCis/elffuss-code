@@ -1,4 +1,4 @@
-// Elffuss Claw: landing («abre tu carpeta») → IDE con la elfa integrada.
+// Elffuss Code: landing («abre tu carpeta») → IDE con la elfa integrada.
 import { Agent, parseToolCall } from './agent.js';
 import * as rules from './providers/rules.js';
 import * as codeTools from './tools/code.js';
@@ -211,7 +211,7 @@ async function changeModel(id) {
   if (id === 'rules') {
     agent.setProvider(rules);
     activeModel = 'rules';
-    localStorage.setItem('elffussclaw.model', 'rules');
+    localStorage.setItem('elffusscode.model', 'rules');
     $('model-dot').className = 'dot off';
     return true;
   }
@@ -230,7 +230,7 @@ async function changeModel(id) {
     });
     agent.setProvider(mod);
     activeModel = id;
-    localStorage.setItem('elffussclaw.model', id);
+    localStorage.setItem('elffusscode.model', id);
     $('model-dot').className = 'dot on';
     showModelProgress(mod.name + ' listo · готово ✳', 100);
     setTimeout(() => showModelProgress(null), 2500);
@@ -257,7 +257,7 @@ async function changeModel(id) {
 // healed falla (p. ej. «HF_Tokenizer_Zlib not supported» del runtime LiteRT),
 // cae solo a LFM2.5 en vez de dejar al usuario sin cerebro.
 async function preloadModel() {
-  const saved = localStorage.getItem('elffussclaw.model');
+  const saved = localStorage.getItem('elffusscode.model');
   if (saved === 'rules') return;
   const chain = [...new Set([saved, navigator.gpu ? 'litert' : null, navigator.gpu ? 'onnx' : null]
     .filter(id => id && id !== 'rules'))];
@@ -502,7 +502,7 @@ function attach(path) {
 }
 
 // </> Auto (Edit automatically): si off, pide confirmación antes de escribir
-let autoEdit = localStorage.getItem('elffussclaw.autoedit') !== '0';
+let autoEdit = localStorage.getItem('elffusscode.autoedit') !== '0';
 function paintAuto() {
   const b = $('btn-autoedit');
   b.classList.toggle('on', autoEdit);
@@ -511,7 +511,7 @@ function paintAuto() {
 }
 $('btn-autoedit').addEventListener('click', () => {
   autoEdit = !autoEdit;
-  localStorage.setItem('elffussclaw.autoedit', autoEdit ? '1' : '0');
+  localStorage.setItem('elffusscode.autoedit', autoEdit ? '1' : '0');
   paintAuto();
 });
 paintAuto();

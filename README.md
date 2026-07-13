@@ -1,4 +1,4 @@
-# 🧝‍💻 Elffuss Claw — tu IDE con alma, en el navegador
+# 🧝‍💻 Elffuss Code — tu IDE con alma, en el navegador
 
 Spin-off de [Elffuss](https://elffuss.utopiaia.com): **abres una carpeta de código
 y se despliega un IDE web tipo VS Code** — Monaco (el editor real de VS Code),
@@ -25,7 +25,7 @@ proyecto (los pickers nativos exigen gesto humano).
 
 ## Deploy
 
-`./deploy.sh` → https://elffuss-claw.utopiaia.com (rsync + nginx + certbot,
+`./deploy.sh` → https://elffuss-code.utopiaia.com (rsync + nginx + certbot,
 mismo esquema que Elffuss).
 
 ## Comparte núcleo con Elffuss

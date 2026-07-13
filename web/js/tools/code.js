@@ -1,4 +1,4 @@
-// Herramientas de proyecto: el único mundo que toca Elffuss Claw es la
+// Herramientas de proyecto: el único mundo que toca Elffuss Code es la
 // carpeta de código que el usuario abre con el picker nativo.
 import * as db from '../db.js';
 

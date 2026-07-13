@@ -1,4 +1,4 @@
-// Skills de Elffuss Claw: instrucciones en markdown (formato SKILL.md de
+// Skills de Elffuss Code: instrucciones en markdown (formato SKILL.md de
 // Claude Code) que el modelo sigue cuando aplican. Se instalan desde el
 // catálogo grande OFICIAL (github.com/anthropics/skills), desde los plugins
 // oficiales, o desde CUALQUIER repo público (marketplaces de la comunidad

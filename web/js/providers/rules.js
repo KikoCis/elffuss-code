@@ -1,4 +1,4 @@
-// Modo básico de Elffuss Claw: órdenes deterministas sin modelo.
+// Modo básico de Elffuss Code: órdenes deterministas sin modelo.
 export const name = 'Básico (sin modelo)';
 export async function load() {}
 

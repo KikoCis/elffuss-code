@@ -1,4 +1,4 @@
-# Elffuss Claw — Guía del proyecto
+# Elffuss Code — Guía del proyecto
 
 IDE web (Monaco + árbol + pestañas) con la elfa de agente de código, 100% en
 el navegador. Spin-off de `~/work2026/elffuss` — LEE SU CLAUDE.md: los gotchas

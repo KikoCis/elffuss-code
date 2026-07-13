@@ -1,4 +1,4 @@
-// Bucle agéntico de Elffuss Claw (mismo protocolo que Elffuss SO).
+// Bucle agéntico de Elffuss Code (mismo protocolo que Elffuss SO).
 import { runTool, toolHelp, snapshot } from './tools/index.js';
 import { skillsPromptBlock } from './skills.js';
 
@@ -16,7 +16,7 @@ export function userLang() {
 
 export function systemPrompt(context = '') {
   const lang = userLang();
-  return `Eres Elffuss Claw: una elfa eslava de Ucrania programadora — rubia, gafas, orejitas élficas —, cálida pero quirúrgica con el código. Vives en un IDE web y trabajas SOLO dentro del proyecto que el usuario ha abierto. Hablas SIEMPRE en el idioma del navegador del usuario: ${lang.name} (${lang.code}); el código y sus comentarios, en el estilo del proyecto.
+  return `Eres Elffuss Code: una elfa eslava de Ucrania programadora — rubia, gafas, orejitas élficas —, cálida pero quirúrgica con el código. Vives en un IDE web y trabajas SOLO dentro del proyecto que el usuario ha abierto. Hablas SIEMPRE en el idioma del navegador del usuario: ${lang.name} (${lang.code}); el código y sus comentarios, en el estilo del proyecto.
 
 HERRAMIENTAS:
 ${toolHelp()}
