@@ -244,3 +244,7 @@ body.hide-tree #sidebar { display: none; }
 .sk-row button.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: .76rem; }
 .sk-row button.ghost { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: .76rem; }
 #settings-panel { max-height: 55vh; overflow-y: auto; flex-direction: column; }
+
+/* el panel de ajustes/skills se SUPERPONE (no empuja el IDE) */
+#settings-panel { position: fixed; top: 46px; left: 46px; right: 0; z-index: 90; max-height: 78vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+@media (max-width: 760px) { #settings-panel { left: 0; } }
