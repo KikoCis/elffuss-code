@@ -502,6 +502,7 @@ async function openView(kind) {
 function closeView() {
   $('view-overlay').hidden = true;
   import('./city.js').then(m => m.disposeCity()).catch(() => {});
+  import('./arch.js').then(m => m.disposeArch()).catch(() => {});
   document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-files'));
 }
 $('act-arch').addEventListener('click', () => openView('arch'));
