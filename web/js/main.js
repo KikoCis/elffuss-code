@@ -12,6 +12,8 @@ import * as terminal from './terminal.js';
 import * as shell from './shell.js';
 import { setTerminalEcho } from './tools/index.js';
 import { ensureModelCache, cacheEstimate, clearModelCache } from './model-cache.js';
+import * as ceo from './ceo.js';
+import * as mind from './mind.js';
 
 const $ = id => document.getElementById(id);
 const agent = new Agent(rules);
@@ -508,6 +510,27 @@ function closeView() {
 $('act-arch').addEventListener('click', () => openView('arch'));
 $('act-city').addEventListener('click', () => openView('city'));
 $('view-close').addEventListener('click', closeView);
+
+// ── Cerebro CEO autónomo + Mente de Elffuss ───────────────────────────────
+// Cuando NO estás pidiendo nada, la elfa trabaja: revisa el proyecto y propone
+// mejoras (en elffuss-mind/, sin tocar tu código). Clic en la elfa → abre la
+// «Mente» (mundo trance + pensamientos paralelos + música) y activa el cerebro.
+ceo.init({ provider: () => agent.provider, onEvent: (ch, ev) => mind.pushThought(ch, ev) });
+// cualquier interacción FUERA de la Mente cuenta como actividad → pausa el CEO
+const noteAct = e => { if (!e.target.closest?.('#mind-overlay')) ceo.noteActivity(); };
+document.addEventListener('pointerdown', noteAct, true);
+document.addEventListener('keydown', noteAct, true);
+const elfAvatar = document.querySelector('#activity img');
+if (elfAvatar) {
+  elfAvatar.style.cursor = 'pointer';
+  elfAvatar.title = 'Mente de Elffuss — cerebro autónomo (modo trance)';
+  elfAvatar.addEventListener('click', () => {
+    if (!ceo.isEnabled()) { ceo.enable(); localStorage.setItem('elffusscode.ceo', '1'); }
+    mind.openMind();
+  });
+}
+// si lo dejaste activado, el cerebro sigue de guardia al volver
+if (localStorage.getItem('elffusscode.ceo') === '1') ceo.enable();
 
 // terminal integrado: xterm.js + shell sobre los ficheros REALES del proyecto.
 // La elfa comparte este shell (tool terminal.run) y su salida se refleja aquí.
