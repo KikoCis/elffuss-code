@@ -32,6 +32,18 @@ body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--f
   border-radius: 8px; padding: 8px 14px; cursor: pointer;
 }
 #landing .mini { font-size: .75rem; color: #5a6480; }
+.resume-clone { display: flex; align-items: center; gap: 8px; margin-top: 8px; background: rgba(124,92,255,.12); border: 1px solid var(--accent2); border-radius: 999px; padding: 7px 8px 7px 16px; font-size: .78rem; color: var(--fg); }
+#resume-clone-btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: .76rem; cursor: pointer; }
+.clone-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.clone-or { font-size: .72rem; color: #5a6480; }
+#clone-url { width: 300px; max-width: 60vw; background: var(--bg3); border: 1px solid var(--line); color: var(--fg); border-radius: 999px; padding: 9px 16px; font-size: .82rem; }
+#clone-url:focus { outline: none; border-color: var(--accent2); }
+#clone-btn { background: none; color: var(--fg); border: 1px solid var(--accent2); border-radius: 999px; padding: 9px 16px; font-size: .82rem; cursor: pointer; white-space: nowrap; }
+#clone-btn:hover { background: rgba(124,92,255,.15); }
+#clone-btn:disabled { opacity: .5; cursor: default; }
+.clone-status { min-height: 1.1em; }
+.clone-status.err { color: #ff6b8b; }
+@media (max-width: 560px) { .clone-row { flex-direction: column; } #clone-url { width: 78vw; } }
 
 /* ---------- IDE ---------- */
 #ide { display: flex; flex-direction: column; height: 100vh; }

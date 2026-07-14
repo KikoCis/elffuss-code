@@ -423,6 +423,81 @@ async function boot() {
     catch { /* cancelado */ }
   };
 
+  // clonar un repo público (GitHub/Bitbucket): elige carpeta destino, se
+  // descarga ahí (fichero a fichero, sin git) y se abre como proyecto.
+  // RESUMIBLE: el trabajo (lista de ficheros + cuáles ya se bajaron + el
+  // handle de la carpeta) se persiste en IndexedDB — si el usuario navega
+  // atrás, cierra la pestaña o recarga a medias, al volver se ofrece
+  // «Reanudar» en vez de forzar a empezar de cero.
+  const cloneUrl = $('clone-url'), cloneBtn = $('clone-btn'), cloneStatus = $('clone-status');
+  const showCloneStatus = (text, isErr) => { cloneStatus.textContent = text; cloneStatus.hidden = !text; cloneStatus.classList.toggle('err', !!isErr); };
+  const saveCloneJob = job => db.set('kv', 'cloneJob', job).catch(() => {});
+  const loadCloneJob = () => db.get('kv', 'cloneJob').catch(() => null);
+  const clearCloneJob = () => db.del('kv', 'cloneJob').catch(() => {});
+
+  async function runDownload(job) {
+    cloneBtn.disabled = true;
+    const doneSet = new Set(job.done);
+    const clone = await import('./tools/clone.js');
+    try {
+      await clone.downloadFiles(job, job.handle, doneSet,
+        p => showCloneStatus(p.text || ''),
+        async path => {
+          job.done.push(path);
+          // persistir el progreso poco a poco (no en cada fichero: de sobra
+          // para no perder más de un puñado si se interrumpe a media descarga)
+          if (job.done.length % 5 === 0) await saveCloneJob(job);
+        });
+      await saveCloneJob(job);
+      showCloneStatus(`✔ ${job.files.length} ficheros descargados` + (job.skipped ? ` (${job.skipped} omitidos por tamaño)` : ''));
+      await clearCloneJob();
+      await enterIDE(job.handle);
+    } catch (e) {
+      await saveCloneJob(job); // que lo ya bajado no se pierda aunque falle a mitad
+      showCloneStatus('⚠️ ' + (e?.message || e) + ' — puedes reintentar, retoma donde se quedó', true);
+    } finally { cloneBtn.disabled = false; }
+  }
+
+  const runClone = async () => {
+    const url = cloneUrl.value.trim();
+    if (!url) return;
+    let handle;
+    try { handle = await window.showDirectoryPicker({ mode: 'readwrite' }); }
+    catch { return; } // cancelado, sin error
+    showCloneStatus('Listando el repo…');
+    try {
+      const clone = await import('./tools/clone.js');
+      const info = await clone.listRepo(url);
+      const job = { url, handle, done: [], ...info };
+      await saveCloneJob(job);
+      await runDownload(job);
+    } catch (e) {
+      showCloneStatus('⚠️ ' + (e?.message || e), true);
+    }
+  };
+  cloneBtn.addEventListener('click', runClone);
+  cloneUrl.addEventListener('keydown', e => { if (e.key === 'Enter') runClone(); });
+
+  // ¿había una descarga a medias de una sesión anterior? ofrece reanudarla
+  const job = await loadCloneJob();
+  if (job && job.handle && job.files && job.done.length < job.files.length) {
+    const banner = $('resume-clone');
+    banner.hidden = false;
+    banner.querySelector('.rc-text').textContent = `Descarga a medias de ${job.owner}/${job.repo} (${job.done.length}/${job.files.length} ficheros)`;
+    $('resume-clone-btn').onclick = async () => {
+      banner.hidden = true;
+      try {
+        const q = job.handle.queryPermission ? await job.handle.queryPermission({ mode: 'readwrite' }) : 'granted';
+        if (q !== 'granted' && await job.handle.requestPermission({ mode: 'readwrite' }) !== 'granted') throw new Error('permiso denegado para la carpeta');
+        showCloneStatus(`Reanudando ${job.owner}/${job.repo}…`);
+        await runDownload(job);
+      } catch (e) { showCloneStatus('⚠️ ' + (e?.message || e), true); }
+    };
+    $('discard-clone-btn').onclick = async () => { await clearCloneJob(); banner.hidden = true; };
+  } else if (job) {
+    await clearCloneJob(); // job corrupto o ya completo: limpiar
+  }
+
   // gancho de test: ?test-opfs usa el almacenamiento del navegador como proyecto
   if (location.search.includes('test-opfs')) {
     const opfs = await navigator.storage.getDirectory();
