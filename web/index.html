@@ -38,6 +38,17 @@
       Editor tipo VS Code + agente <b>en tu navegador</b>. Nada sale de tu máquina. 😉</p>
     <button id="open-project">📁 Abrir carpeta de código</button>
     <button id="reopen-project" class="ghost" hidden></button>
+    <div id="resume-clone" class="resume-clone" hidden>
+      <span class="rc-text"></span>
+      <button id="resume-clone-btn">Reanudar</button>
+      <button id="discard-clone-btn" class="ghost">Descartar</button>
+    </div>
+    <div class="clone-row">
+      <span class="clone-or">o</span>
+      <input id="clone-url" type="text" placeholder="pega la URL de un repo público (GitHub/Bitbucket)…" autocomplete="off" spellcheck="false">
+      <button id="clone-btn">Descargar y abrir</button>
+    </div>
+    <p id="clone-status" class="mini clone-status" hidden></p>
     <p class="mini">Chrome/Edge · File System Access · modelo local WebGPU</p>
   </div>
 </div>
