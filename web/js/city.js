@@ -1,114 +1,155 @@
-// Vista «Ciudad 3D» — el proyecto abierto como metrópolis, inspirado en
-// VibeCodeViewer (Sendery/VibeCodeViewer, Apache-2.0). Nativo con Three.js:
-// carpetas = distritos, ficheros = edificios (altura ~ tamaño, color por tipo).
-// Órbita con el ratón; clic en un edificio → abre el fichero en Monaco.
+// Vista «Ciudad 3D» — el proyecto abierto renderizado con el MOTOR REAL de
+// VibeCodeViewer (Sendery/VibeCodeViewer, Apache-2.0), vendorizado en js/vcc.
+// Aquí solo hacemos de glue: escaneamos la carpeta abierta al árbol empaquetado
+// que espera buildModel, montamos el render (cámara + OrbitControls + bloom) y
+// conectamos el raycast → abrir fichero en Monaco. La geometría (ciudad anidada
+// distrito→edificio→planta→…, cristal fresnel, fachadas con el árbol impreso,
+// suelo de circuito, leyenda) es la del builder original, sin tocar.
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as code from './tools/code.js';
+import { buildModel } from './vcc/model.js';
+import { buildCity } from './vcc/builder.js';
+import { THEME } from './vcc/theme.js';
 
-const COLORS = { js: 0xf1dd3f, ts: 0x3178c6, tsx: 0x3178c6, jsx: 0x61dafb, py: 0x4b8bbe, go: 0x00add8, rs: 0xdea584, json: 0xcbcb41, md: 0x519aba, css: 0x9b7cf6, html: 0xe34c26, default: 0x7c5cff };
-const extOf = p => (p.split('.').pop() || '').toLowerCase();
-const IGNORE = new Set(['node_modules', '.git', 'dist', 'build', 'target', '__pycache__', '.next', 'venv', '.venv']);
+const IGNORE = new Set(['node_modules', '.git', 'dist', 'build', 'target', '__pycache__', '.next', 'venv', '.venv', '.DS_Store']);
+const MAX_FILES = 8000; // tope de seguridad para no colgar el navegador en monorepos
 
-let raf = null, disposer = null;
+let disposer = null;
+
+// Escanea el handle del proyecto al formato empaquetado de VibeCodeViewer:
+//   dir = [nombre, [subdirs], [ficheros]] · fichero = [nombre, bytes]
+async function scanTree(dir, budget) {
+  const dirs = [], files = [];
+  for await (const e of dir.values()) {
+    if (IGNORE.has(e.name)) continue;
+    (e.kind === 'directory' ? dirs : files).push(e);
+  }
+  dirs.sort((a, b) => a.name.localeCompare(b.name));
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  const outFiles = [];
+  for (const f of files) {
+    if (budget.n >= MAX_FILES) break;
+    let size = 0; try { size = (await f.getFile()).size; } catch { /* ilegible */ }
+    outFiles.push([f.name, size]); budget.n++;
+  }
+  const outDirs = [];
+  for (const d of dirs) { if (budget.n >= MAX_FILES) break; outDirs.push(await scanTree(d, budget)); }
+  return [dir.name, outDirs, outFiles];
+}
 
 export async function renderCity(container, onOpenFile) {
   disposeCity();
-  container.innerHTML = '<div class="view-loading">Construyendo la ciudad del proyecto…</div>';
-  const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js');
-
-  // archivos → agrupados por carpeta de primer nivel (distritos)
-  const files = [];
   const root = code.handle();
   if (!root) { container.innerHTML = '<div class="view-loading">Abre un proyecto primero.</div>'; return; }
-  async function walk(dir, prefix, depth) {
-    if (depth > 7 || files.length > 1200) return;
-    for await (const e of dir.values()) {
-      if (IGNORE.has(e.name)) continue;
-      const p = prefix ? prefix + '/' + e.name : e.name;
-      if (e.kind === 'directory') await walk(e, p, depth + 1);
-      else { const f = await e.getFile(); files.push({ path: p, size: f.size, district: p.split('/')[0] }); }
-    }
-  }
-  await walk(root, '', 0);
-  if (!files.length) { container.innerHTML = '<div class="view-loading">Proyecto vacío.</div>'; return; }
+  container.innerHTML = '<div class="view-loading">Construyendo la metrópolis del proyecto…</div>';
 
-  const districts = [...new Set(files.map(f => f.district))];
-  const perRow = Math.ceil(Math.sqrt(districts.length));
-  const dPos = new Map(districts.map((d, i) => [d, { gx: (i % perRow), gz: Math.floor(i / perRow) }]));
-  const GAP = 26;                                     // separación entre distritos
+  const budget = { n: 0 };
+  const tree = await scanTree(root, budget);
+  const model = buildModel(tree, null);
+  if (!model.files.length) { container.innerHTML = '<div class="view-loading">Proyecto vacío.</div>'; return; }
 
-  container.innerHTML = '<canvas id="city-canvas"></canvas><div class="view-head">Ciudad 3D · ' + files.length + ' ficheros en ' + districts.length + ' distritos <span class="view-hint">arrastra para orbitar · clic en un edificio → abrir</span></div><div id="city-tip"></div>';
+  container.innerHTML =
+    '<canvas id="city-canvas"></canvas>' +
+    '<div class="view-head">Ciudad 3D · ' + model.files.length + (budget.n >= MAX_FILES ? '+' : '') +
+    ' ficheros en ' + model.districts.length + ' distritos' +
+    '<span class="view-hint">arrastra para orbitar · rueda para zoom · clic en un edificio → abrir</span></div>';
   const canvas = container.querySelector('#city-canvas');
-  const W = container.clientWidth, H = container.clientHeight;
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setSize(W, H); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const W = container.clientWidth || 800, H = container.clientHeight || 600;
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(W, H, false);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.setClearColor(THEME.background, 1);
+
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b0d12);
-  scene.fog = new THREE.Fog(0x0b0d12, 120, 400);
-  const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 1000);
-  camera.position.set(90, 80, 120);
-  scene.add(new THREE.AmbientLight(0x8899ff, 0.6));
-  const key = new THREE.DirectionalLight(0xffffff, 0.9); key.position.set(60, 120, 40); scene.add(key);
-  scene.add(new THREE.HemisphereLight(0x7c5cff, 0x111122, 0.4));
+  scene.background = new THREE.Color(THEME.background);
+  const extent = Math.max(model.city.box.sx, model.city.box.sz);
+  scene.fog = new THREE.FogExp2(THEME.fog, 0.62 / extent);
 
-  // suelo por distrito
-  const meshes = [];
-  const byDistrict = {};
-  files.forEach(f => (byDistrict[f.district] ||= []).push(f));
-  for (const [d, arr] of Object.entries(byDistrict)) {
-    const { gx, gz } = dPos.get(d);
-    const cols = Math.ceil(Math.sqrt(arr.length));
-    const ox = gx * (perRow > 1 ? (cols + 4) * 2.2 + GAP : GAP), oz = gz * (perRow > 1 ? (cols + 4) * 2.2 + GAP : GAP);
-    arr.forEach((f, i) => {
-      const bx = ox + (i % cols) * 2.4, bz = oz + Math.floor(i / cols) * 2.4;
-      const h = 1.5 + Math.min(24, Math.log2((f.size || 20) + 2) * 2.2);
-      const geo = new THREE.BoxGeometry(1.7, h, 1.7);
-      const mat = new THREE.MeshLambertMaterial({ color: COLORS[extOf(f.path)] || COLORS.default });
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(bx, h / 2, bz);
-      m.userData = f;
-      scene.add(m); meshes.push(m);
-    });
-  }
-  // centra la cámara en el conjunto
-  const box = new THREE.Box3().setFromObject(scene);
-  const c = box.getCenter(new THREE.Vector3());
-  camera.lookAt(c);
-  let theta = 0.7, phi = 0.9, radius = box.getSize(new THREE.Vector3()).length() * 0.7;
+  const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, extent * 14);
+  camera.position.set(extent * 0.7, extent * 0.6, extent * 0.7);
 
-  // órbita con ratón (sin dependencias)
-  let dragging = false, px = 0, py = 0;
-  const onDown = e => { dragging = true; px = e.clientX; py = e.clientY; };
-  const onUp = () => { dragging = false; };
-  const onMove = e => { if (!dragging) return; theta -= (e.clientX - px) * 0.006; phi = Math.max(0.15, Math.min(1.4, phi - (e.clientY - py) * 0.006)); px = e.clientX; py = e.clientY; };
-  const onWheel = e => { e.preventDefault(); radius = Math.max(20, Math.min(500, radius + e.deltaY * 0.12)); };
-  canvas.addEventListener('pointerdown', onDown); addEventListener('pointerup', onUp); addEventListener('pointermove', onMove); canvas.addEventListener('wheel', onWheel, { passive: false });
+  const controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.maxPolarAngle = Math.PI * 0.495;   // no bajar del suelo
+  controls.target.set(0, extent * 0.04, 0);
+  controls.update();
 
-  // clic → raycast → abrir
-  const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
-  let downX = 0, downY = 0;
-  canvas.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY; });
-  canvas.addEventListener('click', e => {
-    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return; // era un drag
-    const r = canvas.getBoundingClientRect();
-    mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-    mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-    ray.setFromCamera(mouse, camera);
-    const hit = ray.intersectObjects(meshes)[0];
-    if (hit) onOpenFile(hit.object.userData.path);
-  });
+  // pipeline con bloom (la receta del builder: HDR + bloom solo en lo resaltado)
+  const composer = new EffectComposer(renderer);
+  composer.setSize(W, H);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), THEME.bloom.strength, 0.25, THEME.bloom.threshold);
+  composer.addPass(bloom);
+  composer.addPass(new OutputPass());
 
-  function frame() {
-    raf = requestAnimationFrame(frame);
-    camera.position.set(c.x + radius * Math.sin(phi) * Math.cos(theta), c.y + radius * Math.cos(phi), c.z + radius * Math.sin(phi) * Math.sin(theta));
-    camera.lookAt(c);
-    renderer.render(scene, camera);
-  }
-  frame();
+  const city = buildCity(scene, model, THEME);
+
+  // ── interacción: hover resalta edificios, clic abre el fichero ────────────
+  const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
+  let hovered = null, lastHover = 0, downXY = null;
+  const setPtr = e => { const r = canvas.getBoundingClientRect(); ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); };
+  const onMove = e => {
+    setPtr(e);
+    const now = performance.now(); if (now - lastHover < 50) return; lastHover = now;
+    ray.setFromCamera(ptr, camera);
+    const b = ray.intersectObjects(city.shells)[0]?.object.userData.building ?? null;
+    if (b !== hovered) {
+      if (hovered) city.paintNode(hovered, 0);
+      hovered = b;
+      if (b) city.paintNode(b, 0.16);
+      canvas.style.cursor = b ? 'pointer' : 'grab';
+    }
+  };
+  const onDown = e => { downXY = [e.clientX, e.clientY]; };
+  const onUp = e => {
+    if (!downXY) return;
+    const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]); downXY = null;
+    if (moved > 5) return; // fue un arrastre de cámara
+    setPtr(e); ray.setFromCamera(ptr, camera);
+    const fileHit = ray.intersectObject(city.filesMesh)[0];
+    const shellHit = ray.intersectObjects(city.shells)[0];
+    if (fileHit && (!shellHit || fileHit.distance < shellHit.distance + 2)) {
+      const f = model.files[fileHit.instanceId];
+      if (f) onOpenFile(f.rel);
+    } else if (shellHit) {
+      // clic en un edificio (carpeta): centra la cámara en él
+      const b = shellHit.object.userData.building;
+      controls.target.set(b.box.cx, b.box.cy, b.box.cz);
+    }
+  };
+  canvas.addEventListener('pointermove', onMove);
+  canvas.addEventListener('pointerdown', onDown);
+  canvas.addEventListener('pointerup', onUp);
+
+  const onResize = () => {
+    const w = container.clientWidth || W, h = container.clientHeight || H;
+    renderer.setSize(w, h, false); composer.setSize(w, h); bloom.resolution.set(w, h);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  };
+  window.addEventListener('resize', onResize);
+
+  let raf = null;
+  const loop = () => { raf = requestAnimationFrame(loop); controls.update(); composer.render(); };
+  loop();
 
   disposer = () => {
     if (raf) cancelAnimationFrame(raf);
-    removeEventListener('pointerup', onUp); removeEventListener('pointermove', onMove);
-    meshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); });
+    window.removeEventListener('resize', onResize);
+    canvas.removeEventListener('pointermove', onMove);
+    canvas.removeEventListener('pointerdown', onDown);
+    canvas.removeEventListener('pointerup', onUp);
+    controls.dispose();
+    city.dispose();
+    composer.dispose?.();
     renderer.dispose();
   };
 }
