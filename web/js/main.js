@@ -1049,6 +1049,7 @@ async function menuFor(which) {
     { label: 'Ciudad 3D', run: () => openView('city') },
     { label: 'Command Palette', hint: 'Cmd+Shift+P', run: () => openPalette('>') },
     { label: 'Skills', run: () => openSkillsPanel() },
+    { label: 'Acerca de Elffuss Code (GitHub)', hint: '↗', run: () => window.open('https://github.com/KikoCis/elffuss-code', '_blank', 'noopener') },
   ];
   if (which === 'git') {
     const g = await codeTools.gitInfo();
