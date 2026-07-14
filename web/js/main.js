@@ -541,8 +541,15 @@ ceo.init({
     }
   },
 });
-// Reporta las mejoras encontradas de forma VISUAL en el chat + notificación del navegador.
-function reportImprovements(ev) {
+// Reporta las mejoras SIEMPRE en el chat (visual, entendible); la notificación
+// del navegador solo salta si de verdad hay algo interesante y bien trabajado
+// — nada de avisar por un ciclo flojo con una propuesta de una línea.
+const WEAK_RE = /^(no (encontr|hay|se me ocurre)|nada que|sin cambios|todo (está|esta) bien|no aplica)/i;
+export function isNoteworthy(ev) {
+  const solid = (ev.proposals || []).filter(p => p.text && p.text.trim().length >= 60 && !WEAK_RE.test(p.text.trim()));
+  return solid.length >= 2; // al menos 2 departamentos con algo sustancioso, no una ocurrencia suelta
+}
+export function reportImprovements(ev) {
   const props = ev.proposals || [];
   if (!props.length) return;
   const firstLine = t => (t || '').split('\n').find(l => l.trim())?.trim().slice(0, 160) || '';
@@ -550,14 +557,14 @@ function reportImprovements(ev) {
     props.map(p => `**${p.dept}** — ${firstLine(p.text)}`).join('\n\n') +
     (ev.path ? `\n\n_Guardado en \`${ev.path}\`. Dale a la elfa para verlo en la Mente, o ábrelo en el editor._` : '');
   addMsg('assistant', body);
-  notify(`Elffuss encontró ${props.length} mejora${props.length === 1 ? '' : 's'}`, props.map(p => p.dept).join(' · '));
+  if (isNoteworthy(ev)) notify(`Elffuss encontró ${props.length} mejora${props.length === 1 ? '' : 's'}`, props.map(p => p.dept).join(' · '));
 }
+// SOLO muestra la notificación si el permiso YA está concedido. Nunca pide
+// permiso aquí: fuera de un gesto de usuario, Chrome/Firefox lo bloquean en
+// silencio — pedirlo vive únicamente en el clic de la elfa y en ⚙ de la Mente.
 function notify(title, body) {
-  try {
-    if (!('Notification' in window)) return;
-    if (Notification.permission === 'granted') new Notification(title, { body, icon: 'img/elffuss-code.svg' });
-    else if (Notification.permission !== 'denied') Notification.requestPermission().then(p => { if (p === 'granted') new Notification(title, { body }); });
-  } catch { /* */ }
+  try { if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body, icon: 'img/elffuss-code.svg' }); }
+  catch { /* */ }
 }
 // cualquier interacción FUERA de la Mente cuenta como actividad → pausa el CEO
 const noteAct = e => { if (!e.target.closest?.('#mind-overlay')) ceo.noteActivity(); };
