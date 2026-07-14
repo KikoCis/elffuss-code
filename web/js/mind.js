@@ -16,6 +16,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as code from './tools/code.js';
 import * as ceo from './ceo.js';
+import { renderMarkdown } from './md.js';
 import { buildModel } from './vcc/model.js';
 import { buildCity } from './vcc/builder.js';
 import { THEME as VCC_THEME } from './vcc/theme.js';
@@ -26,7 +27,7 @@ const CITY_MAX_FILES = 2600;
 const IGNORE = new Set(['node_modules', '.git', 'dist', 'build', 'target', '__pycache__', '.next', 'venv', '.venv', '.DS_Store']);
 
 let open = false, built = false, raf = null;
-let overlay, S, widget, onOpenFile = () => {};
+let overlay, S, widget, onOpenFile = () => {}, onExecute = () => {};
 let anchorMap = new Map();     // id de perfil (+ 'ceo') → Vector3 (anclas del mundo)
 const anchors = [];            // { el, pos } — solo etiquetas de propuestas forjadas
 let nodesGroup, thoughtNodes = [];
@@ -38,6 +39,7 @@ let beams = [], fileActivity = [];
 
 export function isOpen() { return open; }
 export function setOpenFile(fn) { onOpenFile = fn; }
+export function setExecuteProposal(fn) { onExecute = fn; }
 
 const escHtml = s => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 const profileOf = channel => channel === 'ceo'
@@ -177,6 +179,9 @@ function addThoughtNode({ path, md, text }) {
   const lab = document.createElement('div');
   lab.className = 'mind-node-label';
   lab.textContent = (path || 'pensamiento').split('/').pop();
+  // clicable ella misma — antes SOLO el raycast contra la diminuta malla 3D
+  // abría el panel, fácil de fallar; la etiqueta es el blanco visible real.
+  lab.addEventListener('click', () => selectThoughtNode(mesh));
   document.getElementById('mind-anchors').appendChild(lab);
   anchors.push({ el: lab, pos: mesh.position });
   mesh.userData.label = lab;
@@ -194,15 +199,22 @@ async function loadExistingThoughts() {
   } catch { /* aún no hay */ }
 }
 
+// selección de un nodo de propuesta — desde la malla 3D (raycast) o su etiqueta
+function selectThoughtNode(mesh) { showThoughtPanel(mesh); focusOn(mesh.position, 26); }
+
 function showThoughtPanel(node) {
   const root = document.getElementById('mind-panel');
   const md = node.userData.md || node.userData.text || '(sin contenido)';
   const path = node.userData.path || 'pensamiento';
   root.innerHTML = `<div class="mp-head">${escHtml(path)}<button id="mp-x">✕</button></div>` +
-    `<pre class="mp-body">${escHtml(md)}</pre>` +
-    (node.userData.path ? `<button id="mp-open" class="mp-open">Abrir en el editor</button>` : '');
+    `<div class="mp-body">${renderMarkdown(md)}</div>` +
+    `<div class="mp-actions">` +
+    `<button id="mp-exec" class="mp-exec">▶ Ejecutar esta propuesta</button>` +
+    (node.userData.path ? `<button id="mp-open" class="mp-open">Abrir en el editor</button>` : '') +
+    `</div>`;
   root.classList.add('show');
   root.querySelector('#mp-x').onclick = () => root.classList.remove('show');
+  root.querySelector('#mp-exec').onclick = () => { onExecute(md); root.classList.remove('show'); };
   const openBtn = root.querySelector('#mp-open');
   if (openBtn) openBtn.onclick = () => { onOpenFile(node.userData.path); root.classList.remove('show'); };
 }
@@ -452,7 +464,7 @@ export async function openMind() {
     ptr.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     ray.setFromCamera(ptr, S.camera);
     const hit = ray.intersectObjects(thoughtNodes)[0];
-    if (hit) { showThoughtPanel(hit.object); focusOn(hit.object.position, 26); }
+    if (hit) selectThoughtNode(hit.object);
   });
 
   const onResize = () => {
@@ -468,15 +480,29 @@ export async function openMind() {
   startLoop();
 }
 
+// Etiquetas de propuestas: se proyectan del mundo 3D a la pantalla, así que
+// con muchas acumuladas acaban solapándose ilegibles según el ángulo de
+// cámara. Aquí: cap a las más cercanas y reparto anti-solape (empuja hacia
+// abajo la que choca con otra ya colocada), para que se apilen separadas.
+const MAX_LABELS = 14, LABEL_W = 90, LABEL_H = 20;
 function projectAnchors() {
   const w = window.innerWidth, h = window.innerHeight, v = new THREE.Vector3();
+  const projected = [];
   for (const a of anchors) {
     v.copy(a.pos).project(S.camera);
-    const behind = v.z > 1;
-    a.el.style.display = behind ? 'none' : '';
-    if (behind) continue;
-    a.el.style.left = ((v.x * 0.5 + 0.5) * w) + 'px'; a.el.style.top = ((-v.y * 0.5 + 0.5) * h) + 'px';
-    a.el.style.transform = 'translate(-50%,-50%)';
+    if (v.z > 1) { a.el.style.display = 'none'; continue; } // detrás de la cámara
+    projected.push({ a, x: (v.x * 0.5 + 0.5) * w, y: (-v.y * 0.5 + 0.5) * h, depth: v.z });
+  }
+  projected.sort((p1, p2) => p1.depth - p2.depth); // las más cercanas a la cámara, prioridad
+  projected.forEach((p, i) => { p.a.el.style.display = i < MAX_LABELS ? '' : 'none'; });
+  const visible = projected.slice(0, MAX_LABELS).sort((p1, p2) => p1.x - p2.x || p1.y - p2.y);
+  const placed = [];
+  for (const p of visible) {
+    let y = p.y;
+    for (const q of placed) if (Math.abs(q.x - p.x) < LABEL_W && Math.abs(q.y - y) < LABEL_H) y = q.y + LABEL_H;
+    placed.push({ x: p.x, y });
+    p.a.el.style.left = p.x + 'px'; p.a.el.style.top = y + 'px';
+    p.a.el.style.transform = 'translate(-50%,-50%)';
   }
 }
 const wob = (t, seed, freq = 0.1) => Math.sin(t * freq + seed) * 0.6 + Math.sin(t * freq * 0.43 + seed * 2.1) * 0.3 + Math.sin(t * freq * 0.19 + seed * 4.7) * 0.1;

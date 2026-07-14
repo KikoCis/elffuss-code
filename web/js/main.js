@@ -20,6 +20,19 @@ const agent = new Agent(rules);
 let activeModel = 'rules';
 
 // ---------- chat ----------
+// Los `paths` entre backticks del chat (README.md, .elffuss/soul/x.md…) se
+// vuelven clicables → abren el fichero en el editor directamente, sin tener
+// que ir a buscarlos a mano.
+function linkifyFilePaths(root) {
+  root.querySelectorAll('code').forEach(el => {
+    const t = el.textContent.trim();
+    if (!/^[\w.-]+(\/[\w.-]+)*\.[a-z0-9]{1,10}$/i.test(t) || /[{}()<>]/.test(t)) return;
+    el.classList.add('file-link');
+    el.title = 'abrir ' + t;
+    el.onclick = () => openFile(t);
+  });
+}
+
 function addMsg(cls, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + cls;
@@ -29,6 +42,7 @@ function addMsg(cls, text) {
     div.classList.add('md');
     // cap defensivo: no volcar miles de nodos si una respuesta trae un archivo entero
     div.innerHTML = renderMarkdown(text.length > 8000 ? text.slice(0, 8000) + '\n… (recortado)' : text);
+    linkifyFilePaths(div);
   } else {
     div.textContent = text;
   }
@@ -601,6 +615,10 @@ $('view-close').addEventListener('click', closeView);
 // mejoras (en elffuss-mind/, sin tocar tu código). Clic en la elfa → abre la
 // «Mente» (mundo trance + pensamientos paralelos + música) y activa el cerebro.
 mind.setOpenFile(openFile);
+// «Ejecutar esta propuesta»: la manda a la MISMA cola/agente del chat normal
+// (mismas herramientas reales, mismo gate de Auto-edit) — no un auto-apply
+// aparte sin supervisión.
+mind.setExecuteProposal(md => { mind.closeMind(); send('Implementa esta propuesta de mejora con cambios reales en el código:\n\n' + md); });
 ceo.init({
   provider: () => agent.provider,
   // el usuario tiene PRIORIDAD: si hay algo en cola o procesándose, el cerebro espera

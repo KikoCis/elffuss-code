@@ -213,15 +213,39 @@ const CMDS = {
     if (await kindOf(segs) == null) await writeText(segs, ''); else onFsChange();
     return '';
   },
+  // Soporta comodines (*, ?) y varios objetivos a la vez: `rm mejoras-*.md`.
+  // Sin esto, un patrón con * se buscaba como nombre LITERAL → «no existe»
+  // aunque hubiera decenas de coincidencias reales (bug real, visto en uso).
   async rm(args) {
     const recursive = args.some(a => /^-\w*r/.test(a));
-    const t = args.find(a => !a.startsWith('-')); if (!t) throw new Error('rm: falta la ruta');
-    const segs = resolve(t); const k = await kindOf(segs);
-    if (k == null) throw new Error(`rm: ${t}: no existe`);
-    if (k === 'directory' && !recursive) throw new Error(`rm: ${t}: es un directorio (usa -r)`);
-    const { parent, name } = await parentAndName(segs);
-    await parent.removeEntry(name, { recursive });
-    code.invalidateFileList?.(); onFsChange(); return '';
+    const targets = args.filter(a => !a.startsWith('-'));
+    if (!targets.length) throw new Error('rm: falta la ruta');
+    const removed = [];
+    for (const t of targets) {
+      if (/[*?]/.test(t)) {
+        const parts = t.split('/'); const pattern = parts.pop();
+        const dirSegs = resolve(parts.join('/'));
+        let dir; try { dir = await dirHandle(dirSegs); } catch { throw new Error(`rm: ${t}: no existe el directorio`); }
+        const re = globToRe(pattern);
+        const matches = [];
+        for await (const e of dir.values()) if (re.test(e.name)) matches.push(e);
+        if (!matches.length) throw new Error(`rm: ${t}: sin coincidencias`);
+        for (const e of matches) {
+          if (e.kind === 'directory' && !recursive) throw new Error(`rm: ${e.name}: es un directorio (usa -r)`);
+          await dir.removeEntry(e.name, { recursive });
+          removed.push((dirSegs.length ? dirSegs.join('/') + '/' : '') + e.name);
+        }
+      } else {
+        const segs = resolve(t); const k = await kindOf(segs);
+        if (k == null) throw new Error(`rm: ${t}: no existe`);
+        if (k === 'directory' && !recursive) throw new Error(`rm: ${t}: es un directorio (usa -r)`);
+        const { parent, name } = await parentAndName(segs);
+        await parent.removeEntry(name, { recursive });
+        removed.push(t);
+      }
+    }
+    code.invalidateFileList?.(); onFsChange();
+    return removed.length > 1 ? `Eliminados ${removed.length}: ${removed.join(', ')}` : '';
   },
   async cp(args) {
     const rest = args.filter(a => !a.startsWith('-'));
