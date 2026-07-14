@@ -8,6 +8,7 @@
 // cuanto detecta actividad del usuario y reanuda al volver a estar ocioso.
 import { Agent } from './agent.js';
 import * as code from './tools/code.js';
+import { humanizeTool } from './humanize.js';
 
 const IDLE_MS = 18000;       // 18 s sin actividad → el CEO se pone a trabajar
 const TICK_MS = 3000;        // frecuencia de comprobación
@@ -135,21 +136,6 @@ async function tick() {
     lastCycleEnd = Date.now();
   }
   schedule();
-}
-
-// frase legible por humano para cada tool-call («leyendo app.js…»)
-function humanizeTool(name, args) {
-  const p = args?.path, q = args?.query, c = args?.command;
-  switch (name) {
-    case 'code.read': return `leyendo ${p}…`;
-    case 'code.write': return `escribiendo ${p}…`;
-    case 'code.tree': return `explorando ${p || 'el proyecto'}…`;
-    case 'code.search': return `buscando «${q}»…`;
-    case 'terminal.run': return `ejecutando: ${c}`;
-    case 'web.search': return `buscando en internet «${q}»…`;
-    case 'web.fetch': return `leyendo ${p || args?.url}…`;
-    default: return name + (p || q || c ? ' ' + (p || q || c) : '');
-  }
 }
 
 // helper: corre el agente con el proveedor actual sobre un prompt, emitiendo

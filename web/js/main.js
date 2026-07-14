@@ -14,6 +14,7 @@ import { setTerminalEcho } from './tools/index.js';
 import { ensureModelCache, cacheEstimate, clearModelCache } from './model-cache.js';
 import * as ceo from './ceo.js';
 import * as mind from './mind.js';
+import { humanizeStreamPreview } from './humanize.js';
 
 const $ = id => document.getElementById(id);
 const agent = new Agent(rules);
@@ -85,7 +86,7 @@ function addToolResult(result) {
   return det;
 }
 
-function thinkingBubble() {
+export function thinkingBubble() {
   const div = addMsg('thinking', '');
   const label = document.createElement('span');
   label.textContent = 'Elffuss está pensando';
@@ -97,7 +98,11 @@ function thinkingBubble() {
     tick(t) {
       buf += t;
       label.textContent = `Elffuss escribe · ${buf.length}`;
-      gen.textContent = (buf.length > 200 ? '…' : '') + buf.slice(-200);
+      // si el buffer entró en un bloque de tool-call, no enseñes el JSON crudo
+      // según va llegando: una frase humana («leyendo app.js…») en su lugar.
+      const preview = humanizeStreamPreview(buf);
+      gen.classList.toggle('tool-preview', !!preview);
+      gen.textContent = preview ? '⟐ ' + preview : (buf.length > 200 ? '…' : '') + buf.slice(-200);
       $('chat-log').scrollTop = $('chat-log').scrollHeight;
     },
     tool(name) { buf = ''; gen.textContent = ''; label.textContent = `Elffuss usa ${name}`; },

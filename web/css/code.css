@@ -256,6 +256,7 @@ body.hide-tree #sidebar { display: none; }
 .msg.user.queued::after { content: ' ⏳'; }
 .msg.thinking { background: var(--bg3); border: 1px dashed var(--line); color: var(--muted); font-size: .8rem; }
 .msg.thinking .gen { font-family: ui-monospace, monospace; font-size: .7rem; color: #5f6880; max-height: 60px; overflow: hidden; white-space: pre-wrap; }
+.msg.thinking .gen.tool-preview { font-family: inherit; font-size: .78rem; color: var(--accent2); font-style: italic; }
 #composer { display: flex; gap: 6px; padding: 10px; }
 #prompt { flex: 1; background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; color: var(--fg); padding: 9px 11px; outline: none; }
 #prompt:focus { border-color: var(--accent2); }
