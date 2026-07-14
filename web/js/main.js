@@ -238,23 +238,23 @@ async function changeModel(id) {
   if (loadingId === id || activeModel === id) return true; // un solo modelo, una sola carga
   loadingId = id;
   $('model-dot').className = 'dot loading';
-  showModelProgress('Preparando el cerebro local…', 4);
+  showModelProgress('Cargando el modelo IA…', 4);
   try {
     const mod = await resolveProvider(id);
     await mod.load(p => {
       if (typeof p === 'string') return showModelProgress(p);
       if (p?.status === 'progress' && p.total) {
         const pct = Math.round(p.loaded / p.total * 100);
-        showModelProgress(`Descargando el cerebro local · ${pct}% · ${(p.loaded / 1e6 | 0)}/${(p.total / 1e6 | 0)} MB`, pct);
+        showModelProgress(`Descargando el modelo IA · ${pct}% · ${(p.loaded / 1e6 | 0)}/${(p.total / 1e6 | 0)} MB`, pct);
       }
     });
     agent.setProvider(mod);
     activeModel = id;
     localStorage.setItem('elffusscode.model', id);
     $('model-dot').className = 'dot on';
-    showModelProgress(mod.name + ' listo · готово ✳', 100);
+    showModelProgress('Modelo IA listo · готово ✳', 100);
     setTimeout(() => showModelProgress(null), 2500);
-    $('statusbar').textContent = mod.name + ' listo';
+    $('statusbar').textContent = 'Modelo IA listo';
     rebuildSelect();
     return true;
   } catch (e) {
