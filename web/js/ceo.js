@@ -11,7 +11,10 @@ import * as code from './tools/code.js';
 
 const IDLE_MS = 18000;       // 18 s sin actividad → el CEO se pone a trabajar
 const TICK_MS = 3000;        // frecuencia de comprobación
-const COOLDOWN_MS = 45000;   // descanso entre ciclos (no quemar la GPU)
+// 5 min entre ciclos automáticos: con 45s, una tarde ociosa generaba MILES de
+// ficheros. «Pensar ahora» (forceCycle) sigue disponible sin esperar esto.
+const COOLDOWN_MS = 300000;
+const SOUL_CAP = 25;          // ficheros sueltos antes de consolidar en archivo.md
 
 // «perfiles»: cada uno es una línea de pensamiento paralela (foco + color de
 // su estrella). El usuario los edita/crea/borra desde ⚙ en la Mente.
@@ -161,7 +164,8 @@ async function think(channel, task) {
     if (running === 'interrupt') throw new Error('interrumpido');
     if (ev.type === 'token') { out += ev.text; emit(channel, { type: 'token', text: ev.text }); }
     else if (ev.type === 'tool') emit(channel, { type: 'tool', text: humanizeTool(ev.call.tool, ev.call.args), tool: ev.call.tool, path: ev.call.args?.path || null });
-    else if (ev.type === 'tool_result') emit(channel, { type: 'tool_result', tool: ev.tool });
+    // el RESULTADO real de la tool (contenido leído/escrito) — no solo el nombre
+    else if (ev.type === 'tool_result') emit(channel, { type: 'tool_result', tool: ev.tool, text: String(ev.result || '').replace(/\s+/g, ' ').trim().slice(0, 100) });
     else if (ev.type === 'text') { out = ev.text; }
   });
   return out;
@@ -195,12 +199,38 @@ async function runCycle() {
   const md = `# Propuestas de mejora — ciclo ${cycleN}\n\n**Misión:** ${mission}\n\n` +
     valid.map(p => `## ${p.dept}\n${p.text}\n`).join('\n') +
     `\n_— generado por el cerebro CEO de Elffuss mientras estabas ocioso._\n`;
-  const path = `${soulDir}/mejoras-${String(cycleN).padStart(3, '0')}.md`;
+  // nombre DESCRIPTIVO (fecha + tema real), no «mejoras-NNN» genérico
+  const d = new Date();
+  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+  const topic = slug((valid[0]?.text || 'ciclo').split(/[.,;\n]/)[0]) || 'ciclo';
+  const path = `${soulDir}/${stamp}-${topic}.md`;
   try {
+    await rotateSoul();
     await code.write({ path, content: md });
     emit('ceo', { type: 'built', text: `Propuesta guardada en ${path}`, path, md, proposals: valid });
   } catch (e) {
     emit('ceo', { type: 'built', text: 'Propuesta lista (no pude escribir el fichero)', md, proposals: valid });
   }
   running = false;
+}
+
+// Rotación: si hay demasiados ficheros sueltos, los MÁS ANTIGUOS se consolidan
+// (recopilan) en un único archivo.md y se borran — para no acabar con miles.
+async function rotateSoul() {
+  try {
+    let dir = code.handle();
+    for (const seg of soulDir.split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(seg, { create: true });
+    const names = [];
+    for await (const e of dir.values()) if (e.kind === 'file' && e.name.endsWith('.md') && e.name !== 'archivo.md') names.push(e.name);
+    if (names.length < SOUL_CAP) return;
+    names.sort(); // el nombre empieza por fecha → orden cronológico
+    const excess = names.slice(0, names.length - SOUL_CAP + 1);
+    let archive = ''; try { archive = await code.read({ path: `${soulDir}/archivo.md` }); } catch { archive = '# Archivo histórico del cerebro\n'; }
+    for (const name of excess) {
+      try { archive += `\n---\n## ${name}\n${await code.read({ path: `${soulDir}/${name}` })}\n`; } catch { /* */ }
+    }
+    await code.write({ path: `${soulDir}/archivo.md`, content: archive.slice(-80000) });
+    for (const name of excess) { try { await dir.removeEntry(name); } catch { /* */ } }
+    emit('ceo', { type: 'reprogram', text: `Consolidé ${excess.length} propuestas antiguas en archivo.md` });
+  } catch { /* soulDir aún sin crear o sin permiso: nada que rotar */ }
 }
