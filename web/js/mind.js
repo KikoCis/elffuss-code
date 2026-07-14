@@ -197,22 +197,35 @@ function buildScene(canvas, W, H) {
       void main(){
         vec3 pos=position;
         float n=fbm(pos*0.03 + vec3(0.0,uTime*0.25,0.0));       // campo fractal que fluye
-        pos += normalize(pos+0.001) * (n-0.5) * (6.0 + uMid*26.0); // MEDIOS → vibración fractal
-        pos *= (1.0 + uBass*0.22);                               // GRAVES → el espacio respira
-        float h=fract(aRad*0.004+uTime*0.03+n*0.15); vC=hsv(h)*(1.3-aRad*0.004)*(0.85+uMid*0.6);
-        vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_PointSize=(2.2+60.0/-mv.z)*(1.0+uBass*0.5); gl_Position=projectionMatrix*mv; }`,
+        // MEDIOS → vibración fractal fina · GRAVES → morphs GRANDES (el mundo se deforma en el kick)
+        pos += normalize(pos+0.001) * (n-0.5) * (6.0 + uMid*24.0 + uBass*46.0);
+        // remolino (vórtice) que se aprieta con los graves → sensación de túnel
+        float sw = uTime*0.2 + aRad*0.02 + uBass*1.4;
+        float cs=cos(sw), sn=sin(sw);
+        pos.xz = mat2(cs,-sn,sn,cs) * pos.xz;
+        pos *= (1.0 + uBass*0.30);                               // GRAVES → el espacio respira fuerte
+        float h=fract(aRad*0.004+uTime*0.03+n*0.15); vC=hsv(h)*(1.3-aRad*0.004)*(0.85+uMid*0.7+uBass*0.5);
+        vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_PointSize=(2.2+60.0/-mv.z)*(1.0+uBass*0.7); gl_Position=projectionMatrix*mv; }`,
     fragmentShader: `varying vec3 vC; void main(){ vec2 d=gl_PointCoord-0.5; float m=smoothstep(0.5,0.0,length(d)); gl_FragColor=vec4(vC*2.0,m); }`,
   });
   const galaxy = new THREE.Points(geo, mat); scene.add(galaxy);
   const core = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(18, 1)),
     new THREE.LineBasicMaterial({ color: 0xff4d8d, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
   scene.add(core);
+  // túnel/vórtice: anillos que suben por el eje y laten con los graves
+  const rings = [];
+  for (let i = 0; i < 24; i++) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(22, 0.5, 8, 80),
+      new THREE.MeshBasicMaterial({ color: 0x7c5cff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = -70 + i * 6; ring.userData.i = i;
+    scene.add(ring); rings.push(ring);
+  }
   nodesGroup = new THREE.Group(); scene.add(nodesGroup);
   const composer = new EffectComposer(renderer);
   composer.setSize(W, H); composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 1.1, 0.5, 0.2);
   composer.addPass(bloom); composer.addPass(new OutputPass());
-  return { renderer, scene, camera, controls, composer, bloom, mat, galaxy, core };
+  return { renderer, scene, camera, controls, composer, bloom, mat, galaxy, core, rings };
 }
 
 export async function openMind() {
@@ -298,7 +311,17 @@ function startLoop() {
     const pulse = 1 + bass * 0.2 + Math.sin(t * 1.6) * 0.05;
     S.core.scale.setScalar(pulse); S.core.rotation.y = t * 0.2; S.core.rotation.x = t * 0.12;
     S.core.material.color.setHSL((t * 0.05) % 1, 0.9, 0.6);
-    S.camera.position.z *= 1;                    // (órbita la controla OrbitControls)
+    // túnel/vórtice: los anillos suben, se aprietan y brillan con los graves
+    for (const r of S.rings) {
+      r.position.y += 0.35 + bass * 0.9;
+      if (r.position.y > 74) r.position.y -= 144;
+      const rs = 1 + bass * 0.5 + Math.sin(t * 1.2 + r.userData.i) * 0.06;
+      r.scale.setScalar(rs);
+      r.material.opacity = 0.22 + bass * 0.55;
+      r.material.color.setHSL((t * 0.06 + r.userData.i * 0.03) % 1, 0.85, 0.6);
+    }
+    // punch de zoom en el kick (modulando el FOV, sin pelear con OrbitControls)
+    S.camera.fov = 60 - bass * 9; S.camera.updateProjectionMatrix();
     for (let i = 0; i < thoughtNodes.length; i++) { const n = thoughtNodes[i]; n.rotation.y = t + i; n.scale.setScalar(1 + Math.sin(t * 2 + i) * 0.14); }
     S.controls.update();
     projectAnchors();
