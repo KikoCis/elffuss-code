@@ -515,7 +515,29 @@ $('view-close').addEventListener('click', closeView);
 // Cuando NO estás pidiendo nada, la elfa trabaja: revisa el proyecto y propone
 // mejoras (en elffuss-mind/, sin tocar tu código). Clic en la elfa → abre la
 // «Mente» (mundo trance + pensamientos paralelos + música) y activa el cerebro.
-ceo.init({ provider: () => agent.provider, onEvent: (ch, ev) => mind.pushThought(ch, ev) });
+mind.setOpenFile(openFile);
+ceo.init({ provider: () => agent.provider, onEvent: (ch, ev) => {
+  mind.pushThought(ch, ev);
+  if (ch === 'ceo' && ev.type === 'built') reportImprovements(ev);
+} });
+// Reporta las mejoras encontradas de forma VISUAL en el chat + notificación del navegador.
+function reportImprovements(ev) {
+  const props = ev.proposals || [];
+  if (!props.length) return;
+  const firstLine = t => (t || '').split('\n').find(l => l.trim())?.trim().slice(0, 160) || '';
+  const body = `💡 **Mientras estabas fuera revisé el proyecto y encontré ${props.length} mejora${props.length === 1 ? '' : 's'}:**\n\n` +
+    props.map(p => `**${p.dept}** — ${firstLine(p.text)}`).join('\n\n') +
+    (ev.path ? `\n\n_Guardado en \`${ev.path}\`. Dale a la elfa para verlo en la Mente, o ábrelo en el editor._` : '');
+  addMsg('assistant', body);
+  notify(`Elffuss encontró ${props.length} mejora${props.length === 1 ? '' : 's'}`, props.map(p => p.dept).join(' · '));
+}
+function notify(title, body) {
+  try {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'granted') new Notification(title, { body, icon: 'img/elffuss-code.svg' });
+    else if (Notification.permission !== 'denied') Notification.requestPermission().then(p => { if (p === 'granted') new Notification(title, { body }); });
+  } catch { /* */ }
+}
 // cualquier interacción FUERA de la Mente cuenta como actividad → pausa el CEO
 const noteAct = e => { if (!e.target.closest?.('#mind-overlay')) ceo.noteActivity(); };
 document.addEventListener('pointerdown', noteAct, true);
@@ -523,9 +545,10 @@ document.addEventListener('keydown', noteAct, true);
 const elfAvatar = document.querySelector('#activity img');
 if (elfAvatar) {
   elfAvatar.style.cursor = 'pointer';
-  elfAvatar.title = 'Mente de Elffuss — cerebro autónomo (modo trance)';
+  elfAvatar.title = 'Mente de Elffuss — cerebro autónomo';
   elfAvatar.addEventListener('click', () => {
     if (!ceo.isEnabled()) { ceo.enable(); localStorage.setItem('elffusscode.ceo', '1'); }
+    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* */ }
     mind.openMind();
   });
 }
