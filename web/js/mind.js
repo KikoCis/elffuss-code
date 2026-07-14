@@ -1,12 +1,13 @@
 // Vista «Mente de Elffuss» — el pensamiento subyacente del cerebro CEO en un
-// mundo 3D de fantasía psicodélica trance. v2:
-//  · overlay PERSISTENTE (se oculta/mostra, no se destruye) → la música y la
-//    animación NO reinician al salir y volver.
-//  · las consolas de pensamiento FLOTAN en el mundo (ancladas a puntos 3D que
-//    orbitan con la cámara).
-//  · puntos/nodos CLICABLES: cada propuesta forjada es un nodo brillante; al
-//    hacer clic se abre su .md (o el fichero que referencia).
-//  · al abrir, carga lo que el cerebro YA generó (elffuss-mind/*.md).
+// mundo 3D de fantasía psicodélica trance, con la CIUDAD real del proyecto
+// (motor VibeCodeViewer) flotando por debajo.
+//  · cada línea/tool-call que llega nace como una ESTRELLA de texto (color por
+//    PERFIL, tamaño/tipografía según lo que ocurre) que se desvanece sola.
+//  · los perfiles (nombre, foco, color) se editan desde ⚙ — el usuario los crea
+//    a su gusto.
+//  · «≡ historial»: panel con TODO lo que ha llegado, sin recortar.
+//  · cuando lee/escribe un fichero real, un haz baja hasta él en la ciudad.
+//  · overlay PERSISTENTE (música/animación no reinician al salir y volver).
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -15,21 +16,33 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as code from './tools/code.js';
 import * as ceo from './ceo.js';
+import { buildModel } from './vcc/model.js';
+import { buildCity } from './vcc/builder.js';
+import { THEME as VCC_THEME } from './vcc/theme.js';
 
 const SOUNDCLOUD = 'https://soundcloud.com/dekel-official/dekel-baoba-festival-2023';
-const DEPTS = { arq: 'Arquitectura', cal: 'Calidad', rend: 'Rendimiento', dx: 'Producto/DX' };
-const DEPT_POS = { // ancla 3D de cada consola (orbita con el mundo)
-  ceo: [0, 46, 0], arq: [-70, 20, -30], cal: [70, 20, -30], rend: [-70, 8, 40], dx: [70, 8, 40],
-};
+const CEO_COLOR = '#ff4d8d';
+const CITY_MAX_FILES = 2600;
+const IGNORE = new Set(['node_modules', '.git', 'dist', 'build', 'target', '__pycache__', '.next', 'venv', '.venv', '.DS_Store']);
 
 let open = false, built = false, raf = null;
 let overlay, S, widget, onOpenFile = () => {};
-const consoles = new Map();
-const anchors = [];            // { el, pos:THREE.Vector3 }
-let nodesGroup, thoughtNodes = []; // nodos clicables (propuestas)
+let anchorMap = new Map();     // id de perfil (+ 'ceo') → Vector3 (anclas del mundo)
+const anchors = [];            // { el, pos } — solo etiquetas de propuestas forjadas
+let nodesGroup, thoughtNodes = [];
+let starGroup, stars = [];     // estrellas de pensamiento efímeras
+const lineBuf = new Map();     // canal → texto acumulado hasta la línea completa
+const streamed = new Map();    // canal → ¿llegaron tokens? (evita duplicar el texto final)
+let cityWrap = null, cityCity = null, cityModel = null;
+let beams = [], fileActivity = [];
 
 export function isOpen() { return open; }
 export function setOpenFile(fn) { onOpenFile = fn; }
+
+const escHtml = s => String(s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+const profileOf = channel => channel === 'ceo'
+  ? { id: 'ceo', name: 'CEO', color: CEO_COLOR }
+  : ceo.getProfiles().find(p => p.id === channel) || { id: channel, name: channel, color: '#7c5cff' };
 
 // ── música con Widget API (persistente: pausa al salir, reanuda al volver) ──
 function mountMusic(root) {
@@ -46,37 +59,100 @@ function mountMusic(root) {
   else { const s = document.createElement('script'); s.src = 'https://w.soundcloud.com/player/api.js'; s.onload = initWidget; document.head.appendChild(s); }
 }
 
-function makeConsole(id, name, focus) {
-  if (consoles.has(id)) return consoles.get(id);
-  const el = document.createElement('div');
-  el.className = 'mind-console c-' + id;
-  el.innerHTML = `<div class="mc-head"><span class="mc-dot"></span>${name}<span class="mc-focus">${focus || ''}</span></div><div class="mc-body"></div>`;
-  document.getElementById('mind-consoles').appendChild(el);
-  const c = { el, body: el.querySelector('.mc-body') };
-  consoles.set(id, c);
-  // anclar la consola a su punto 3D (flota en el mundo)
-  const pos = DEPT_POS[id] || [0, 0, 0];
-  anchors.push({ el, pos: new THREE.Vector3(...pos) });
-  return c;
+// ══ ESTRELLAS de pensamiento: cada línea/tool-call nace, brilla y se apaga ══
+function makeTextSprite(text, color, { fontSize = 16, bold = false, glow = 10 } = {}) {
+  const pad = 8;
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = `${bold ? 700 : 500} ${fontSize}px ui-monospace, Menlo, monospace`;
+  const w = Math.ceil(probe.measureText(text).width) + pad * 2;
+  const h = fontSize + pad * 2;
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const g = cv.getContext('2d');
+  g.font = `${bold ? 700 : 500} ${fontSize}px ui-monospace, Menlo, monospace`;
+  g.textBaseline = 'middle';
+  g.shadowColor = color; g.shadowBlur = glow;
+  g.fillStyle = color;
+  g.fillText(text, pad, h / 2 + 1);
+  const tex = new THREE.CanvasTexture(cv);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const sprite = new THREE.Sprite(mat);
+  const scale = 0.09;
+  sprite.scale.set(w * scale, h * scale, 1);
+  return sprite;
 }
-function append(c, t) { c.body.textContent = (c.body.textContent + t).slice(-1400); c.body.scrollTop = c.body.scrollHeight; }
 
-// alimenta las consolas + crea nodos clicables (ceo.js → aquí)
+// kind: 'line' (charla normal) · 'tool' (tool-call) · 'event' (ciclo/estado) · 'built' (propuesta forjada)
+const KIND_STYLE = {
+  line: { fontSize: 13, bold: false, glow: 8, life: 6, jitter: 15 },
+  tool: { fontSize: 17, bold: true, glow: 16, life: 9, jitter: 9 },
+  event: { fontSize: 20, bold: true, glow: 14, life: 7, jitter: 6 },
+  built: { fontSize: 26, bold: true, glow: 22, life: 13, jitter: 4 },
+};
+function spawnStar(channel, text, kind = 'line') {
+  if (!starGroup || !text) return;
+  const prof = profileOf(channel);
+  const st = KIND_STYLE[kind] || KIND_STYLE.line;
+  const anchor = anchorMap.get(prof.id) || new THREE.Vector3(0, 20, 0);
+  const j = st.jitter;
+  const label = kind === 'tool' ? '⟐ ' + text : kind === 'event' ? '★ ' + text : kind === 'built' ? '✦ ' + text : text;
+  const sprite = makeTextSprite(label.slice(0, kind === 'line' ? 52 : 72), prof.color, st);
+  sprite.position.copy(anchor).add(new THREE.Vector3((Math.random() - 0.5) * j, (Math.random() - 0.5) * j * 0.6, (Math.random() - 0.5) * j));
+  sprite.material.opacity = 0;
+  starGroup.add(sprite);
+  stars.push({ obj: sprite, born: elapsed, life: st.life, seed: Math.random() * 1000, up: kind === 'built' ? 0.5 : 0.22 });
+  if (stars.length > 160) { const old = stars.shift(); starGroup.remove(old.obj); old.obj.material.map.dispose(); old.obj.material.dispose(); }
+}
+
+// ── historial COMPLETO (todo lo que llega, sin recortar) ─────────────────
+function logLine(channel, text) {
+  const body = document.getElementById('mind-log-body');
+  if (!body) return;
+  const prof = profileOf(channel);
+  const row = document.createElement('div');
+  row.className = 'ml-row';
+  row.innerHTML = `<span class="ml-dot" style="background:${prof.color}"></span><b style="color:${prof.color}">${escHtml(prof.name)}</b> <span class="ml-t">${escHtml(text)}</span>`;
+  body.appendChild(row);
+  while (body.children.length > 500) body.removeChild(body.firstChild);
+  body.scrollTop = body.scrollHeight;
+}
+
+function flushLine(channel, force = false) {
+  const buf = (lineBuf.get(channel) || '').trim();
+  if (!buf && !force) return;
+  if (buf) { spawnStar(channel, buf, 'line'); logLine(channel, buf); }
+  lineBuf.set(channel, '');
+}
+
+// alimenta estrellas + historial + haces sobre la ciudad (ceo.js → aquí)
 export function pushThought(channel, ev) {
   if (!open) return;
+  if (channel === 'sys') { logLine('ceo', ev.text); return; }
   if (channel === 'ceo') {
-    const c = makeConsole('ceo', '★ CEO', 'reparte y sintetiza');
-    if (ev.type === 'cycle') { c.body.textContent = ''; append(c, `● ${ev.text}\n`); }
-    else if (ev.type === 'built') { append(c, `\n✦ ${ev.text}\n`); addThoughtNode(ev); }
-    else append(c, `${ev.text}\n`);
+    if (ev.type === 'cycle') { logLine('ceo', '● ' + ev.text); spawnStar('ceo', ev.text, 'event'); }
+    else if (ev.type === 'survey') { logLine('ceo', ev.text); }
+    else if (ev.type === 'reprogram') { logLine('ceo', '⚙ ' + ev.text); spawnStar('ceo', ev.text, 'event'); if (ev.profiles) rebuildWorld(); }
+    else if (ev.type === 'paused') { logLine('ceo', ev.text); spawnStar('ceo', ev.text, 'event'); }
+    else if (ev.type === 'built') { logLine('ceo', '✦ ' + ev.text); spawnStar('ceo', ev.text, 'built'); addThoughtNode(ev); }
+    else logLine('ceo', ev.text || '');
     return;
   }
-  if (channel === 'sys') { append(makeConsole('ceo', '★ CEO', ''), `· ${ev.text}\n`); return; }
-  const c = makeConsole(channel, DEPTS[channel] || channel, ev.focus);
-  if (ev.type === 'open') { c.body.textContent = ''; c.el.classList.add('active'); }
-  else if (ev.type === 'token') append(c, ev.text);
-  else if (ev.type === 'tool') append(c, `\n  ⟐ ${ev.text}\n`);
-  else if (ev.type === 'done') { c.el.classList.remove('active'); c.el.classList.add('settled'); }
+  if (ev.type === 'open') { lineBuf.set(channel, ''); streamed.set(channel, false); }
+  else if (ev.type === 'token') {
+    streamed.set(channel, true);
+    lineBuf.set(channel, (lineBuf.get(channel) || '') + ev.text);
+    const buf = lineBuf.get(channel);
+    if (/\n/.test(ev.text) || buf.length > 90) flushLine(channel);
+  } else if (ev.type === 'tool') {
+    flushLine(channel);
+    spawnStar(channel, ev.text, 'tool');
+    logLine(channel, '⟐ ' + ev.text);
+    if (ev.path) fileBeam(ev.path, /escrib/i.test(ev.text) ? 'write' : 'read');
+  } else if (ev.type === 'done') {
+    flushLine(channel, true);
+    // el proveedor puede devolver el texto final SIN pasar por tokens (sin
+    // streaming) → si no vimos ningún token, esto es lo único que lo muestra.
+    if (ev.text && !streamed.get(channel)) { spawnStar(channel, ev.text, 'line'); logLine(channel, ev.text); }
+  }
 }
 
 // ── nodos de pensamiento clicables (cada .md forjado = un punto brillante) ──
@@ -92,16 +168,14 @@ function addThoughtNode({ path, md, text }) {
   mesh.userData = { path, md, text };
   nodesGroup.add(mesh);
   thoughtNodes.push(mesh);
-  // etiqueta flotante
   const lab = document.createElement('div');
   lab.className = 'mind-node-label';
   lab.textContent = (path || 'pensamiento').split('/').pop();
-  document.getElementById('mind-consoles').appendChild(lab);
+  document.getElementById('mind-anchors').appendChild(lab);
   anchors.push({ el: lab, pos: mesh.position });
   mesh.userData.label = lab;
 }
 
-// al abrir: cargar lo que el cerebro YA dejó en su carpeta-alma (recuperable)
 async function loadExistingThoughts() {
   try {
     const soul = ceo.getSoulDir();
@@ -110,20 +184,16 @@ async function loadExistingThoughts() {
     const files = [];
     for await (const e of dir.values()) if (e.kind === 'file' && e.name.endsWith('.md')) files.push(e);
     files.sort((a, b) => a.name.localeCompare(b.name));
-    for (const f of files.slice(-24)) {
-      const md = await (await f.getFile()).text();
-      addThoughtNode({ path: soul + '/' + f.name, md });
-    }
+    for (const f of files.slice(-24)) addThoughtNode({ path: soul + '/' + f.name, md: await (await f.getFile()).text() });
   } catch { /* aún no hay */ }
 }
 
-// panel flotante con el contenido del pensamiento .md
 function showThoughtPanel(node) {
   const root = document.getElementById('mind-panel');
   const md = node.userData.md || node.userData.text || '(sin contenido)';
   const path = node.userData.path || 'pensamiento';
-  root.innerHTML = `<div class="mp-head">${path}<button id="mp-x">✕</button></div>` +
-    `<pre class="mp-body">${md.replace(/[<>&]/g, s => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[s]))}</pre>` +
+  root.innerHTML = `<div class="mp-head">${escHtml(path)}<button id="mp-x">✕</button></div>` +
+    `<pre class="mp-body">${escHtml(md)}</pre>` +
     (node.userData.path ? `<button id="mp-open" class="mp-open">Abrir en el editor</button>` : '');
   root.classList.add('show');
   root.querySelector('#mp-x').onclick = () => root.classList.remove('show');
@@ -131,28 +201,122 @@ function showThoughtPanel(node) {
   if (openBtn) openBtn.onclick = () => { onOpenFile(node.userData.path); root.classList.remove('show'); };
 }
 
-// panel de configuración: reprograma la MISIÓN del cerebro y su carpeta-alma
+// ══ perfiles: anclas 3D + leyenda (recalculadas al abrir o al reprogramar) ══
+function computeAnchors() {
+  const map = new Map();
+  map.set('ceo', new THREE.Vector3(0, 46, 0));
+  const profs = ceo.getProfiles();
+  const n = Math.max(profs.length, 1);
+  profs.forEach((p, i) => {
+    const a = (i / n) * Math.PI * 2;
+    map.set(p.id, new THREE.Vector3(Math.cos(a) * 70, 8 + (i % 2) * 20, Math.sin(a) * 70));
+  });
+  return map;
+}
+function renderLegend() {
+  const el = document.getElementById('mind-legend');
+  if (!el) return;
+  const profs = ceo.getProfiles();
+  el.innerHTML = `<div class="ml-item"><span class="ml-sw" style="background:${CEO_COLOR}"></span>CEO</div>` +
+    profs.map(p => `<div class="ml-item"><span class="ml-sw" style="background:${p.color}"></span>${escHtml(p.name)}</div>`).join('');
+}
+function rebuildWorld() { anchorMap = computeAnchors(); renderLegend(); }
+
+// ── panel ⚙: reprograma misión, carpeta-alma y PERFILES (editables) ──────
 function wireConfig(root) {
   const btn = root.querySelector('#mind-config');
   const cfg = root.querySelector('#mind-cfg');
+  const profRowHtml = p => `<div class="cfg-prof">
+      <input type="color" class="cp-color" value="${p.color || '#7c5cff'}">
+      <input type="text" class="cp-name" value="${escHtml(p.name || '')}" placeholder="Nombre">
+      <input type="text" class="cp-focus" value="${escHtml(p.focus || '')}" placeholder="En qué se centra">
+      <button class="cp-del" title="quitar">✕</button></div>`;
   const draw = () => {
+    const profs = ceo.getProfiles();
     cfg.innerHTML =
       '<div class="cfg-head">⚙ Reprogramar el cerebro<button id="cfg-x">✕</button></div>' +
       '<label>Misión (qué quieres que haga por su cuenta)</label>' +
-      '<textarea id="cfg-mission" rows="4">' + ceo.getMission().replace(/</g, '&lt;') + '</textarea>' +
+      '<textarea id="cfg-mission" rows="3">' + escHtml(ceo.getMission()) + '</textarea>' +
       '<label>Carpeta-alma (dentro del proyecto)</label>' +
-      '<input id="cfg-dir" value="' + ceo.getSoulDir() + '">' +
-      '<button id="cfg-save" class="cfg-save">Reprogramar y crear skill de cerebro</button>' +
-      '<div class="cfg-note">La elfa trabajará según esta misión cuando estés ocioso y volcará todo en esa carpeta.</div>';
+      '<input id="cfg-dir" value="' + escHtml(ceo.getSoulDir()) + '">' +
+      '<label>Perfiles — cada uno piensa en paralelo, con el color de su estrella</label>' +
+      '<div id="cfg-profiles">' + profs.map(profRowHtml).join('') + '</div>' +
+      '<button id="cfg-add-prof" class="cfg-add">+ nuevo perfil</button>' +
+      '<div class="cfg-actions"><button id="cfg-think-now" class="cfg-ghost">Pensar ahora</button>' +
+      '<button id="cfg-save" class="cfg-save">Reprogramar</button></div>' +
+      '<div class="cfg-note">La elfa trabajará según esto cuando estés ocioso y volcará todo en esa carpeta.</div>';
     cfg.querySelector('#cfg-x').onclick = () => cfg.classList.remove('show');
+    cfg.querySelector('#cfg-add-prof').onclick = () => {
+      cfg.querySelector('#cfg-profiles').insertAdjacentHTML('beforeend', profRowHtml({ color: '#ff9f45', name: '', focus: '' }));
+      wireRows();
+    };
+    cfg.querySelector('#cfg-think-now').onclick = () => { ceo.forceCycle(); cfg.classList.remove('show'); };
     cfg.querySelector('#cfg-save').onclick = () => {
+      const rows = [...cfg.querySelectorAll('.cfg-prof')].map(r => ({
+        color: r.querySelector('.cp-color').value,
+        name: r.querySelector('.cp-name').value.trim(),
+        focus: r.querySelector('.cp-focus').value.trim(),
+      }));
       ceo.setMission(cfg.querySelector('#cfg-mission').value);
       ceo.setSoulDir(cfg.querySelector('#cfg-dir').value);
+      ceo.setProfiles(rows);
       if (!ceo.isEnabled()) ceo.enable();
       cfg.classList.remove('show');
     };
+    wireRows();
+    function wireRows() { cfg.querySelectorAll('.cp-del').forEach(b => { b.onclick = () => b.closest('.cfg-prof').remove(); }); }
   };
   btn.onclick = () => { if (cfg.classList.contains('show')) cfg.classList.remove('show'); else { draw(); cfg.classList.add('show'); } };
+}
+function wireHistory(root) {
+  const btn = root.querySelector('#mind-history'), panel = root.querySelector('#mind-log');
+  btn.onclick = () => panel.classList.toggle('show');
+  panel.querySelector('#ml-x').onclick = () => panel.classList.remove('show');
+}
+
+// ══ ciudad de fondo (motor real, por debajo del mundo) + haces de actividad ══
+async function scanForCity(dir, budget, prefix = '') {
+  const dirs = [], files = [];
+  for await (const e of dir.values()) { if (IGNORE.has(e.name)) continue; (e.kind === 'directory' ? dirs : files).push(e); }
+  dirs.sort((a, b) => a.name.localeCompare(b.name)); files.sort((a, b) => a.name.localeCompare(b.name));
+  const outFiles = [];
+  for (const f of files) { if (budget.n >= CITY_MAX_FILES) break; let size = 0; try { size = (await f.getFile()).size; } catch { /* */ } outFiles.push([f.name, size]); budget.n++; }
+  const outDirs = [];
+  for (const d of dirs) { if (budget.n >= CITY_MAX_FILES) break; outDirs.push(await scanForCity(d, budget)); }
+  return [dir.name, outDirs, outFiles];
+}
+async function buildBackgroundCity(scene) {
+  const root = code.handle();
+  if (!root) return;
+  try {
+    const tree = await scanForCity(root, { n: 0 });
+    const model = buildModel(tree, null);
+    if (!model.files.length) return;
+    const extent = Math.max(model.city.box.sx, model.city.box.sz, 1);
+    const scale = Math.min(1, Math.max(0.05, 170 / extent));
+    cityWrap = new THREE.Group();
+    cityWrap.position.set(0, -95, 0);
+    cityWrap.scale.setScalar(scale);
+    scene.add(cityWrap);
+    cityCity = buildCity(cityWrap, model, VCC_THEME);
+    cityModel = model;
+  } catch { /* sigue sin ciudad de fondo */ }
+}
+// haz de luz que baja hasta el fichero real en la ciudad + resalta su celda
+function fileBeam(path, kind) {
+  if (!cityModel || !cityCity || !S) return;
+  const rel = String(path).replace(/^\.?\//, '');
+  const f = cityModel.fileByRel.get(rel);
+  if (!f) return;
+  const local = new THREE.Vector3(f.box.cx, f.box.cy, f.box.cz);
+  const world = cityWrap.localToWorld(local.clone());
+  const top = world.clone(); top.y += 50;
+  const geo = new THREE.BufferGeometry().setFromPoints([top, world]);
+  const mat = new THREE.LineBasicMaterial({ color: kind === 'write' ? 0xff4d8d : 0x49e8ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+  const line = new THREE.Line(geo, mat);
+  S.scene.add(line);
+  beams.push({ obj: line, born: elapsed, life: 1.4 });
+  fileActivity.push({ id: f.id, born: elapsed, life: 2.2 });
 }
 
 // ── mundo psicodélico ───────────────────────────────────────────────────────
@@ -165,10 +329,8 @@ function buildScene(canvas, W, H) {
   const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 2000);
   camera.position.set(0, 40, 150);
   const controls = new OrbitControls(camera, canvas);
-  // cámara QUIETA por defecto (así las consolas no se van de la pantalla y se
-  // pueden leer). El mundo se mueve suave solo; arrastra para orbitar tú mismo.
   controls.enableDamping = true; controls.dampingFactor = 0.06; controls.autoRotate = false;
-  controls.enablePan = false; controls.minDistance = 60; controls.maxDistance = 400;
+  controls.enablePan = false; controls.minDistance = 60; controls.maxDistance = 420;
 
   const N = 14000;
   const pos = new Float32Array(N * 3), rad = new Float32Array(N);
@@ -183,14 +345,11 @@ function buildScene(canvas, W, H) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('aRad', new THREE.BufferAttribute(rad, 1));
-  // Mundo audio-reactivo con ruido FRACTAL (fbm): los MEDIOS (uMid) hacen vibrar
-  // las partículas por fbm; los GRAVES (uBass) expanden/contraen el espacio.
   const mat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uBass: { value: 0 }, uMid: { value: 0 } },
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     vertexShader: `uniform float uTime, uBass, uMid; attribute float aRad; varying vec3 vC;
       vec3 hsv(float h){ vec3 k=vec3(1.,2./3.,1./3.); vec3 p=abs(fract(h+k)*6.-3.); return clamp(p-1.,0.,1.);}
-      // hash + ruido de valor 3D + fbm (fractal, 4 octavas) — barato
       float hash(vec3 p){ p=fract(p*0.3183099+0.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
       float vnoise(vec3 x){ vec3 i=floor(x),f=fract(x); f=f*f*(3.0-2.0*f);
         return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
@@ -198,13 +357,12 @@ function buildScene(canvas, W, H) {
       float fbm(vec3 p){ float a=0.5,s=0.0; for(int i=0;i<4;i++){ s+=a*vnoise(p); p*=2.02; a*=0.5;} return s; }
       void main(){
         vec3 pos=position;
-        float n=fbm(pos*0.03 + vec3(0.0,uTime*0.18,0.0));        // campo fractal lento que fluye
-        // guía SUAVE por la música: medios ligera ondulación, graves un respiro tenue
+        float n=fbm(pos*0.03 + vec3(0.0,uTime*0.18,0.0));
         pos += normalize(pos+0.001) * (n-0.5) * (5.0 + uMid*4.0 + uBass*7.0);
-        float sw = uTime*0.14 + aRad*0.015 + uBass*0.18;         // remolino muy suave
+        float sw = uTime*0.14 + aRad*0.015 + uBass*0.18;
         float cs=cos(sw), sn=sin(sw);
         pos.xz = mat2(cs,-sn,sn,cs) * pos.xz;
-        pos *= (1.0 + uBass*0.05);                               // respiración leve con el bajo
+        pos *= (1.0 + uBass*0.05);
         float h=fract(aRad*0.004+uTime*0.03+n*0.12); vC=hsv(h)*(1.3-aRad*0.004)*(0.95+uMid*0.18+uBass*0.12);
         vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_PointSize=(2.2+60.0/-mv.z)*(1.0+uBass*0.18); gl_Position=projectionMatrix*mv; }`,
     fragmentShader: `varying vec3 vC; void main(){ vec2 d=gl_PointCoord-0.5; float m=smoothstep(0.5,0.0,length(d)); gl_FragColor=vec4(vC*2.0,m); }`,
@@ -213,7 +371,6 @@ function buildScene(canvas, W, H) {
   const core = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(18, 1)),
     new THREE.LineBasicMaterial({ color: 0xff4d8d, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
   scene.add(core);
-  // túnel/vórtice: anillos que suben por el eje y laten con los graves
   const rings = [];
   for (let i = 0; i < 24; i++) {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(22, 0.5, 8, 80),
@@ -222,6 +379,7 @@ function buildScene(canvas, W, H) {
     scene.add(ring); rings.push(ring);
   }
   nodesGroup = new THREE.Group(); scene.add(nodesGroup);
+  starGroup = new THREE.Group(); scene.add(starGroup);
   const composer = new EffectComposer(renderer);
   composer.setSize(W, H); composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 1.1, 0.5, 0.2);
@@ -239,19 +397,23 @@ export async function openMind() {
   overlay.innerHTML =
     '<canvas id="mind-canvas"></canvas>' +
     '<div id="mind-title">MENTE DE ELFFUSS</div>' +
+    '<div id="mind-legend"></div>' +
     '<button id="mind-config" title="reprogramar el cerebro">⚙ cerebro</button>' +
+    '<button id="mind-history" title="ver todo lo que ha llegado">≡ historial</button>' +
     '<button id="mind-close" title="salir">✕ salir</button>' +
-    '<div id="mind-consoles"></div><div id="mind-panel"></div><div id="mind-cfg"></div>';
+    '<div id="mind-anchors"></div><div id="mind-panel"></div><div id="mind-cfg"></div>' +
+    '<div id="mind-log"><div class="ml-head">Historial completo<button id="ml-x">✕</button></div><div id="mind-log-body"></div></div>';
   document.body.appendChild(overlay);
-  wireConfig(overlay);
+  wireConfig(overlay); wireHistory(overlay);
   mountMusic(overlay);
-  consoles.clear(); anchors.length = 0; thoughtNodes = [];
+  anchors.length = 0; thoughtNodes = []; stars = []; lineBuf.clear();
+  rebuildWorld();
 
   const canvas = overlay.querySelector('#mind-canvas');
   S = buildScene(canvas, window.innerWidth, window.innerHeight);
+  buildBackgroundCity(S.scene);
   await loadExistingThoughts();
 
-  // raycast: clic en un nodo de pensamiento → abre su panel
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
   let downXY = null;
   canvas.addEventListener('pointerdown', e => { downXY = [e.clientX, e.clientY]; });
@@ -277,7 +439,6 @@ export async function openMind() {
   startLoop();
 }
 
-// proyecta las anclas 3D a la pantalla → las pantallas «flotan» en el mundo
 function projectAnchors() {
   const w = window.innerWidth, h = window.innerHeight, v = new THREE.Vector3();
   for (const a of anchors) {
@@ -285,45 +446,66 @@ function projectAnchors() {
     const behind = v.z > 1;
     a.el.style.display = behind ? 'none' : '';
     if (behind) continue;
-    const x = (v.x * 0.5 + 0.5) * w, y = (-v.y * 0.5 + 0.5) * h;
-    a.el.style.left = x + 'px'; a.el.style.top = y + 'px';
+    a.el.style.left = ((v.x * 0.5 + 0.5) * w) + 'px'; a.el.style.top = ((-v.y * 0.5 + 0.5) * h) + 'px';
     a.el.style.transform = 'translate(-50%,-50%)';
   }
 }
+const wob = (t, seed, freq = 0.1) => Math.sin(t * freq + seed) * 0.6 + Math.sin(t * freq * 0.43 + seed * 2.1) * 0.3 + Math.sin(t * freq * 0.19 + seed * 4.7) * 0.1;
 
-let startT = 0, elapsed = 0, lastMs = 0, smBass = 0, smMid = 0;
+let elapsed = 0, lastMs = 0, smBass = 0, smMid = 0;
 function startLoop() {
   if (raf) return;
   const loop = (ms) => {
     raf = requestAnimationFrame(loop);
-    if (lastMs) elapsed += (ms - lastMs) / 1000; lastMs = ms;
+    const dt = lastMs ? (ms - lastMs) / 1000 : 0;
+    elapsed += dt; lastMs = ms;
     const t = elapsed;
-    // envolventes de audio (simuladas a ritmo trance ~138 BPM; el audio de
-    // SoundCloud es cross-origin y no se puede analizar por FFT). Se SUAVIZAN
-    // (low-pass) para que el mundo se mueva liso, con la música solo de guía.
     const beat = 60 / 138;
     const bp = (t % beat) / beat;
     const bassRaw = Math.pow(1 - bp, 3);
     const midRaw = 0.5 + 0.5 * Math.sin(t * 6.0);
-    smBass += (bassRaw - smBass) * 0.05;        // muy suavizado → ondas, no golpes
+    smBass += (bassRaw - smBass) * 0.05;
     smMid += (midRaw - smMid) * 0.06;
     S.mat.uniforms.uTime.value = t;
     S.mat.uniforms.uBass.value = smBass;
     S.mat.uniforms.uMid.value = smMid;
     S.galaxy.rotation.y = t * 0.05;
+    S.galaxy.rotation.x = wob(t, 1.7, 0.05) * 0.15;
+    S.galaxy.rotation.z = wob(t, 5.2, 0.04) * 0.1;
     S.galaxy.scale.setScalar(1 + smBass * 0.02);
     const pulse = 1 + smBass * 0.05 + Math.sin(t * 0.9) * 0.03;
     S.core.scale.setScalar(pulse); S.core.rotation.y = t * 0.16; S.core.rotation.x = t * 0.09;
+    S.core.position.x = wob(t, 3.1, 0.11) * 6; S.core.position.z = wob(t, 9.4, 0.09) * 6;
     S.core.material.color.setHSL((t * 0.04) % 1, 0.9, 0.6);
-    // túnel/vórtice: los anillos suben lentos y laten muy suave con el bajo
     for (const r of S.rings) {
       r.position.y += 0.14 + smBass * 0.12;
       if (r.position.y > 74) r.position.y -= 144;
+      r.position.x = wob(t, r.userData.i * 1.3 + 1, 0.08) * 3;
       r.scale.setScalar(1 + smBass * 0.12 + Math.sin(t * 0.8 + r.userData.i) * 0.04);
       r.material.opacity = 0.2 + smBass * 0.16;
       r.material.color.setHSL((t * 0.05 + r.userData.i * 0.03) % 1, 0.85, 0.6);
     }
     for (let i = 0; i < thoughtNodes.length; i++) { const n = thoughtNodes[i]; n.rotation.y = t + i; n.scale.setScalar(1 + Math.sin(t * 2 + i) * 0.14); }
+    // estrellas: nacen (fade-in), viven, se apagan solas y se reciclan
+    for (let i = stars.length - 1; i >= 0; i--) {
+      const st = stars[i], age = t - st.born;
+      if (age > st.life) { starGroup.remove(st.obj); st.obj.material.map.dispose(); st.obj.material.dispose(); stars.splice(i, 1); continue; }
+      const fadeIn = Math.min(1, age / 0.5), fadeOut = Math.min(1, (st.life - age) / (st.life * 0.35));
+      st.obj.material.opacity = Math.min(fadeIn, fadeOut);
+      st.obj.position.y += st.up * dt;
+      st.obj.position.x += Math.sin(t * 0.6 + st.seed) * 0.3 * dt;
+    }
+    // haces sobre la ciudad + celdas de fichero resaltadas por actividad
+    for (let i = beams.length - 1; i >= 0; i--) {
+      const b = beams[i], age = t - b.born;
+      if (age > b.life) { S.scene.remove(b.obj); b.obj.geometry.dispose(); b.obj.material.dispose(); beams.splice(i, 1); continue; }
+      b.obj.material.opacity = 0.9 * Math.max(0, 1 - age / b.life);
+    }
+    if (cityCity) for (let i = fileActivity.length - 1; i >= 0; i--) {
+      const a = fileActivity[i], age = t - a.born;
+      if (age > a.life) { cityCity.paintFile(a.id, 0); fileActivity.splice(i, 1); continue; }
+      cityCity.paintFile(a.id, Math.max(0, 1 - age / a.life));
+    }
     S.controls.update();
     projectAnchors();
     S.composer.render();
@@ -334,7 +516,12 @@ function startLoop() {
 export function closeMind() {
   open = false;
   if (raf) { cancelAnimationFrame(raf); raf = null; }
-  lastMs = 0;                       // congela el reloj de animación (reanuda donde iba)
-  try { widget?.pause(); } catch {} // pausa la música conservando la posición
+  lastMs = 0;
+  try { widget?.pause(); } catch {}
   if (overlay) overlay.style.display = 'none';
+}
+
+// para tests/depuración
+export function _debug() {
+  return { starCount: stars.length, hasCity: !!cityCity, profileCount: ceo.getProfiles().length, beamCount: beams.length, fileActivityCount: fileActivity.length };
 }
