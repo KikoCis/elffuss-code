@@ -250,10 +250,16 @@ function wireConfig(root) {
       <input type="text" class="cp-name" value="${escHtml(p.name || '')}" placeholder="Nombre">
       <input type="text" class="cp-focus" value="${escHtml(p.focus || '')}" placeholder="En qué se centra">
       <button class="cp-del" title="quitar">✕</button></div>`;
+  const notifState = () => (!('Notification' in window)) ? { txt: 'no soportadas por este navegador', can: false }
+    : Notification.permission === 'granted' ? { txt: '✓ concedidas — avisaré cuando encuentre algo bueno', can: false }
+    : Notification.permission === 'denied' ? { txt: '✕ bloqueadas — actívalas en los ajustes del sitio del navegador', can: false }
+    : { txt: 'aún no pedidas', can: true };
   const draw = () => {
     const profs = ceo.getProfiles();
+    const ns = notifState();
     cfg.innerHTML =
       '<div class="cfg-head">⚙ Reprogramar el cerebro<button id="cfg-x">✕</button></div>' +
+      '<div class="cfg-notif">🔔 Notificaciones del navegador: ' + escHtml(ns.txt) + (ns.can ? ' <button id="cfg-notif-ask" class="cfg-notif-btn">Activar</button>' : '') + '</div>' +
       '<label>Misión (qué quieres que haga por su cuenta)</label>' +
       '<textarea id="cfg-mission" rows="3">' + escHtml(ceo.getMission()) + '</textarea>' +
       '<label>Carpeta-alma (dentro del proyecto)</label>' +
@@ -265,6 +271,7 @@ function wireConfig(root) {
       '<button id="cfg-save" class="cfg-save">Reprogramar</button></div>' +
       '<div class="cfg-note">La elfa trabajará según esto cuando estés ocioso y volcará todo en esa carpeta.</div>';
     cfg.querySelector('#cfg-x').onclick = () => cfg.classList.remove('show');
+    cfg.querySelector('#cfg-notif-ask')?.addEventListener('click', () => { Notification.requestPermission().then(draw); });
     cfg.querySelector('#cfg-add-prof').onclick = () => {
       cfg.querySelector('#cfg-profiles').insertAdjacentHTML('beforeend', profRowHtml({ color: '#ff9f45', name: '', focus: '' }));
       wireRows();

@@ -157,6 +157,8 @@ body.hide-tree #sidebar { display: none; }
 #mind-cfg.show { display: flex; }
 .cfg-head { display: flex; align-items: center; font-size: .9rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
 .cfg-head button { margin-left: auto; background: none; border: none; color: #b9a7ff; cursor: pointer; }
+.cfg-notif { font-size: .68rem; color: #9fb; background: rgba(63,185,112,.1); border: 1px solid rgba(63,185,112,.3); border-radius: 8px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cfg-notif-btn { background: #3fb970; border: none; color: #06180d; border-radius: 6px; padding: 3px 10px; font-size: .68rem; font-weight: 700; cursor: pointer; }
 #mind-cfg label { font-size: .68rem; color: #b9a7ff; margin-top: 4px; }
 #mind-cfg textarea, #mind-cfg input:not([type=color]) { background: #0b0716; border: 1px solid rgba(124,92,255,.4); color: #e8ebf4; border-radius: 8px; padding: 8px 10px; font-size: .78rem; font-family: inherit; resize: vertical; }
 #cfg-profiles { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
