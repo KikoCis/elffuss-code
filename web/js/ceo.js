@@ -13,13 +13,35 @@ const IDLE_MS = 18000;       // 18 s sin actividad → el CEO se pone a trabajar
 const TICK_MS = 3000;        // frecuencia de comprobación
 const COOLDOWN_MS = 45000;   // descanso entre ciclos (no quemar la GPU)
 
-// «departamentos»: cada uno es una línea de pensamiento paralela con su foco
-const DEPARTMENTS = [
-  { id: 'arq', name: 'Arquitectura', focus: 'estructura, acoplamiento y dependencias; qué módulo conviene dividir o unificar' },
-  { id: 'cal', name: 'Calidad', focus: 'bugs latentes, casos borde sin cubrir, validaciones que faltan' },
-  { id: 'rend', name: 'Rendimiento', focus: 'cuellos de botella, trabajo repetido, estructuras de datos mejorables' },
-  { id: 'dx', name: 'Producto/DX', focus: 'legibilidad, nombres, documentación y ergonomía para quien lo usa' },
+// «perfiles»: cada uno es una línea de pensamiento paralela (foco + color de
+// su estrella). El usuario los edita/crea/borra desde ⚙ en la Mente.
+const DEFAULT_PROFILES = [
+  { id: 'arq', name: 'Arquitectura', focus: 'estructura, acoplamiento y dependencias; qué módulo conviene dividir o unificar', color: '#7c5cff' },
+  { id: 'cal', name: 'Calidad', focus: 'bugs latentes, casos borde sin cubrir, validaciones que faltan', color: '#49e8ff' },
+  { id: 'rend', name: 'Rendimiento', focus: 'cuellos de botella, trabajo repetido, estructuras de datos mejorables', color: '#ffb454' },
+  { id: 'dx', name: 'Producto/DX', focus: 'legibilidad, nombres, documentación y ergonomía para quien lo usa', color: '#3fb970' },
 ];
+const slug = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 24) || 'perfil';
+function loadProfiles() {
+  try { const s = JSON.parse(localStorage.getItem('elffusscode.ceoProfiles')); if (Array.isArray(s) && s.length) return s; } catch { /* */ }
+  return DEFAULT_PROFILES.map(p => ({ ...p }));
+}
+let profiles = loadProfiles();
+export function getProfiles() { return profiles; }
+export function setProfiles(list) {
+  const used = new Set();
+  profiles = (list || []).filter(p => p && p.name).map(p => {
+    let id = p.id || slug(p.name); let n = id, i = 2;
+    while (used.has(n)) n = id + '-' + i++;
+    used.add(n);
+    return { id: n, name: String(p.name).slice(0, 40), focus: String(p.focus || '').slice(0, 200), color: /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : '#7c5cff' };
+  });
+  if (!profiles.length) profiles = DEFAULT_PROFILES.map(p => ({ ...p }));
+  try { localStorage.setItem('elffusscode.ceoProfiles', JSON.stringify(profiles)); } catch { /* */ }
+  emit('ceo', { type: 'reprogram', text: 'Perfiles actualizados: ' + profiles.map(p => p.name).join(', '), profiles });
+  return profiles;
+}
 
 let enabled = false, running = false, lastActivity = Date.now(), timer = null, lastCycleEnd = 0, cycleN = 0;
 let getProvider = () => null;
@@ -89,6 +111,16 @@ export function disable() { enabled = false; running = false; if (timer) clearTi
 
 function schedule() { if (timer) clearTimeout(timer); timer = setTimeout(tick, TICK_MS); }
 
+// «Pensar ahora» (botón de la config) — salta la espera de ociosidad. Sigue
+// respetando el semáforo: si otra pestaña es la líder, no compite por la GPU.
+export async function forceCycle() {
+  if (!isLeader) { emit('ceo', { type: 'paused', text: 'Otra pestaña lleva el cerebro — ábrela ahí para forzar un ciclo.' }); return false; }
+  if (running) return false;
+  if (!code.handle() || !getProvider()) { emit('ceo', { type: 'paused', text: 'Necesito un proyecto abierto y un modelo cargado.' }); return false; }
+  try { await runCycle(); } finally { lastCycleEnd = Date.now(); }
+  return true;
+}
+
 async function tick() {
   if (!enabled) return;
   const idle = Date.now() - lastActivity;
@@ -102,8 +134,24 @@ async function tick() {
   schedule();
 }
 
+// frase legible por humano para cada tool-call («leyendo app.js…»)
+function humanizeTool(name, args) {
+  const p = args?.path, q = args?.query, c = args?.command;
+  switch (name) {
+    case 'code.read': return `leyendo ${p}…`;
+    case 'code.write': return `escribiendo ${p}…`;
+    case 'code.tree': return `explorando ${p || 'el proyecto'}…`;
+    case 'code.search': return `buscando «${q}»…`;
+    case 'terminal.run': return `ejecutando: ${c}`;
+    case 'web.search': return `buscando en internet «${q}»…`;
+    case 'web.fetch': return `leyendo ${p || args?.url}…`;
+    default: return name + (p || q || c ? ' ' + (p || q || c) : '');
+  }
+}
+
 // helper: corre el agente con el proveedor actual sobre un prompt, emitiendo
-// tokens/herramientas a un canal. Devuelve el texto final.
+// tokens/herramientas a un canal. Devuelve el texto final. Las tool-calls pasan
+// SIEMPRE por el mismo runTool que usa el chat normal (Agent.handle real).
 async function think(channel, task) {
   const prov = getProvider();
   if (!prov) return '';
@@ -112,7 +160,8 @@ async function think(channel, task) {
   await a.handle(task, ev => {
     if (running === 'interrupt') throw new Error('interrumpido');
     if (ev.type === 'token') { out += ev.text; emit(channel, { type: 'token', text: ev.text }); }
-    else if (ev.type === 'tool') emit(channel, { type: 'tool', text: ev.call.tool + ' ' + (ev.call.args?.path || ev.call.args?.query || '') });
+    else if (ev.type === 'tool') emit(channel, { type: 'tool', text: humanizeTool(ev.call.tool, ev.call.args), tool: ev.call.tool, path: ev.call.args?.path || null });
+    else if (ev.type === 'tool_result') emit(channel, { type: 'tool_result', tool: ev.tool });
     else if (ev.type === 'text') { out = ev.text; }
   });
   return out;
@@ -134,7 +183,7 @@ async function runCycle() {
     `Eres el jefe de ${d.name}. Dentro de esa misión, céntrate en: ${d.focus}. ` +
     `Explora con code.tree/code.read lo mínimo y propón UNA mejora CONCRETA y accionable (qué fichero, qué cambio, por qué), ` +
     `entendible por un humano. Sé breve. No modifiques nada del proyecto: solo la propuesta.`;
-  const proposals = await Promise.all(DEPARTMENTS.map(async d => {
+  const proposals = await Promise.all(getProfiles().map(async d => {
     emit(d.id, { type: 'open', name: d.name, focus: d.focus });
     try { const p = await think(d.id, brief(d)); emit(d.id, { type: 'done', text: p }); return { dept: d.name, text: p }; }
     catch { emit(d.id, { type: 'done', text: '(interrumpido)' }); return null; }
