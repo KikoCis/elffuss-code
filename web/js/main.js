@@ -533,6 +533,12 @@ ceo.init({
   onEvent: (ch, ev) => {
     mind.pushThought(ch, ev);
     if (ch === 'ceo' && ev.type === 'built') reportImprovements(ev);
+    // la elfa se anima mientras el cerebro trabaja (invita a hacer clic para ver la Mente)
+    const av = document.querySelector('#activity img');
+    if (av) {
+      if (ch === 'ceo' && ev.type === 'cycle') av.classList.add('working');
+      if (ch === 'ceo' && (ev.type === 'built' || ev.type === 'paused')) av.classList.remove('working');
+    }
   },
 });
 // Reporta las mejoras encontradas de forma VISUAL en el chat + notificación del navegador.

@@ -291,7 +291,7 @@ function projectAnchors() {
   }
 }
 
-let startT = 0, elapsed = 0, lastMs = 0;
+let startT = 0, elapsed = 0, lastMs = 0, smBass = 0, smMid = 0;
 function startLoop() {
   if (raf) return;
   const loop = (ms) => {

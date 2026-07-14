@@ -107,6 +107,15 @@ body.hide-tree #sidebar { display: none; }
 #editor-empty img { width: 84px; opacity: .5; }
 #editor-empty p { font-size: .9rem; line-height: 1.5; }
 
+/* la elfa de la barra: animada cuando el cerebro trabaja (invita a hacer clic) */
+#activity img { transition: transform .2s; cursor: pointer; }
+#activity img:hover { transform: scale(1.12); }
+#activity img.working { animation: elfWorking 1.5s ease-in-out infinite; }
+@keyframes elfWorking {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 3px rgba(124,92,255,.5)); }
+  50% { transform: scale(1.14); filter: drop-shadow(0 0 12px rgba(255,77,141,.95)); }
+}
+
 /* ── Mente de Elffuss (cerebro CEO · mundo trance) ─────────────────────── */
 #mind-overlay { position: fixed; inset: 0; z-index: 300; background: radial-gradient(1200px 800px at 50% 45%, #1a0a2e, #05030c 78%); overflow: hidden; }
 #mind-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
