@@ -25,6 +25,33 @@ let enabled = false, running = false, lastActivity = Date.now(), timer = null, l
 let getProvider = () => null;
 let emit = () => {};         // (channel, event) → visualización de la Mente
 
+// MISIÓN reprogramable: el usuario puede reorientar el cerebro desde la Mente
+// («céntrate en seguridad», «optimiza mis Excel», «documenta todo»…). Se
+// guarda como una «skill de cerebro» y se inyecta en cada ciclo.
+const DEFAULT_MISSION = 'Revisar el proyecto y proponer mejoras concretas y accionables (código, procesos, datos o docs).';
+let mission = DEFAULT_MISSION;
+try { mission = localStorage.getItem('elffusscode.ceoMission') || DEFAULT_MISSION; } catch { /* */ }
+export function getMission() { return mission; }
+export function setMission(text) {
+  mission = (text || '').trim() || DEFAULT_MISSION;
+  try { localStorage.setItem('elffusscode.ceoMission', mission); } catch { /* */ }
+  emit('ceo', { type: 'reprogram', text: 'Nueva misión recibida: ' + mission });
+  lastCycleEnd = 0; lastActivity = Date.now() - IDLE_MS; // que arranque un ciclo pronto con la nueva misión
+  return mission;
+}
+
+// Carpeta-«alma» donde el cerebro crea y guarda TODO (configurable).
+const DEFAULT_SOUL = '.elffuss/soul';
+let soulDir = DEFAULT_SOUL;
+try { soulDir = localStorage.getItem('elffusscode.ceoDir') || DEFAULT_SOUL; } catch { /* */ }
+export function getSoulDir() { return soulDir; }
+export function setSoulDir(dir) {
+  soulDir = (dir || '').trim().replace(/^\/+|\/+$/g, '') || DEFAULT_SOUL;
+  try { localStorage.setItem('elffusscode.ceoDir', soulDir); } catch { /* */ }
+  emit('ceo', { type: 'reprogram', text: 'Nueva carpeta-alma: ' + soulDir + '/' });
+  return soulDir;
+}
+
 export function init({ provider, onEvent } = {}) {
   if (provider) getProvider = provider;
   if (onEvent) emit = onEvent;
@@ -74,10 +101,12 @@ async function runCycle() {
   try { tree = await code.tree({ depth: 2 }); } catch { /* sin proyecto */ }
   emit('ceo', { type: 'survey', text: 'Panorama del proyecto captado (' + tree.split('\n').length + ' entradas). Delegando a los departamentos…' });
 
-  // 2) departamentos EN PARALELO: cada uno propone UNA mejora concreta
-  const brief = (d) => `Eres el jefe de ${d.name} de un equipo que mejora este proyecto. Céntrate en: ${d.focus}. ` +
-    `Explora con code.tree/code.read lo mínimo y propón UNA mejora CONCRETA y accionable (qué fichero, qué cambio, por qué). ` +
-    `Sé breve. No modifiques nada: solo la propuesta.`;
+  // 2) departamentos EN PARALELO: cada uno propone UNA mejora concreta,
+  //    alineados con la MISIÓN reprogramable por el usuario.
+  const brief = (d) => `MISIÓN del equipo (fijada por el usuario): ${mission}\n` +
+    `Eres el jefe de ${d.name}. Dentro de esa misión, céntrate en: ${d.focus}. ` +
+    `Explora con code.tree/code.read lo mínimo y propón UNA mejora CONCRETA y accionable (qué fichero, qué cambio, por qué), ` +
+    `entendible por un humano. Sé breve. No modifiques nada del proyecto: solo la propuesta.`;
   const proposals = await Promise.all(DEPARTMENTS.map(async d => {
     emit(d.id, { type: 'open', name: d.name, focus: d.focus });
     try { const p = await think(d.id, brief(d)); emit(d.id, { type: 'done', text: p }); return { dept: d.name, text: p }; }
@@ -87,12 +116,13 @@ async function runCycle() {
 
   // 3) el CEO sintetiza y GUARDA la propuesta (artefacto aditivo, no toca tu código)
   const valid = proposals.filter(Boolean).filter(p => p.text && p.text.length > 8);
-  const md = `# Propuestas de mejora — ciclo ${cycleN}\n\n` +
+  const md = `# Propuestas de mejora — ciclo ${cycleN}\n\n**Misión:** ${mission}\n\n` +
     valid.map(p => `## ${p.dept}\n${p.text}\n`).join('\n') +
     `\n_— generado por el cerebro CEO de Elffuss mientras estabas ocioso._\n`;
+  const path = `${soulDir}/mejoras-${String(cycleN).padStart(3, '0')}.md`;
   try {
-    await code.write({ path: `elffuss-mind/mejoras-${String(cycleN).padStart(3, '0')}.md`, content: md });
-    emit('ceo', { type: 'built', text: `Propuesta guardada en elffuss-mind/mejoras-${String(cycleN).padStart(3, '0')}.md`, md, proposals: valid });
+    await code.write({ path, content: md });
+    emit('ceo', { type: 'built', text: `Propuesta guardada en ${path}`, path, md, proposals: valid });
   } catch (e) {
     emit('ceo', { type: 'built', text: 'Propuesta lista (no pude escribir el fichero)', md, proposals: valid });
   }
