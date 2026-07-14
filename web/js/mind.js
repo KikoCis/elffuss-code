@@ -147,6 +147,12 @@ export function pushThought(channel, ev) {
     spawnStar(channel, ev.text, 'tool');
     logLine(channel, '⟐ ' + ev.text);
     if (ev.path) fileBeam(ev.path, /escrib/i.test(ev.text) ? 'write' : 'read');
+  } else if (ev.type === 'tool_result') {
+    // el RESULTADO real de la tool (lo que de verdad se leyó/escribió/ejecutó),
+    // enlazado justo debajo de su tool-call — no solo el nombre de la acción.
+    const t = '→ ' + (ev.text || '(sin salida)');
+    spawnStar(channel, t, 'line');
+    logLine(channel, t);
   } else if (ev.type === 'done') {
     flushLine(channel, true);
     // el proveedor puede devolver el texto final SIN pasar por tokens (sin
@@ -217,16 +223,29 @@ function renderLegend() {
   const el = document.getElementById('mind-legend');
   if (!el) return;
   const profs = ceo.getProfiles();
-  el.innerHTML = `<div class="ml-item"><span class="ml-sw" style="background:${CEO_COLOR}"></span>CEO</div>` +
-    profs.map(p => `<div class="ml-item"><span class="ml-sw" style="background:${p.color}"></span>${escHtml(p.name)}</div>`).join('');
+  el.innerHTML = `<div class="ml-item" data-id="ceo"><span class="ml-sw" style="background:${CEO_COLOR}"></span>CEO</div>` +
+    profs.map(p => `<div class="ml-item" data-id="${p.id}"><span class="ml-sw" style="background:${p.color}"></span>${escHtml(p.name)}</div>`).join('');
+  el.querySelectorAll('.ml-item').forEach(row => {
+    row.onclick = () => { const pos = anchorMap.get(row.dataset.id); if (pos) focusOn(pos, 46); };
+  });
 }
+// vuelo suave de la cámara hacia un punto — así «clic en algo → la cámara se centra»
+let flyTo = null;
+function focusOn(pos, distance = 40) {
+  if (!S) return;
+  const dir = new THREE.Vector3().subVectors(S.camera.position, S.controls.target);
+  if (dir.lengthSq() < 0.001) dir.set(0, 0.3, 1);
+  dir.normalize().multiplyScalar(distance);
+  flyTo = { fromPos: S.camera.position.clone(), toPos: pos.clone().add(dir), fromTarget: S.controls.target.clone(), toTarget: pos.clone(), t0: elapsed, dur: 1.1 };
+}
+const easeInOut = k => k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
 function rebuildWorld() { anchorMap = computeAnchors(); renderLegend(); }
 
 // ── panel ⚙: reprograma misión, carpeta-alma y PERFILES (editables) ──────
 function wireConfig(root) {
   const btn = root.querySelector('#mind-config');
   const cfg = root.querySelector('#mind-cfg');
-  const profRowHtml = p => `<div class="cfg-prof">
+  const profRowHtml = p => `<div class="cfg-prof" data-id="${escHtml(p.id || '')}">
       <input type="color" class="cp-color" value="${p.color || '#7c5cff'}">
       <input type="text" class="cp-name" value="${escHtml(p.name || '')}" placeholder="Nombre">
       <input type="text" class="cp-focus" value="${escHtml(p.focus || '')}" placeholder="En qué se centra">
@@ -252,7 +271,10 @@ function wireConfig(root) {
     };
     cfg.querySelector('#cfg-think-now').onclick = () => { ceo.forceCycle(); cfg.classList.remove('show'); };
     cfg.querySelector('#cfg-save').onclick = () => {
+      // preserva el id original de cada perfil (si no, cada guardado los
+      // regeneraría desde el nombre y los ciclos en curso perderían el hilo)
       const rows = [...cfg.querySelectorAll('.cfg-prof')].map(r => ({
+        id: r.dataset.id || undefined,
         color: r.querySelector('.cp-color').value,
         name: r.querySelector('.cp-name').value.trim(),
         focus: r.querySelector('.cp-focus').value.trim(),
@@ -423,7 +445,7 @@ export async function openMind() {
     ptr.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     ray.setFromCamera(ptr, S.camera);
     const hit = ray.intersectObjects(thoughtNodes)[0];
-    if (hit) showThoughtPanel(hit.object);
+    if (hit) { showThoughtPanel(hit.object); focusOn(hit.object.position, 26); }
   });
 
   const onResize = () => {
@@ -506,6 +528,12 @@ function startLoop() {
       if (age > a.life) { cityCity.paintFile(a.id, 0); fileActivity.splice(i, 1); continue; }
       cityCity.paintFile(a.id, Math.max(0, 1 - age / a.life));
     }
+    if (flyTo) {
+      const k = Math.min(1, (t - flyTo.t0) / flyTo.dur), e = easeInOut(k);
+      S.camera.position.lerpVectors(flyTo.fromPos, flyTo.toPos, e);
+      S.controls.target.lerpVectors(flyTo.fromTarget, flyTo.toTarget, e);
+      if (k >= 1) flyTo = null;
+    }
     S.controls.update();
     projectAnchors();
     S.composer.render();
@@ -523,5 +551,11 @@ export function closeMind() {
 
 // para tests/depuración
 export function _debug() {
-  return { starCount: stars.length, hasCity: !!cityCity, profileCount: ceo.getProfiles().length, beamCount: beams.length, fileActivityCount: fileActivity.length };
+  return {
+    starCount: stars.length, hasCity: !!cityCity, profileCount: ceo.getProfiles().length,
+    beamCount: beams.length, fileActivityCount: fileActivity.length,
+    cameraPos: S ? [S.camera.position.x, S.camera.position.y, S.camera.position.z] : null,
+    flying: !!flyTo,
+  };
 }
+export function _debugFocusOn(id) { const p = anchorMap.get(id); if (p) focusOn(p, 46); }

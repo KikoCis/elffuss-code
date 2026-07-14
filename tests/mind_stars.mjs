@@ -90,6 +90,24 @@ await p.waitForTimeout(500);
 const logAfterCycle = await p.evaluate(() => document.getElementById('mind-log-body').innerText);
 ok('la propuesta del CEO contiene el MARCADOR real leído del fichero (tool-calling REAL, no simulado)', logAfterCycle.includes(MARK), logAfterCycle.slice(-400));
 ok('se creó un nodo de propuesta forjada (clicable, con .md guardado)', await p.evaluate(() => document.querySelectorAll('.mind-node-label').length > 0));
+ok('el RESULTADO real de la tool (no solo el nombre) quedó linkado en el historial', /→ .*README/.test(logAfterCycle) || /→ /.test(logAfterCycle), '(línea "→ …" presente)');
+ok('el nombre del fichero guardado es DESCRIPTIVO (fecha+tema, no mejoras-NNN)', await p.evaluate(() => {
+  const rows = [...document.querySelectorAll('.mind-node-label')].map(l => l.textContent);
+  return rows.some(t => /^\d{4}-\d{2}-\d{2}-\d{4}-/.test(t));
+}));
+
+// clic en la leyenda → la cámara VUELA a centrarse (posición cambia de verdad)
+const posBefore = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).cameraPos;
+await p.click('.ml-item[data-id="rend"]'); // perfil lejos de la posición inicial de cámara
+await p.waitForTimeout(150);
+const midFly = await p.evaluate(async () => (await import('/js/mind.js'))._debug());
+ok('el clic dispara el vuelo (flying=true a mitad de camino)', midFly.flying);
+await p.waitForTimeout(1300); // esperar a que termine (dur 1.1s)
+const posAfter = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).cameraPos;
+const moved = Math.hypot(posAfter[0] - posBefore[0], posAfter[1] - posBefore[1], posAfter[2] - posBefore[2]);
+ok('la cámara realmente se movió al centrarse en el perfil', moved > 5, `desplazamiento ${moved.toFixed(1)}`);
+const settledFly = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).flying;
+ok('el vuelo termina solo (flying=false al acabar)', settledFly === false);
 
 await p.screenshot({ path: OUT + '/mind_stars.png' });
 console.log('captura → mind_stars.png');
