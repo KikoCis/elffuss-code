@@ -492,10 +492,20 @@ $('code-flip').addEventListener('click', () => {
 // hacer clic abren el fichero en Monaco (inspirado en CodeFlow + VibeCodeViewer)
 $('act-arch').innerHTML = UI.graph || UI.code;
 $('act-city').innerHTML = UI.city || UI.code;
+let viewRenderSeq = 0;
 async function openView(kind) {
   const overlay = $('view-overlay'), body = $('view-body');
+  const seq = ++viewRenderSeq;
+  // destruir CUALQUIER vista previa (su RAF/canvas seguía vivo al cambiar → la
+  // nueva no cargaba bien). Ambas, no solo la del mismo tipo.
+  try { (await import('./city.js')).disposeCity(); } catch { /* */ }
+  try { (await import('./arch.js')).disposeArch(); } catch { /* */ }
+  body.innerHTML = '<div class="view-loading">Construyendo…</div>';
   overlay.hidden = false;
   document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-' + kind));
+  // esperar a que el layout dé tamaño real al overlay (si no, canvas 0×0/mal aspect)
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  if (seq !== viewRenderSeq) return; // el usuario cambió de vista mientras tanto
   try {
     if (kind === 'arch') { const m = await import('./arch.js'); await m.renderArchitecture(body, p => { closeView(); openFile(p); }); }
     else { const m = await import('./city.js'); await m.renderCity(body, p => { closeView(); openFile(p); }); }
@@ -516,10 +526,15 @@ $('view-close').addEventListener('click', closeView);
 // mejoras (en elffuss-mind/, sin tocar tu código). Clic en la elfa → abre la
 // «Mente» (mundo trance + pensamientos paralelos + música) y activa el cerebro.
 mind.setOpenFile(openFile);
-ceo.init({ provider: () => agent.provider, onEvent: (ch, ev) => {
-  mind.pushThought(ch, ev);
-  if (ch === 'ceo' && ev.type === 'built') reportImprovements(ev);
-} });
+ceo.init({
+  provider: () => agent.provider,
+  // el usuario tiene PRIORIDAD: si hay algo en cola o procesándose, el cerebro espera
+  isBusy: () => pumping || queue.length > 0,
+  onEvent: (ch, ev) => {
+    mind.pushThought(ch, ev);
+    if (ch === 'ceo' && ev.type === 'built') reportImprovements(ev);
+  },
+});
 // Reporta las mejoras encontradas de forma VISUAL en el chat + notificación del navegador.
 function reportImprovements(ev) {
   const props = ev.proposals || [];
