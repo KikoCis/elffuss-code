@@ -160,10 +160,16 @@ body.hide-tree #sidebar { display: none; }
 /* panel flotante con el .md del pensamiento (clic en un nodo) */
 #mind-panel { position: absolute; top: 70px; right: 16px; width: min(420px, 40vw); max-height: 70vh; z-index: 6; display: none; flex-direction: column; background: rgba(8,5,18,.9); border: 1px solid #7c5cff; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 50px rgba(0,0,0,.6); }
 #mind-panel.show { display: flex; }
-.mp-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: .74rem; color: #d8ccff; background: rgba(124,92,255,.14); border-bottom: 1px solid rgba(124,92,255,.3); }
-.mp-head button { margin-left: auto; background: none; border: none; color: #b9a7ff; cursor: pointer; font-size: .9rem; }
-.mp-body { flex: 1; overflow: auto; margin: 0; padding: 12px; font-size: .72rem; line-height: 1.55; color: #cfe8f0; white-space: pre-wrap; }
-.mp-open { margin: 0 12px 12px; background: linear-gradient(135deg, #ff4d8d, #7c5cff); border: none; color: #fff; border-radius: 8px; padding: 8px; cursor: pointer; font-size: .76rem; }
+#mind-panel .mp-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: .74rem; color: #d8ccff; background: rgba(124,92,255,.14); border-bottom: 1px solid rgba(124,92,255,.3); }
+#mind-panel .mp-head button { margin-left: auto; background: none; border: none; color: #b9a7ff; cursor: pointer; font-size: .9rem; }
+#mind-panel .mp-body { flex: 1; overflow: auto; margin: 0; padding: 12px; font-size: .78rem; line-height: 1.55; color: #cfe8f0; }
+#mind-panel .mp-body h1, #mind-panel .mp-body h2, #mind-panel .mp-body h3 { color: #fff; margin: 12px 0 6px; }
+#mind-panel .mp-body code { background: rgba(124,92,255,.18); padding: 1px 5px; border-radius: 4px; font-size: .82em; }
+#mind-panel .mp-body pre { background: #0b0716; border: 1px solid rgba(124,92,255,.3); border-radius: 8px; padding: 8px; overflow-x: auto; }
+#mind-panel .mp-body ul, #mind-panel .mp-body ol { padding-left: 1.2em; }
+.mp-actions { display: flex; gap: 8px; padding: 0 12px 12px; }
+.mp-exec { flex: 1; background: linear-gradient(135deg, #ff4d8d, #7c5cff); border: none; color: #fff; border-radius: 8px; padding: 9px; cursor: pointer; font-size: .78rem; font-weight: 600; }
+.mp-open { flex: 1; background: rgba(124,92,255,.15); border: 1px solid #7c5cff; color: #d8ccff; border-radius: 8px; padding: 9px; cursor: pointer; font-size: .78rem; }
 /* panel de configuración del cerebro */
 #mind-cfg { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); width: min(520px, 92vw); z-index: 7; display: none; flex-direction: column; gap: 6px; background: rgba(8,5,18,.94); border: 1px solid #7c5cff; border-radius: 14px; padding: 14px 16px; box-shadow: 0 16px 60px rgba(0,0,0,.6); }
 #mind-cfg.show { display: flex; }
@@ -261,6 +267,8 @@ body.hide-tree #sidebar { display: none; }
   background: #0d1117; border: 1px solid var(--line); border-radius: 5px;
   padding: 1px 6px; font-family: ui-monospace, monospace; font-size: .8em; color: #ffb3c9;
 }
+.msg.md code.file-link { cursor: pointer; color: var(--accent2); border-color: var(--accent2); text-decoration: underline dotted; }
+.msg.md code.file-link:hover { background: rgba(124,92,255,.18); }
 .msg.md pre.codeblock {
   position: relative; background: #0d1117; border: 1px solid var(--line);
   border-radius: 8px; padding: 10px 12px; margin: 8px 0; overflow-x: auto;

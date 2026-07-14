@@ -109,6 +109,35 @@ ok('la cámara realmente se movió al centrarse en el perfil', moved > 5, `despl
 const settledFly = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).flying;
 ok('el vuelo termina solo (flying=false al acabar)', settledFly === false);
 
+// panel de propuesta: markdown FORMATEADO (no crudo) + botón «Ejecutar»
+await p.evaluate(() => document.querySelectorAll('.mind-node-label')[0]?.click());
+await p.waitForTimeout(400);
+const panelHtml = await p.evaluate(() => document.querySelector('#mind-panel .mp-body')?.innerHTML || '');
+ok('el .md se renderiza FORMATEADO (hay <h4> real, no texto crudo con ##)', /<h4/.test(panelHtml), panelHtml.slice(0, 80));
+ok('sin símbolos ## crudos en el panel (se renderizaron como encabezado)', !/##\s/.test(await p.evaluate(() => document.querySelector('#mind-panel .mp-body')?.innerText || '')));
+ok('botón «Ejecutar esta propuesta» presente', await p.locator('#mp-exec').count() > 0);
+// clic en Ejecutar → cierra la Mente y la propuesta entra en la cola del chat real
+await p.click('#mp-exec');
+await p.waitForTimeout(600);
+ok('«Ejecutar» cierra la Mente y manda la propuesta a la cola del chat', await p.evaluate(() => document.getElementById('mind-overlay').style.display === 'none'));
+const chatText = await p.locator('#chat-log').innerText();
+ok('la propuesta llegó como mensaje real al chat/cola', /Implementa esta propuesta/.test(chatText));
+
+// anti-solape: crear MUCHOS nodos de golpe y comprobar que no quedan amontonados
+await p.locator('#activity img').click(); await p.waitForTimeout(600);
+await p.evaluate(async () => {
+  const m = await import('/js/mind.js');
+  for (let i = 0; i < 20; i++) m.pushThought('ceo', { type: 'built', text: 'extra ' + i, path: `.elffuss/soul/extra-${i}.md`, md: '# extra ' + i, proposals: [] });
+});
+await p.waitForTimeout(1000);
+const positions = await p.evaluate(() => [...document.querySelectorAll('.mind-node-label')].filter(l => l.style.display !== 'none').map(l => [parseFloat(l.style.left), parseFloat(l.style.top)]));
+let overlaps = 0;
+for (let i = 0; i < positions.length; i++) for (let j = i + 1; j < positions.length; j++) {
+  if (Math.abs(positions[i][0] - positions[j][0]) < 20 && Math.abs(positions[i][1] - positions[j][1]) < 8) overlaps++;
+}
+ok('con muchos nodos NO quedan etiquetas amontonadas en el mismo punto', overlaps === 0, `${overlaps} solapes entre ${positions.length} visibles`);
+ok('el número de etiquetas visibles está acotado (no crece sin límite)', positions.length <= 14, `${positions.length} visibles`);
+
 await p.screenshot({ path: OUT + '/mind_stars.png' });
 console.log('captura → mind_stars.png');
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ MENTE v3 (estrellas + perfiles + ciudad + tool-calling real) OK');
