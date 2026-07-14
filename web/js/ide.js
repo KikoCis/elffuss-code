@@ -76,6 +76,7 @@ export async function openFile(path) {
   active = path;
   code.setCurrentFile(path);
   editor.setModel(tab.model);
+  setEmptyState(false);
   renderTabs();
 }
 
@@ -96,10 +97,23 @@ function closeTab(path) {
   if (active === path) {
     active = tabs[i - 1]?.path || tabs[0]?.path || null;
     code.setCurrentFile(active);
-    if (active) editor.setModel(tabs.find(t => t.path === active).model);
-    else editor.setModel(monacoRef.editor.createModel('', 'plaintext'));
+    if (active) { editor.setModel(tabs.find(t => t.path === active).model); setEmptyState(false); }
+    else { editor.setModel(monacoRef.editor.createModel('', 'plaintext')); setEmptyState(true); }
   }
   renderTabs();
+}
+
+// Estado vacío: cuando no hay ningún fichero abierto, en vez de dejar el Monaco
+// en blanco con un «1», mostramos un placeholder limpio.
+export function setEmptyState(on) {
+  let el = document.getElementById('editor-empty');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'editor-empty';
+    el.innerHTML = '<img src="img/elffuss-code.svg" alt=""><p>Abre un fichero del explorador,<br>o pídele algo a la elfa.</p>';
+    $('editor').parentElement.appendChild(el);
+  }
+  el.style.display = on ? 'flex' : 'none';
 }
 
 function renderTabs() {

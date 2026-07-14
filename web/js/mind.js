@@ -165,7 +165,9 @@ function buildScene(canvas, W, H) {
   const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 2000);
   camera.position.set(0, 40, 150);
   const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 0.45;
+  // cámara QUIETA por defecto (así las consolas no se van de la pantalla y se
+  // pueden leer). El mundo se mueve suave solo; arrastra para orbitar tú mismo.
+  controls.enableDamping = true; controls.dampingFactor = 0.06; controls.autoRotate = false;
   controls.enablePan = false; controls.minDistance = 60; controls.maxDistance = 400;
 
   const N = 14000;
@@ -196,16 +198,15 @@ function buildScene(canvas, W, H) {
       float fbm(vec3 p){ float a=0.5,s=0.0; for(int i=0;i<4;i++){ s+=a*vnoise(p); p*=2.02; a*=0.5;} return s; }
       void main(){
         vec3 pos=position;
-        float n=fbm(pos*0.03 + vec3(0.0,uTime*0.25,0.0));       // campo fractal que fluye
-        // MEDIOS → vibración fractal fina · GRAVES → morphs GRANDES (el mundo se deforma en el kick)
-        pos += normalize(pos+0.001) * (n-0.5) * (6.0 + uMid*24.0 + uBass*46.0);
-        // remolino (vórtice) que se aprieta con los graves → sensación de túnel
-        float sw = uTime*0.2 + aRad*0.02 + uBass*1.4;
+        float n=fbm(pos*0.03 + vec3(0.0,uTime*0.18,0.0));        // campo fractal lento que fluye
+        // guía SUAVE por la música: medios ligera ondulación, graves un respiro tenue
+        pos += normalize(pos+0.001) * (n-0.5) * (5.0 + uMid*4.0 + uBass*7.0);
+        float sw = uTime*0.14 + aRad*0.015 + uBass*0.18;         // remolino muy suave
         float cs=cos(sw), sn=sin(sw);
         pos.xz = mat2(cs,-sn,sn,cs) * pos.xz;
-        pos *= (1.0 + uBass*0.30);                               // GRAVES → el espacio respira fuerte
-        float h=fract(aRad*0.004+uTime*0.03+n*0.15); vC=hsv(h)*(1.3-aRad*0.004)*(0.85+uMid*0.7+uBass*0.5);
-        vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_PointSize=(2.2+60.0/-mv.z)*(1.0+uBass*0.7); gl_Position=projectionMatrix*mv; }`,
+        pos *= (1.0 + uBass*0.05);                               // respiración leve con el bajo
+        float h=fract(aRad*0.004+uTime*0.03+n*0.12); vC=hsv(h)*(1.3-aRad*0.004)*(0.95+uMid*0.18+uBass*0.12);
+        vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_PointSize=(2.2+60.0/-mv.z)*(1.0+uBass*0.18); gl_Position=projectionMatrix*mv; }`,
     fragmentShader: `varying vec3 vC; void main(){ vec2 d=gl_PointCoord-0.5; float m=smoothstep(0.5,0.0,length(d)); gl_FragColor=vec4(vC*2.0,m); }`,
   });
   const galaxy = new THREE.Points(geo, mat); scene.add(galaxy);
@@ -298,30 +299,30 @@ function startLoop() {
     if (lastMs) elapsed += (ms - lastMs) / 1000; lastMs = ms;
     const t = elapsed;
     // envolventes de audio (simuladas a ritmo trance ~138 BPM; el audio de
-    // SoundCloud es cross-origin y no se puede analizar por FFT).
-    const beat = 60 / 138;                     // 0.4348 s
+    // SoundCloud es cross-origin y no se puede analizar por FFT). Se SUAVIZAN
+    // (low-pass) para que el mundo se mueva liso, con la música solo de guía.
+    const beat = 60 / 138;
     const bp = (t % beat) / beat;
-    const bass = Math.pow(1 - bp, 3);          // kick con caída aguda cada tiempo
-    const mid = 0.5 + 0.5 * Math.sin(t * 9.2) * (0.6 + 0.4 * Math.sin(t * 0.73)); // shimmer de medios
+    const bassRaw = Math.pow(1 - bp, 3);
+    const midRaw = 0.5 + 0.5 * Math.sin(t * 6.0);
+    smBass += (bassRaw - smBass) * 0.05;        // muy suavizado → ondas, no golpes
+    smMid += (midRaw - smMid) * 0.06;
     S.mat.uniforms.uTime.value = t;
-    S.mat.uniforms.uBass.value = bass;
-    S.mat.uniforms.uMid.value = mid;
-    S.galaxy.rotation.y = t * 0.06;
-    S.galaxy.scale.setScalar(1 + bass * 0.05);  // el espacio respira con los graves
-    const pulse = 1 + bass * 0.2 + Math.sin(t * 1.6) * 0.05;
-    S.core.scale.setScalar(pulse); S.core.rotation.y = t * 0.2; S.core.rotation.x = t * 0.12;
-    S.core.material.color.setHSL((t * 0.05) % 1, 0.9, 0.6);
-    // túnel/vórtice: los anillos suben, se aprietan y brillan con los graves
+    S.mat.uniforms.uBass.value = smBass;
+    S.mat.uniforms.uMid.value = smMid;
+    S.galaxy.rotation.y = t * 0.05;
+    S.galaxy.scale.setScalar(1 + smBass * 0.02);
+    const pulse = 1 + smBass * 0.05 + Math.sin(t * 0.9) * 0.03;
+    S.core.scale.setScalar(pulse); S.core.rotation.y = t * 0.16; S.core.rotation.x = t * 0.09;
+    S.core.material.color.setHSL((t * 0.04) % 1, 0.9, 0.6);
+    // túnel/vórtice: los anillos suben lentos y laten muy suave con el bajo
     for (const r of S.rings) {
-      r.position.y += 0.35 + bass * 0.9;
+      r.position.y += 0.14 + smBass * 0.12;
       if (r.position.y > 74) r.position.y -= 144;
-      const rs = 1 + bass * 0.5 + Math.sin(t * 1.2 + r.userData.i) * 0.06;
-      r.scale.setScalar(rs);
-      r.material.opacity = 0.22 + bass * 0.55;
-      r.material.color.setHSL((t * 0.06 + r.userData.i * 0.03) % 1, 0.85, 0.6);
+      r.scale.setScalar(1 + smBass * 0.12 + Math.sin(t * 0.8 + r.userData.i) * 0.04);
+      r.material.opacity = 0.2 + smBass * 0.16;
+      r.material.color.setHSL((t * 0.05 + r.userData.i * 0.03) % 1, 0.85, 0.6);
     }
-    // punch de zoom en el kick (modulando el FOV, sin pelear con OrbitControls)
-    S.camera.fov = 60 - bass * 9; S.camera.updateProjectionMatrix();
     for (let i = 0; i < thoughtNodes.length; i++) { const n = thoughtNodes[i]; n.rotation.y = t + i; n.scale.setScalar(1 + Math.sin(t * 2 + i) * 0.14); }
     S.controls.update();
     projectAnchors();

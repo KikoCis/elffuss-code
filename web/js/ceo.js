@@ -23,7 +23,7 @@ const DEPARTMENTS = [
 
 let enabled = false, running = false, lastActivity = Date.now(), timer = null, lastCycleEnd = 0, cycleN = 0;
 let getProvider = () => null;
-let emit = () => {};         // (channel, event) → visualización de la Mente
+let isBusy = () => false;    // ¿el usuario tiene trabajo en cola/procesándose? → prioridad
 
 // MISIÓN reprogramable: el usuario puede reorientar el cerebro desde la Mente
 // («céntrate en seguridad», «optimiza mis Excel», «documenta todo»…). Se
@@ -52,10 +52,35 @@ export function setSoulDir(dir) {
   return soulDir;
 }
 
-export function init({ provider, onEvent } = {}) {
-  if (provider) getProvider = provider;
-  if (onEvent) emit = onEvent;
+// ── semáforo cross-pestaña: UN SOLO cerebro ejecuta, TODAS visualizan ───────
+// El líder tiene un Web Lock exclusivo (se libera solo al cerrar la pestaña);
+// difunde sus pensamientos por BroadcastChannel para que el resto los vea.
+let isLeader = false, bc = null, realEmit = () => {};
+function initCrossTab() {
+  if (bc) return;
+  try {
+    bc = new BroadcastChannel('elffuss-ceo');
+    bc.onmessage = e => { if (e.data && e.data.kind === 'thought') realEmit(e.data.channel, e.data.ev); };
+  } catch { /* sin BroadcastChannel */ }
+  if (navigator.locks && navigator.locks.request) {
+    // mantener el lock hasta que la pestaña se cierre → esta pestaña es la que ejecuta
+    navigator.locks.request('elffuss-ceo-leader', { mode: 'exclusive' }, () => new Promise(() => { isLeader = true; }))
+      .catch(() => { isLeader = true; });
+  } else { isLeader = true; } // sin Web Locks: degradar a que cada pestaña actúe
 }
+// emisión que usa el ciclo (solo corre en el líder): local + difusión al resto
+function emit(channel, ev) {
+  realEmit(channel, ev);
+  try { bc && bc.postMessage({ kind: 'thought', channel, ev }); } catch { /* ev no serializable */ }
+}
+
+export function init({ provider, onEvent, isBusy: busy } = {}) {
+  if (provider) getProvider = provider;
+  if (onEvent) realEmit = onEvent;
+  if (busy) isBusy = busy;
+  initCrossTab();
+}
+export function isThisTabLeader() { return isLeader; }
 export function noteActivity() { lastActivity = Date.now(); if (running) running = 'interrupt'; }
 export function isEnabled() { return enabled; }
 export function isRunning() { return !!running; }
@@ -68,7 +93,9 @@ async function tick() {
   if (!enabled) return;
   const idle = Date.now() - lastActivity;
   const rested = Date.now() - lastCycleEnd > COOLDOWN_MS;
-  if (!running && idle >= IDLE_MS && rested && code.handle() && getProvider()) {
+  // solo el LÍDER ejecuta (semáforo cross-pestaña), y solo si el usuario NO
+  // tiene trabajo en cola/procesándose (prioridad del usuario y del scheduler).
+  if (isLeader && !running && !isBusy() && idle >= IDLE_MS && rested && code.handle() && getProvider()) {
     try { await runCycle(); } catch { /* siguiente ciclo */ }
     lastCycleEnd = Date.now();
   }
