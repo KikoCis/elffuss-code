@@ -68,7 +68,7 @@
       <button id="git-branch" class="chip" title="rama actual" hidden></button>
       <span id="model-dot" class="dot off" title="modelo"></span>
       <select id="model-select" hidden></select>
-      <button id="btn-clear" class="ghost icon-btn" title="Nueva conversación"></button>
+      <button id="btn-history" class="ghost icon-btn" title="Historial de conversaciones"></button>
       <button id="btn-settings" class="ghost icon-btn" title="Ajustes, modelo y API keys"></button>
     </div>
   </header>
@@ -114,6 +114,8 @@
       <div id="statusbar"></div>
     </section>
     <section id="chat">
+      <div id="conv-tabs"></div>
+      <div id="history-panel" hidden></div>
       <div id="chat-log"></div>
       <div id="menu" hidden></div>
       <div id="composer-wrap">
