@@ -276,12 +276,23 @@ async function resolveProvider(id) {
 const LITERT_READY = false;
 
 const isMobile = () => matchMedia('(max-width: 820px)').matches || matchMedia('(pointer: coarse)').matches;
-const defaultBrain = () => !navigator.gpu ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
+// navigator.gpu puede EXISTIR como API sin que haya un adaptador real (ciertos
+// Linux/drivers, entornos sandboxed/headless…) — comprobarlo UNA vez al
+// arrancar evita ofrecer/elegir Gemma (2-4 GB) cuando de todos modos va a
+// fallar al crear el motor (onnx.js y litert.js ya comprueban el adaptador
+// por su cuenta como defensa adicional, pero esto evita hasta OFRECERLO).
+let realGPU = !!navigator.gpu;
+const realGPUCheck = (async () => {
+  if (!navigator.gpu) return (realGPU = false);
+  try { return (realGPU = !!(await navigator.gpu.requestAdapter())); }
+  catch { return (realGPU = false); }
+})();
+const defaultBrain = () => !realGPU ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
 
 function modelOptions() {
   const opts = [];
-  if (navigator.gpu) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
-  if (navigator.gpu) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
+  if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
+  if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
   opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) — ligero' });
   opts.push({ id: 'rules', label: 'Básico (sin modelo)' });
   return [...opts, ...settings.enabledExternals()];
@@ -380,6 +391,7 @@ let _fellBack = false;
 async function preloadModel() {
   const saved = localStorage.getItem('elffusscode.model');
   if (saved === 'rules') return;
+  await realGPUCheck; // que defaultBrain()/modelOptions() vean el adaptador real, no solo la API
   const avail = new Set(modelOptions().map(o => o.id));
   const skipGemma = sessionStorage.getItem('elffusscode.skipGemma') === '1';
   const def = skipGemma ? 'onnx' : defaultBrain();
@@ -458,7 +470,7 @@ function renderSettings() {
   ];
   const grid = el('div', 'model-grid');
   for (const m of LOCAL) {
-    if (m.need === 'gpu' && !navigator.gpu) continue;
+    if (m.need === 'gpu' && !realGPU) continue;
     const card = el('button', 'model-card' + (activeModel === m.id ? ' active' : '') + (m.disabled ? ' disabled' : ''));
     if (m.disabled) card.disabled = true;
     card.innerHTML = `<b>${m.name}</b><span>${m.sub}</span>`;
