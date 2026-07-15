@@ -14,21 +14,25 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import * as code from './tools/code.js';
 import * as ceo from './ceo.js';
 import * as db from './db.js';
 import { renderMarkdown } from './md.js';
-import { buildModel } from './vcc/model.js';
-import { buildCity } from './vcc/builder.js';
-import { THEME as VCC_THEME } from './vcc/theme.js';
 
 const SOUNDCLOUD = 'https://soundcloud.com/dekel-official/dekel-baoba-festival-2023';
 const CEO_COLOR = '#ff4d8d';
-const CITY_MAX_FILES = 2600;
-const IGNORE = new Set(['node_modules', '.git', 'dist', 'build', 'target', '__pycache__', '.next', 'venv', '.venv', '.DS_Store']);
 
 let open = false, built = false, raf = null;
 let overlay, S, widget, onOpenFile = () => {}, onExecute = () => {};
+// Ciudad de fondo (vista real del workspace) y semilla de pensamientos previos:
+// AMBOS opcionales e inyectados por la app anfitriona — Code tiene un motor
+// VibeCodeViewer sobre su proyecto único; Claw (v1) no lo ofrece y la Mente
+// funciona igual de bien sin ciudad de fondo.
+let loadThoughts = async () => [];             // () => [{path, md}]
+let buildCityFn = null;                        // (scene) => {cityWrap, cityCity, cityModel} | null
+export function init({ loadThoughts: lt, buildCity: bc } = {}) {
+  if (lt) loadThoughts = lt;
+  if (bc) buildCityFn = bc;
+}
 let anchorMap = new Map();     // id de perfil (+ 'ceo') → Vector3 (anclas del mundo)
 const anchors = [];            // { el, pos } — solo etiquetas de propuestas forjadas
 let nodesGroup, thoughtNodes = [];
@@ -211,15 +215,7 @@ function addThoughtNode({ path, md, text }) {
 }
 
 async function loadExistingThoughts() {
-  try {
-    const soul = ceo.getSoulDir();
-    let dir = code.handle();
-    for (const seg of soul.split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(seg);
-    const files = [];
-    for await (const e of dir.values()) if (e.kind === 'file' && e.name.endsWith('.md')) files.push(e);
-    files.sort((a, b) => a.name.localeCompare(b.name));
-    for (const f of files.slice(-24)) addThoughtNode({ path: soul + '/' + f.name, md: await (await f.getFile()).text() });
-  } catch { /* aún no hay */ }
+  try { for (const it of await loadThoughts()) addThoughtNode(it); } catch { /* aún no hay */ }
 }
 
 // selección de un nodo de propuesta — desde la malla 3D (raycast) o su etiqueta
@@ -338,32 +334,26 @@ function wireHistory(root) {
   panel.querySelector('#ml-x').onclick = () => panel.classList.remove('show');
 }
 
-// ══ ciudad de fondo (motor real, por debajo del mundo) + haces de actividad ══
-async function scanForCity(dir, budget, prefix = '') {
-  const dirs = [], files = [];
-  for await (const e of dir.values()) { if (IGNORE.has(e.name)) continue; (e.kind === 'directory' ? dirs : files).push(e); }
-  dirs.sort((a, b) => a.name.localeCompare(b.name)); files.sort((a, b) => a.name.localeCompare(b.name));
-  const outFiles = [];
-  for (const f of files) { if (budget.n >= CITY_MAX_FILES) break; let size = 0; try { size = (await f.getFile()).size; } catch { /* */ } outFiles.push([f.name, size]); budget.n++; }
-  const outDirs = [];
-  for (const d of dirs) { if (budget.n >= CITY_MAX_FILES) break; outDirs.push(await scanForCity(d, budget)); }
-  return [dir.name, outDirs, outFiles];
+// play/stop del cerebro, visible dentro de la Mente. La elección la persiste
+// ceo.js (misma clave que usa el clic en la elfa) → sobrevive a recargar.
+function wirePlayStop(root) {
+  const btn = root.querySelector('#mind-playstop');
+  const paint = () => {
+    const on = ceo.isEnabled();
+    btn.textContent = on ? '⏸ pausar cerebro' : '▶ reanudar cerebro';
+    btn.classList.toggle('paused', !on);
+  };
+  btn.onclick = () => { if (ceo.isEnabled()) ceo.disable(); else ceo.enable(); paint(); };
+  paint();
 }
+
+// ══ ciudad de fondo (motor de la app anfitriona, por debajo del mundo) ══════
 async function buildBackgroundCity(scene) {
-  const root = code.handle();
-  if (!root) return;
+  if (!buildCityFn) return;
   try {
-    const tree = await scanForCity(root, { n: 0 });
-    const model = buildModel(tree, null);
-    if (!model.files.length) return;
-    const extent = Math.max(model.city.box.sx, model.city.box.sz, 1);
-    const scale = Math.min(1, Math.max(0.05, 170 / extent));
-    cityWrap = new THREE.Group();
-    cityWrap.position.set(0, -95, 0);
-    cityWrap.scale.setScalar(scale);
-    scene.add(cityWrap);
-    cityCity = buildCity(cityWrap, model, VCC_THEME);
-    cityModel = model;
+    const city = await buildCityFn(scene);
+    if (!city) return;
+    cityWrap = city.cityWrap; cityCity = city.cityCity; cityModel = city.cityModel;
   } catch { /* sigue sin ciudad de fondo */ }
 }
 // haz de luz que baja hasta el fichero real en la ciudad + resalta su celda
@@ -462,13 +452,14 @@ export async function openMind() {
     '<canvas id="mind-canvas"></canvas>' +
     '<div id="mind-title">MENTE DE ELFFUSS</div>' +
     '<div id="mind-legend"></div>' +
+    '<button id="mind-playstop" title="pausar/reanudar el cerebro"></button>' +
     '<button id="mind-config" title="reprogramar el cerebro">⚙ cerebro</button>' +
     '<button id="mind-history" title="ver todo lo que ha llegado">≡ historial</button>' +
     '<button id="mind-close" title="salir">✕ salir</button>' +
     '<div id="mind-anchors"></div><div id="mind-panel"></div><div id="mind-cfg"></div>' +
     '<div id="mind-log"><div class="ml-head">Historial completo<button id="ml-x">✕</button></div><div id="mind-log-body"></div></div>';
   document.body.appendChild(overlay);
-  wireConfig(overlay); wireHistory(overlay);
+  wireConfig(overlay); wireHistory(overlay); wirePlayStop(overlay);
   mountMusic(overlay);
   anchors.length = 0; thoughtNodes = []; stars = []; lineBuf.clear();
   rebuildWorld();

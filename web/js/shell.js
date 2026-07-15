@@ -4,10 +4,11 @@
 // disco de verdad y el editor/árbol se refrescan. Es el mismo mundo que ve la
 // elfa, así que también lo exponemos como herramienta `terminal.run`.
 //
-// Runtimes reales (node/npm/python) necesitan aislamiento cross-origin
-// (WebContainers) — ver `capabilities()`. Sin él, esto ya cubre navegar,
-// leer, buscar y editar el proyecto sin salir del navegador.
+// Runtimes reales (node/npm/python): con un Bridge local conectado (ver
+// bridge.js) se ejecutan de VERDAD en tu máquina; sin él, necesitan
+// WebContainers (aislamiento cross-origin) — ver `capabilities()`.
 import * as code from './tools/code.js';
+import * as bridgeClient from './bridge.js';
 
 let cwd = [];                 // directorio actual, segmentos relativos a la raíz
 const history = [];           // historial de comandos (para ↑/↓ y `history`)
@@ -22,10 +23,12 @@ export function reset() { cwd = []; }
 export function cwdString() { return '/' + cwd.join('/'); }
 export function getHistory() { return history.slice(); }
 
-// ¿Podemos lanzar runtimes reales? WebContainers exige crossOriginIsolated
-// (cabeceras COOP+COEP). Lo detectamos para dar mensajes honestos.
+// ¿Podemos lanzar runtimes reales? Por Bridge local (conectado de verdad) o
+// por WebContainers (crossOriginIsolated, cabeceras COOP+COEP). Honesto con
+// ambos caminos para no prometer de más.
 export function capabilities() {
-  return { crossOriginIsolated: !!self.crossOriginIsolated, webcontainers: !!self.crossOriginIsolated };
+  const webcontainers = !!self.crossOriginIsolated;
+  return { crossOriginIsolated: webcontainers, webcontainers, bridge: bridgeClient.isConnected(), realRuntime: webcontainers || bridgeClient.isConnected() };
 }
 
 // ---- resolución de rutas ----
@@ -280,9 +283,25 @@ const CMDS = {
     return DIM(`git ${sub}: de solo lectura aquí. Runtime real → WebContainers (aislamiento cross-origin).`);
   },
 };
-// runtimes que aún no viven en el navegador sin WebContainers
+// tokenize() ya quitó las comillas originales (p.ej. -e "console.log(1)" llega
+// como el arg SUELTO console.log(1)) — para reenviarlo al bridge (que lo pasa
+// a `sh -c`) hay que re-entrecomillarlo, si no un espacio o un paréntesis
+// rompe el comando al otro lado (bug real: -e "console.log('x')" fallaba).
+const shellQuote = s => `'${String(s).replace(/'/g, "'\\''")}'`;
+// runtimes: sin WebContainers (necesitan COOP+COEP) pero SÍ reales si hay un
+// Bridge local conectado (⚙ Ajustes) — se ejecutan en tu máquina de verdad,
+// en la carpeta configurada del bridge (no en el cwd virtual del proyecto).
 for (const r of ['node', 'npm', 'npx', 'python', 'python3', 'pip', 'yarn', 'pnpm', 'bun', 'deno', 'cargo', 'go'])
-  CMDS[r] = () => { throw new Error(`${r}: runtime real no disponible sin WebContainers.\n${DIM('Necesita aislamiento cross-origin (cabeceras COOP+COEP). Mientras tanto, la elfa edita ficheros y tú navegas el proyecto con los comandos de arriba (help).')}`); };
+  CMDS[r] = async (args) => {
+    if (!bridgeClient.isConnected()) {
+      throw new Error(`${r}: runtime real no disponible.\n${DIM('Opción A: descarga el Bridge local (⚙ Ajustes → 🔌 Bridge local) para ejecución real en tu máquina.\nOpción B: WebContainers (necesita COOP+COEP, aún no activado). Mientras tanto, la elfa edita ficheros y tú navegas con los comandos de arriba (help).')}`);
+    }
+    const full = r + (args.length ? ' ' + args.map(shellQuote).join(' ') : '');
+    let out = '';
+    const code = await bridgeClient.exec(full, { onOut: t => { out += t; }, onErr: t => { out += RED(t); } });
+    if (code) out += `\n${DIM('(código de salida ' + code + ')')}`;
+    return out || DIM('(sin salida)');
+  };
 
 // copia recursiva por handles (la File System API no tiene move nativo)
 async function copyPath(srcSegs, dstSegs) {

@@ -14,7 +14,7 @@ export const TOOLS = {
   'code.read':   { desc: 'Leer un archivo del proyecto', params: { path: 'ruta relativa' }, run: a => code.read(a) },
   'code.write':  { desc: 'Escribir/crear un archivo (contenido COMPLETO; se refleja al instante en el editor)', params: { path: 'ruta', content: 'contenido íntegro' }, run: a => code.write(a) },
   'code.search': { desc: 'Buscar texto en el proyecto (grep)', params: { query: 'texto', ext: 'filtro extensión (opcional)' }, run: a => code.search(a) },
-  'terminal.run': { desc: 'Ejecutar un comando de shell sobre los ficheros del proyecto (ls, cat, grep, find, mkdir, echo>fichero, git status…). node/npm reales necesitan WebContainers', params: { command: 'la línea de comando' }, run: async a => { const out = await shell.runForAgent(a.command || ''); onTerminalEcho(a.command || '', out); return out; } },
+  'terminal.run': { desc: 'Ejecutar un comando de shell sobre los ficheros del proyecto (ls, cat, grep, find, mkdir, echo>fichero, git status…). node/npm/python REALES si hay un Bridge local conectado (⚙ Ajustes); si no, necesitan WebContainers', params: { command: 'la línea de comando' }, run: async a => { const out = await shell.runForAgent(a.command || ''); onTerminalEcho(a.command || '', out); return out; } },
   'web.search': { desc: 'Buscar en internet (docs, errores, APIs) — devuelve títulos, URLs y fragmentos', params: { query: 'qué buscar' }, run: a => web.search(a) },
   'web.fetch':  { desc: 'Leer el contenido de texto de una URL (documentación, referencia)', params: { url: 'https://…' }, run: a => web.fetchUrl(a) },
 };
