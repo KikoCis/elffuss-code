@@ -216,6 +216,8 @@ body.hide-tree #sidebar { display: none; }
 #md-preview-pane code { background: var(--bg3); padding: 1px 5px; border-radius: 4px; font-size: .88em; }
 #md-preview-pane pre { background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; }
 #md-preview-pane a { color: var(--accent2); }
+#md-preview-pane.html-preview { padding: 0; overflow: hidden; }
+#md-preview-pane.html-preview iframe { display: block; width: 100%; height: 100%; border: none; background: #fff; }
 
 /* panel del terminal (abajo del editor, estilo VS Code) */
 #terminal-panel { display: flex; flex-direction: column; height: 260px; flex: 0 0 auto; background: #0b0d12; border-top: 1px solid var(--line); position: relative; }

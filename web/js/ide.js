@@ -94,9 +94,11 @@ export async function openFile(path) {
 
 // modo «Vista previa» de un tab .md: en vez del código fuente en Monaco,
 // muestra el markdown renderizado (mismo motor que el chat y la Mente).
+const PREVIEWABLE = new Set(['markdown', 'html']);
 function applyView() {
   const tab = tabs.find(t => t.path === active);
-  const showPreview = !!(tab && tab.preview && langOf(tab.path) === 'markdown');
+  const lang = tab ? langOf(tab.path) : null;
+  const showPreview = !!(tab && tab.preview && PREVIEWABLE.has(lang));
   $('editor').style.display = showPreview ? 'none' : '';
   let pane = document.getElementById('md-preview-pane');
   if (showPreview) {
@@ -105,16 +107,27 @@ function applyView() {
       pane.id = 'md-preview-pane';
       $('editor').parentElement.appendChild(pane);
     }
-    pane.innerHTML = renderMarkdown(tab.model.getValue());
+    pane.classList.toggle('html-preview', lang === 'html');
+    if (lang === 'html') {
+      pane.replaceChildren();
+      const frame = document.createElement('iframe');
+      frame.sandbox = 'allow-scripts'; // sin allow-same-origin: aislado de tu proyecto real
+      frame.srcdoc = tab.model.getValue();
+      pane.appendChild(frame);
+    } else {
+      pane.innerHTML = renderMarkdown(tab.model.getValue());
+    }
     pane.style.display = '';
   } else if (pane) {
     pane.style.display = 'none';
   }
 }
 async function togglePreview(path) {
+  // el fichero puede no tener pestaña abierta todavía (p.ej. desde el menú
+  // del EXPLORADOR, no el de una pestaña ya abierta) — se abre primero.
+  if (active !== path || !tabs.find(t => t.path === path)) await openFile(path);
   const tab = tabs.find(t => t.path === path);
-  if (!tab) return;
-  if (active !== path) await openFile(path);
+  if (!tab) return; // openFile no pudo (fichero borrado, etc.)
   tab.preview = !tab.preview;
   renderTabs();
   applyView();
@@ -199,7 +212,7 @@ function openTabMenu(x, y, path) {
   items.push(['Cerrar todas', () => { for (const t of [...tabs]) closeTab(t.path); }]);
   items.push(['sep']);
   items.push(['Copiar ruta', () => navigator.clipboard?.writeText(path).catch(() => {})]);
-  if (langOf(path) === 'markdown') {
+  if (PREVIEWABLE.has(langOf(path))) {
     items.push([tab?.preview ? 'Ver código fuente' : 'Vista previa', () => togglePreview(path)]);
   }
   for (const item of items) {
@@ -306,6 +319,7 @@ function openTreeMenu(x, y, path, kind) {
   }]);
   if (path) {
     if (kind === 'file') items.push(['Abrir', () => openFile(path)]);
+    if (kind === 'file' && PREVIEWABLE.has(langOf(path))) items.push(['Vista previa', () => togglePreview(path)]);
     items.push(['Renombrar…', async () => {
       const name = prompt('Nuevo nombre:', baseOf(path)); if (!name || name === baseOf(path)) return;
       await fsRename(path, kind, name.trim()); code.invalidateFileList?.(); await refreshTree();
