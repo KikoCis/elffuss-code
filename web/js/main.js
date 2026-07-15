@@ -579,10 +579,13 @@ async function enterIDE(handle) {
   $('explorer-proj').textContent = name.toUpperCase();
   await initEditor();
   await refreshTree(handle);
-  addMsg('sys', `Привіт 👋 Proyecto «${name}» abierto. Pregúntame por el código, pídeme cambios o dime «árbol». Todo se queda en tu máquina.`);
+  // el sistema de conversaciones primero: renderActiveLog() REEMPLAZA todo
+  // #chat-log con el historial replay de la conversación activa — si el
+  // saludo se añadiera antes, desaparecería sin dejar rastro.
   await conv.init({ onEvent: onConvEvent });
   renderTabsBar();
   renderActiveLog();
+  addMsg('sys', `Привіт 👋 Proyecto «${name}» abierto. Pregúntame por el código, pídeme cambios o dime «árbol». Todo se queda en tu máquina.`);
   refreshGit();
   preloadModel(); // por si el arranque en la landing no llegó a dispararse
 }
@@ -858,6 +861,10 @@ export function reportImprovements(ev) {
     props.map(p => `**${p.dept}** — ${firstLine(p.text)}`).join('\n\n') +
     (ev.path ? `\n\n_Guardado en \`${ev.path}\`. Dale a la elfa para verlo en la Mente, o ábrelo en el editor._` : '');
   const div = addMsg('assistant', body);
+  // se guarda en el historial REAL de la conversación activa — si no, el
+  // aviso vive solo en el DOM y desaparece al cambiar de pestaña o recargar
+  const active = conv.getActive();
+  if (active) conv.appendMessage(active.id, 'assistant', body);
   // botón REAL para ejecutar la propuesta desde el propio chat (antes solo
   // se podía desde el panel de la Mente, había que ir a buscarlo)
   const md = ev.md || body;

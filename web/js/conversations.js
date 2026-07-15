@@ -107,6 +107,17 @@ export function switchTo(id) {
   onChange('switch', id);
 }
 
+// añade un mensaje fuera del ciclo normal de envío (p.ej. el informe
+// autónomo del cerebro CEO) al historial REAL de una conversación — si no,
+// solo viviría en el DOM y desaparecería al cambiar de pestaña o recargar.
+export async function appendMessage(id, role, content) {
+  const c = convs.get(id);
+  if (!c) return;
+  c.agent.history.push({ role, content });
+  c.updatedAt = Date.now();
+  await persistConv(c);
+}
+
 // quita la pestaña de la vista — la conversación sigue viva en la Historial
 export function closeTab(id) {
   openTabIds = openTabIds.filter(x => x !== id);
@@ -152,7 +163,15 @@ async function pump(conv) {
     inferenceLock = new Promise(r => { release = r; });
     await myTurn; // espera su turno de inferencia (un solo modelo cargado, no admite 2 generate() a la vez)
     try {
-      await conv.agent.handle(text, ev => onChange('event', conv.id, ev));
+      // un fallo aquí (del modelo, de una tool, o del propio repintado en
+      // main.js) NUNCA debe dejar la conversación "pumping" para siempre —
+      // eso bloquearía sus futuros mensajes Y al cerebro CEO (isBusy()).
+      await conv.agent.handle(text, ev => {
+        try { onChange('event', conv.id, ev); } catch (e) { console.error('[elffuss] fallo pintando un evento de chat', e); }
+      });
+    } catch (e) {
+      console.error('[elffuss] fallo procesando el turno', e);
+      try { onChange('event', conv.id, { type: 'error', text: 'Error interno: ' + (e?.message || e) }); } catch { /* ya está registrado arriba */ }
     } finally { release(); }
     conv.queue.shift();
     conv.updatedAt = Date.now();
