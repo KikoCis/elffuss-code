@@ -1,5 +1,5 @@
 // Elffuss Code: landing («abre tu carpeta») → IDE con la elfa integrada.
-import { Agent, parseToolCall } from './agent.js';
+import { parseToolCall } from './agent.js';
 import * as rules from './providers/rules.js';
 import * as codeTools from './tools/code.js';
 import * as db from './db.js';
@@ -17,9 +17,10 @@ import * as mind from './mind.js';
 import { buildCityAdapter, loadThoughtsAdapter } from './mind-adapter.js';
 import { humanizeStreamPreview } from './humanize.js';
 import * as bridge from './bridge.js';
+import * as conv from './conversations.js';
 
 const $ = id => document.getElementById(id);
-const agent = new Agent(rules);
+conv.setProvider(rules); // proveedor por defecto para cualquier conversación que se cree
 let activeModel = 'rules';
 
 // ---------- chat ----------
@@ -112,55 +113,16 @@ export function thinkingBubble() {
   };
 }
 
-// Cola persistente (mismo esquema anti-pérdida que Elffuss): el mensaje solo
-// sale de la cola cuando su turno TERMINA y el histórico ya está commiteado.
-const queue = [];
-let pumping = false;
-const persistQueue = () => db.set('kv', 'queue', queue.map(q => q.text)).catch(() => {});
+// Conversaciones (pestañas, en paralelo, con su propia cola): la lógica de
+// estado vive en conversations.js — aquí solo se pinta lo que corresponde.
+let activeThinking = null;
 
-function send(text) {
-  const el = addMsg('user queued', text);
-  queue.push({ text, el });
-  persistQueue();
-  pump();
-}
-
-async function pump() {
-  if (pumping) return;
-  pumping = true;
-  // feedback claro de que el mensaje se está procesando (antes el botón de
-  // enviar siempre se veía igual, sin indicar enviado/recibido/pensando)
-  $('btn-send').disabled = true;
-  $('btn-send').classList.add('sending');
-  while (queue.length) {
-    const item = queue[0];
-    item.el?.classList.remove('queued');
-    const th = thinkingBubble();
-    try {
-      await agent.handle(item.text, ev => {
-        if (ev.type === 'token') th.tick(ev.text);
-        if (ev.type === 'text') addMsg('assistant', ev.text);
-        if (ev.type === 'tool') { th.tool(ev.call.tool); addTool(ev.call.tool, ev.call.args?.path || ev.call.args?.query || ''); }
-        if (ev.type === 'tool_result') addToolResult(ev.result);
-        if (ev.type === 'error') addMsg('assistant err', ev.text);
-      });
-    } finally { th.remove(); }
-    await db.set('kv', 'history', agent.history.slice(-60)).catch(() => {});
-    await db.set('kv', 'lastDone', item.text).catch(() => {});
-    queue.shift();
-    await persistQueue();
-  }
-  pumping = false;
-  $('btn-send').disabled = false;
-  $('btn-send').classList.remove('sending');
-}
-
-// Restaurar conversación y cola al refrescar.
-async function restoreHistory() {
-  const saved = await db.get('kv', 'history').catch(() => null);
-  if (!saved?.length) return;
-  agent.history = saved;
-  for (const m of saved) {
+function renderActiveLog() {
+  $('chat-log').replaceChildren();
+  const active = conv.getActive();
+  activeThinking = null;
+  if (!active) return;
+  for (const m of active.agent.history) {
     if (m.role === 'user') {
       if (m.content.startsWith('[resultado ')) {
         const nl = m.content.indexOf('\n');
@@ -174,19 +136,119 @@ async function restoreHistory() {
       else addMsg('assistant', m.content);
     }
   }
+  if (active.pumping) activeThinking = thinkingBubble();
 }
 
-async function restoreQueue() {
-  let pending = await db.get('kv', 'queue').catch(() => null);
-  if (!pending?.length) return;
-  const lastDone = await db.get('kv', 'lastDone').catch(() => null);
-  if (lastDone && pending[0] === lastDone) pending = pending.slice(1);
-  if (!pending.length) { db.set('kv', 'queue', []).catch(() => {}); return; }
-  for (const text of pending) {
-    const el = addMsg('user queued', text);
-    queue.push({ text, el });
+// evento del módulo de conversaciones: 'switch' (cambiaste de pestaña o se
+// creó una), 'tabs' (se abrió/cerró una pestaña), 'pumping' (empezó/terminó
+// de procesar), 'event' (token/texto/tool/resultado/error de un turno real).
+// Las conversaciones EN SEGUNDO PLANO nunca tocan el DOM visible — solo se
+// refleja su punto de «ocupada» en la barra de pestañas.
+function onConvEvent(kind, id, payload) {
+  if (kind !== 'event') renderTabsBar();
+  if (kind === 'switch') { renderActiveLog(); return; }
+  const active = conv.getActive();
+  if (!active || id !== active.id) return;
+  if (kind === 'pumping') {
+    $('btn-send').disabled = payload;
+    $('btn-send').classList.toggle('sending', payload);
+    if (payload) { if (!activeThinking) activeThinking = thinkingBubble(); }
+    else { activeThinking?.remove(); activeThinking = null; }
+    return;
   }
-  pump();
+  if (kind === 'event') {
+    const ev = payload;
+    if (ev.type === 'token') activeThinking?.tick(ev.text);
+    if (ev.type === 'text') addMsg('assistant', ev.text);
+    if (ev.type === 'tool') { activeThinking?.tool(ev.call.tool); addTool(ev.call.tool, ev.call.args?.path || ev.call.args?.query || ''); }
+    if (ev.type === 'tool_result') addToolResult(ev.result);
+    if (ev.type === 'error') addMsg('assistant err', ev.text);
+  }
+}
+
+function send(text) {
+  const active = conv.getActive();
+  if (!active) return;
+  addMsg('user', text);
+  conv.send(active.id, text);
+}
+
+function renderTabsBar() {
+  const bar = $('conv-tabs');
+  if (!bar) return;
+  bar.replaceChildren();
+  const active = conv.getActive();
+  for (const c of conv.getOpenTabs()) {
+    const el = document.createElement('div');
+    el.className = 'tab' + (active && c.id === active.id ? ' active' : '') + (c.pumping ? ' tab-busy' : '');
+    el.dataset.id = c.id;
+    const name = document.createElement('span');
+    name.className = 'tab-name';
+    const title = conv.titleFor(c);
+    name.textContent = title;
+    name.title = title;
+    const x = document.createElement('b');
+    x.textContent = '×';
+    x.title = 'Cerrar pestaña (no borra la conversación)';
+    x.onclick = e => { e.stopPropagation(); conv.closeTab(c.id); };
+    el.append(name, x);
+    el.onclick = () => conv.switchTo(c.id);
+    bar.appendChild(el);
+  }
+  const plus = document.createElement('button');
+  plus.className = 'tab-add';
+  plus.title = 'Nueva conversación';
+  plus.textContent = '+';
+  plus.onclick = () => conv.create();
+  bar.appendChild(plus);
+}
+
+async function renderHistoryPanel() {
+  const panel = $('history-panel');
+  panel.replaceChildren();
+  const head = document.createElement('div');
+  head.className = 'hp-head';
+  head.append(document.createTextNode('Historial de conversaciones'));
+  const xBtn = document.createElement('button');
+  xBtn.textContent = '✕';
+  xBtn.onclick = () => { panel.hidden = true; };
+  head.appendChild(xBtn);
+  panel.appendChild(head);
+  const list = document.createElement('div');
+  list.id = 'hp-list';
+  panel.appendChild(list);
+  const all = await conv.listAll();
+  if (!all.length) {
+    const empty = document.createElement('div');
+    empty.className = 'hp-empty';
+    empty.textContent = 'Sin conversaciones guardadas todavía.';
+    list.appendChild(empty);
+    return;
+  }
+  for (const c of all) {
+    const row = document.createElement('div');
+    row.className = 'hp-row';
+    const t = document.createElement('div');
+    t.className = 'hp-title';
+    t.textContent = c.title || 'Nueva conversación';
+    const d = new Date(c.updatedAt);
+    const date = document.createElement('div');
+    date.className = 'hp-date';
+    date.textContent = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const del = document.createElement('button');
+    del.className = 'hp-del';
+    del.title = 'Eliminar para siempre';
+    del.textContent = '🗑';
+    del.onclick = async e => {
+      e.stopPropagation();
+      if (!confirm(`¿Eliminar «${c.title || 'esta conversación'}» para siempre?`)) return;
+      await conv.remove(c.id);
+      renderHistoryPanel();
+    };
+    row.append(t, date, del);
+    row.onclick = async () => { await conv.open(c.id); panel.hidden = true; };
+    list.appendChild(row);
+  }
 }
 
 // ---------- modelos (local primero; externos = ⚙️ opt-in) ----------
@@ -256,7 +318,7 @@ function showModelProgress(text, pct = null) {
 let loadingId = null;
 async function changeModel(id) {
   if (id === 'rules') {
-    agent.setProvider(rules);
+    conv.setProvider(rules);
     activeModel = 'rules';
     localStorage.setItem('elffusscode.model', 'rules');
     $('model-dot').className = 'dot off';
@@ -275,7 +337,7 @@ async function changeModel(id) {
         showModelProgress(`Descargando el modelo IA · ${pct}% · ${(p.loaded / 1e6 | 0)}/${(p.total / 1e6 | 0)} MB`, pct);
       }
     });
-    agent.setProvider(mod);
+    conv.setProvider(mod);
     activeModel = id;
     localStorage.setItem('elffusscode.model', id);
     $('model-dot').className = 'dot on';
@@ -296,7 +358,7 @@ async function changeModel(id) {
       _fellBack = false;
       if (okc) return true;
     }
-    agent.setProvider(rules);
+    conv.setProvider(rules);
     activeModel = 'rules';
     $('model-dot').className = 'dot off';
     showModelProgress('⚠️ No pude cargar el modelo: ' + (e?.message || e));
@@ -518,8 +580,9 @@ async function enterIDE(handle) {
   await initEditor();
   await refreshTree(handle);
   addMsg('sys', `Привіт 👋 Proyecto «${name}» abierto. Pregúntame por el código, pídeme cambios o dime «árbol». Todo se queda en tu máquina.`);
-  await restoreHistory();
-  await restoreQueue();
+  await conv.init({ onEvent: onConvEvent });
+  renderTabsBar();
+  renderActiveLog();
   refreshGit();
   preloadModel(); // por si el arranque en la landing no llegó a dispararse
 }
@@ -761,9 +824,9 @@ ceo.init({
   workspace: ceoWorkspace,
   defaultProfiles: CEO_DEFAULT_PROFILES,
   defaultMission: 'Revisar el proyecto y proponer mejoras concretas y accionables (código, procesos, datos o docs).',
-  provider: () => agent.provider,
-  // el usuario tiene PRIORIDAD: si hay algo en cola o procesándose, el cerebro espera
-  isBusy: () => pumping || queue.length > 0,
+  provider: () => conv.getProvider(),
+  // el usuario tiene PRIORIDAD: si CUALQUIER conversación está en cola o procesándose, el cerebro espera
+  isBusy: () => conv.isBusy(),
   onEvent: (ch, ev) => {
     mind.pushThought(ch, ev);
     if (ch === 'ceo' && ev.type === 'built') reportImprovements(ev);
@@ -892,7 +955,7 @@ document.addEventListener('keydown', e => {
 window.addEventListener('resize', () => terminal.refit());
 
 // iconos VS Code (sin emojis) en cabecera, composer y flip
-$('btn-clear').innerHTML = UI.clear;
+$('btn-history').innerHTML = UI.history;
 $('btn-settings').innerHTML = UI.gear;
 $('btn-send').innerHTML = UI.send;
 $('btn-plus').innerHTML = UI.add;
@@ -914,12 +977,17 @@ $('act-search').addEventListener('click', () => {
 });
 $('act-settings').addEventListener('click', () => $('btn-settings').click());
 
-$('btn-clear').addEventListener('click', async () => {
-  await db.del('kv', 'history').catch(() => {});
-  await db.del('kv', 'queue').catch(() => {});
-  agent.history = [];
-  location.reload();
+$('btn-history').addEventListener('click', () => {
+  const panel = $('history-panel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) renderHistoryPanel();
 });
+document.addEventListener('pointerdown', e => {
+  const p = $('history-panel');
+  if (p.hidden) return;
+  if (p.contains(e.target) || e.target.closest('#btn-history')) return;
+  p.hidden = true;
+}, true);
 $('btn-settings').addEventListener('click', () => {
   const p = $('settings-panel');
   p.hidden = !p.hidden;
@@ -941,7 +1009,7 @@ document.addEventListener('pointerdown', e => {
 const CTX_BUDGET_TOK = 28000;
 function updateCtxMeter() {
   if (!$('ctx-text')) return; // aún en la landing
-  const chars = agent.history.reduce((s, m) => s + (m.content || '').length, 0);
+  const chars = (conv.getActive()?.agent.history || []).reduce((s, m) => s + (m.content || '').length, 0);
   const tok = Math.round(chars / 4);
   const pct = Math.min(100, Math.round(tok / CTX_BUDGET_TOK * 100));
   const k = n => n >= 1000 ? (n / 1000).toFixed(1).replace('.0', '') + 'k' : n;
@@ -980,7 +1048,7 @@ $('btn-slash').addEventListener('click', () => openMenu([
   { label: '/search', hint: 'buscar en el código', run: () => { $('prompt').value = 'busca '; $('prompt').focus(); } },
   { label: '/skills', hint: 'gestionar skills', run: () => openSkillsPanel() },
   { label: '/model', hint: 'proveedores y modelo', run: () => $('btn-settings').click() },
-  { label: '/clear', hint: 'nueva conversación', run: () => $('btn-clear').click() },
+  { label: '/clear', hint: 'nueva conversación', run: () => conv.create() },
 ]));
 
 // [+] adjuntar archivo del proyecto como @ruta
@@ -1137,7 +1205,8 @@ async function browseRepo(repo, box) {
 // ---------- command palette (Cmd/Ctrl+P) ----------
 let palItems = [], palSel = 0;
 const COMMANDS = [
-  { label: 'Nueva conversación', run: () => $('btn-clear').click() },
+  { label: 'Nueva conversación', run: () => conv.create() },
+  { label: 'Historial de conversaciones', run: () => $('btn-history').click() },
   { label: 'Buscar en el código…', run: () => { closePalette(); $('prompt').value = 'busca '; $('prompt').focus(); } },
   { label: 'Gestionar skills', run: () => { closePalette(); openSkillsPanel(); } },
   { label: 'Ajustes y modelo', run: () => { closePalette(); renderSettings(); } },
@@ -1288,4 +1357,4 @@ $('act-skills').addEventListener('click', () => openSkillsPanel());
 rebuildSelect();
 skills.initSkills();
 boot();
-window.elffussClaw = { agent, send, openFile, parseToolCall, skills };
+window.elffussClaw = { conv, get agent() { return conv.getActive()?.agent; }, send, openFile, parseToolCall, skills };

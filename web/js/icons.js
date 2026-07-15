@@ -39,6 +39,7 @@ export function folderIcon() {
 const ico = (p, sw = 1.6) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 export const UI = {
   clear: ico('<path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>'),
+  history: ico('<circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2"/><path d="M5 3.5l1.5 2.5M19 3.5l-1.5 2.5"/>'),
   gear: ico('<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/>'),
   send: ico('<path d="M4 12l16-8-6 16-3.5-6.5L4 12z"/>'),
   add: ico('<path d="M12 5v14M5 12h14"/>', 1.8),

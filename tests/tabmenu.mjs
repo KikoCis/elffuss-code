@@ -20,10 +20,10 @@ await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.w
 await p.evaluate(async () => (await import('/js/ide.js')).openFile('README.md'));
 await p.evaluate(async () => (await import('/js/ide.js')).openFile('app.js'));
 await p.waitForTimeout(300);
-ok('2 pestañas abiertas', await p.locator('.tab').count() === 2);
+ok('2 pestañas abiertas', await p.locator('#tabs-bar .tab').count() === 2);
 
 // clic derecho en la pestaña README.md abre el menú custom (no el nativo)
-const readmeTab = p.locator('.tab', { hasText: 'README.md' });
+const readmeTab = p.locator('#tabs-bar .tab', { hasText: 'README.md' });
 await readmeTab.click({ button: 'right' });
 await p.waitForTimeout(150);
 ok('menú contextual de pestaña visible', await p.locator('#tab-menu').count() > 0);
@@ -49,7 +49,7 @@ await p.waitForTimeout(200);
 ok('vuelve a mostrar Monaco (código fuente)', await p.locator('#editor').evaluate(el => getComputedStyle(el).display !== 'none'));
 
 // app.js (no markdown) NO ofrece Vista previa
-const appTab = p.locator('.tab', { hasText: 'app.js' });
+const appTab = p.locator('#tabs-bar .tab', { hasText: 'app.js' });
 await appTab.click({ button: 'right' });
 await p.waitForTimeout(150);
 const items3 = await p.locator('#tab-menu .tm-item').allInnerTexts();
@@ -61,7 +61,7 @@ await readmeTab.click({ button: 'right' });
 await p.waitForTimeout(150);
 await p.click('#tab-menu .tm-item:has-text("Cerrar otras")');
 await p.waitForTimeout(200);
-ok('«Cerrar otras» deja solo la pestaña activa', await p.locator('.tab').count() === 1 && await p.locator('.tab', { hasText: 'README.md' }).count() === 1);
+ok('«Cerrar otras» deja solo la pestaña activa', await p.locator('#tabs-bar .tab').count() === 1 && await p.locator('#tabs-bar .tab', { hasText: 'README.md' }).count() === 1);
 
 await p.screenshot({ path: OUT + '/tabmenu.png' });
 console.log('captura → tabmenu.png');
