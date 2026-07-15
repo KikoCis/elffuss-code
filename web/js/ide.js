@@ -1,10 +1,11 @@
 // IDE: Monaco (el editor de VS Code) + árbol de archivos + pestañas.
 import * as code from './tools/code.js';
 import { fileIcon, folderIcon } from './icons.js';
+import { renderMarkdown } from './md.js';
 
 let editor = null;
 let monacoRef = null;
-const tabs = [];              // { path, model, dirty }
+const tabs = [];              // { path, model, dirty, preview }
 let active = null;
 let onDirtyChange = () => {};
 
@@ -47,6 +48,7 @@ export async function initEditor() {
       tab.model.setValue(content);
       tab.dirty = false;
       renderTabs();
+      if (path === active) applyView();
     }
     refreshTree();
   });
@@ -79,7 +81,7 @@ export async function openFile(path) {
       if (hits.length === 1 && hits[0] !== path) return openFile(hits[0]);
       return alertBar('No pude abrir ' + path + ': ' + e.message);
     }
-    tab = { path, model: monacoRef.editor.createModel(content, langOf(path)), dirty: false };
+    tab = { path, model: monacoRef.editor.createModel(content, langOf(path)), dirty: false, preview: false };
     tabs.push(tab);
   }
   active = path;
@@ -87,6 +89,35 @@ export async function openFile(path) {
   editor.setModel(tab.model);
   setEmptyState(false);
   renderTabs();
+  applyView();
+}
+
+// modo «Vista previa» de un tab .md: en vez del código fuente en Monaco,
+// muestra el markdown renderizado (mismo motor que el chat y la Mente).
+function applyView() {
+  const tab = tabs.find(t => t.path === active);
+  const showPreview = !!(tab && tab.preview && langOf(tab.path) === 'markdown');
+  $('editor').style.display = showPreview ? 'none' : '';
+  let pane = document.getElementById('md-preview-pane');
+  if (showPreview) {
+    if (!pane) {
+      pane = document.createElement('div');
+      pane.id = 'md-preview-pane';
+      $('editor').parentElement.appendChild(pane);
+    }
+    pane.innerHTML = renderMarkdown(tab.model.getValue());
+    pane.style.display = '';
+  } else if (pane) {
+    pane.style.display = 'none';
+  }
+}
+async function togglePreview(path) {
+  const tab = tabs.find(t => t.path === path);
+  if (!tab) return;
+  if (active !== path) await openFile(path);
+  tab.preview = !tab.preview;
+  renderTabs();
+  applyView();
 }
 
 async function saveActive() {
@@ -110,6 +141,7 @@ function closeTab(path) {
     else { editor.setModel(monacoRef.editor.createModel('', 'plaintext')); setEmptyState(true); }
   }
   renderTabs();
+  applyView();
 }
 
 // Estado vacío: cuando no hay ningún fichero abierto, en vez de dejar el Monaco
@@ -130,11 +162,13 @@ function renderTabs() {
   bar.replaceChildren();
   for (const t of tabs) {
     const el = document.createElement('div');
-    el.className = 'tab' + (t.path === active ? ' active' : '');
+    el.className = 'tab' + (t.path === active ? ' active' : '') + (t.preview ? ' tab-preview' : '');
+    el.dataset.path = t.path;
     const ico = document.createElement('span');
     ico.className = 'tab-ico';
     ico.innerHTML = fileIcon(t.path.split('/').pop());
     const name = document.createElement('span');
+    name.className = 'tab-name';
     name.textContent = t.path.split('/').pop();
     name.title = t.path;
     // como VS Code: punto ● si hay cambios sin guardar; × al pasar el ratón
@@ -144,8 +178,42 @@ function renderTabs() {
     x.onclick = e => { e.stopPropagation(); closeTab(t.path); };
     el.append(ico, name, x);
     el.onclick = () => openFile(t.path);
+    el.oncontextmenu = e => { e.preventDefault(); openTabMenu(e.clientX, e.clientY, t.path); };
     bar.appendChild(el);
   }
+}
+
+// ---------- menú contextual de las pestañas (botón derecho, estilo VS Code) ----------
+function openTabMenu(x, y, path) {
+  document.getElementById('tab-menu')?.remove();
+  const menu = document.createElement('div');
+  menu.id = 'tab-menu';
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:200`;
+  const i = tabs.findIndex(t => t.path === path);
+  const tab = tabs[i];
+  const items = [];
+  items.push(['Cerrar', () => closeTab(path)]);
+  items.push(['Cerrar otras', () => { for (const t of tabs.filter(t => t.path !== path)) closeTab(t.path); }]);
+  const toTheRight = tabs.slice(i + 1).map(t => t.path);
+  if (toTheRight.length) items.push(['Cerrar las de la derecha', () => { for (const p of toTheRight) closeTab(p); }]);
+  items.push(['Cerrar todas', () => { for (const t of [...tabs]) closeTab(t.path); }]);
+  items.push(['sep']);
+  items.push(['Copiar ruta', () => navigator.clipboard?.writeText(path).catch(() => {})]);
+  if (langOf(path) === 'markdown') {
+    items.push([tab?.preview ? 'Ver código fuente' : 'Vista previa', () => togglePreview(path)]);
+  }
+  for (const item of items) {
+    if (item[0] === 'sep') { menu.appendChild(Object.assign(document.createElement('div'), { className: 'tm-sep' })); continue; }
+    const [label, fn] = item;
+    const b = document.createElement('button');
+    b.className = 'tm-item';
+    b.textContent = label;
+    b.onclick = () => { menu.remove(); fn(); };
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const close = ev => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', close); } };
+  setTimeout(() => document.addEventListener('mousedown', close), 0);
 }
 
 let alertTimer;
