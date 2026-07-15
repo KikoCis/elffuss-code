@@ -912,6 +912,13 @@ $('btn-settings').addEventListener('click', () => {
   p.hidden = !p.hidden;
   if (!p.hidden) renderSettings();
 });
+// clic fuera del panel (o ir a Archivo/chat) lo cierra — antes solo la X lo hacía
+document.addEventListener('pointerdown', e => {
+  const p = $('settings-panel');
+  if (p.hidden) return;
+  if (p.contains(e.target) || e.target.closest('#btn-settings, #act-settings')) return;
+  p.hidden = true;
+}, true);
 
 // ---------- composer estilo plugin: +, /, medidor de contexto, Auto ----------
 
