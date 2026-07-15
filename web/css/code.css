@@ -350,7 +350,15 @@ body.hide-tree #sidebar { display: none; }
 .cbtn.autoedit { font-size: .74rem; }
 .cbtn.autoedit .ae-ico { font-family: ui-monospace, monospace; }
 .cbtn.autoedit.on { color: #fff; border-color: var(--accent); background: linear-gradient(135deg, #3a2050, #2a1840); }
-#btn-send { flex: 0 0 auto; background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 8px; color: #fff; height: 32px; padding: 0 14px; cursor: pointer; }
+#btn-send { position: relative; flex: 0 0 auto; background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 8px; color: #fff; height: 32px; padding: 0 14px; cursor: pointer; }
+/* mientras se procesa: la elfa está "pensando" — feedback claro en el propio botón */
+#btn-send.sending { cursor: not-allowed; }
+#btn-send.sending svg { opacity: .25; }
+#btn-send.sending::after {
+  content: ''; position: absolute; inset: 9px; border: 2px solid rgba(255,255,255,.35);
+  border-top-color: #fff; border-radius: 50%; animation: btn-send-spin .7s linear infinite;
+}
+@keyframes btn-send-spin { to { transform: rotate(360deg); } }
 #composer #prompt { flex: 1; min-width: 0; }
 
 /* menú flotante de +/ */

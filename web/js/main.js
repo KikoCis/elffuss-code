@@ -128,6 +128,10 @@ function send(text) {
 async function pump() {
   if (pumping) return;
   pumping = true;
+  // feedback claro de que el mensaje se está procesando (antes el botón de
+  // enviar siempre se veía igual, sin indicar enviado/recibido/pensando)
+  $('btn-send').disabled = true;
+  $('btn-send').classList.add('sending');
   while (queue.length) {
     const item = queue[0];
     item.el?.classList.remove('queued');
@@ -147,6 +151,8 @@ async function pump() {
     await persistQueue();
   }
   pumping = false;
+  $('btn-send').disabled = false;
+  $('btn-send').classList.remove('sending');
 }
 
 // Restaurar conversación y cola al refrescar.
@@ -653,6 +659,13 @@ $('prompt').addEventListener('keydown', e => {
     promptHistIdx++;
     inp.value = promptHistIdx >= promptHistory.length ? (promptHistIdx = -1, promptDraft) : promptHistory[promptHistIdx];
     e.preventDefault();
+  } else if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
+    // envío explícito: no depender del submit-on-Enter nativo del <form>,
+    // que algún navegador puede "tragarse" el primer Enter (autocompletar/
+    // sugerencias) justo después de rellenar el valor por código (↑ del
+    // historial) en vez de por tecleo real.
+    e.preventDefault();
+    $('composer').requestSubmit();
   }
 });
 $('composer').addEventListener('submit', e => {
