@@ -180,6 +180,40 @@ export async function write({ path, content = '' } = {}) {
   return `Escrito ${path} (${content.split('\n').length} líneas)`;
 }
 
+// Edición PARCIAL (no hace falta reescribir el fichero entero): sustituye
+// `search` por `replace`. Primero intenta coincidencia EXACTA (rápida, sin
+// ambigüedad); si no la encuentra tal cual —el modelo puede recordar mal un
+// espacio o un salto de línea—, cae a un parcheado difuso (diff-match-patch,
+// la misma librería que usan herramientas como aider) que localiza el punto
+// más parecido dentro del fichero real. Si ni así hay confianza suficiente,
+// falla con un mensaje claro para que el agente reintente con más contexto
+// — nunca escribe una coincidencia dudosa.
+export async function edit({ path, search, replace } = {}) {
+  if (!path) throw new Error('Falta path');
+  if (search == null || replace == null) throw new Error('Faltan search y replace');
+  const current = await read({ path });
+
+  const first = current.indexOf(search);
+  if (first !== -1) {
+    if (current.indexOf(search, first + 1) !== -1) {
+      throw new Error(`«search» aparece más de una vez en ${path} — añade más líneas de contexto alrededor para que sea inequívoco.`);
+    }
+    return write({ path, content: current.slice(0, first) + replace + current.slice(first + search.length) });
+  }
+
+  // fallback difuso: el texto no aparece tal cual, prueba con la misma
+  // tolerancia con la que un desarrollador reconocería "es este trozo"
+  const { diff_match_patch } = await import('https://esm.sh/diff-match-patch@1.0.5');
+  const dmp = new diff_match_patch();
+  const patches = dmp.patch_make(search, replace);
+  const [next, results] = dmp.patch_apply(patches, current);
+  if (!results.length || !results.every(Boolean)) {
+    throw new Error(`No encontré con suficiente confianza el punto exacto a editar en ${path} (ni exacto ni aproximado). ` +
+      `Vuelve a leerlo (code.read) y copia «search» literal de esas líneas, más corto si hace falta.`);
+  }
+  return write({ path, content: next });
+}
+
 // grep-lite por el proyecto (texto, con límites para no arrasar).
 export async function search({ query, ext = '' } = {}) {
   if (!query) throw new Error('Falta query');
