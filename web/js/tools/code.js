@@ -101,8 +101,9 @@ async function dirOf(path, { create = false } = {}) {
   return { dir, name };
 }
 
-// Buscar archivos por nombre (para sugerir cuando el modelo inventa rutas).
-async function findByName(basename, limit = 5) {
+// Buscar archivos por nombre (para sugerir cuando el modelo inventa rutas, o
+// para resolver un enlace del chat que solo mencionaba el nombre del fichero).
+export async function findByName(basename, limit = 5) {
   const hits = [];
   let visited = 0;
   async function walk(dir, prefix) {
