@@ -69,7 +69,16 @@ export async function openFile(path) {
   if (!tab) {
     let content;
     try { content = await code.read({ path }); }
-    catch (e) { return alertBar('No pude abrir ' + path + ': ' + e.message); }
+    catch (e) {
+      // la ruta exacta no existe (típico: un enlace del chat solo mencionaba
+      // el NOMBRE, «config.py», y el fichero real vive en una subcarpeta) →
+      // si hay una única coincidencia por nombre en el proyecto, ábrela ella
+      // en vez de rendirte; con varias o ninguna, el error de siempre.
+      const base = path.split('/').pop();
+      const hits = await code.findByName?.(base, 2).catch(() => []) || [];
+      if (hits.length === 1 && hits[0] !== path) return openFile(hits[0]);
+      return alertBar('No pude abrir ' + path + ': ' + e.message);
+    }
     tab = { path, model: monacoRef.editor.createModel(content, langOf(path)), dirty: false };
     tabs.push(tab);
   }

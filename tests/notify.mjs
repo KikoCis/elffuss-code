@@ -10,18 +10,27 @@ const ctx = await b.newContext();
 await ctx.addInitScript(() => {
   try { localStorage.setItem('elffusscode.model', 'rules'); } catch {}
   window.__notifs = []; window.__askedPermission = 0;
-  class FakeNotification {
-    constructor(title, opts) { window.__notifs.push({ title, body: opts && opts.body }); }
-    static permission = 'granted';
-    static requestPermission() { window.__askedPermission++; return Promise.resolve('granted'); }
-  }
-  window.Notification = FakeNotification;
+  // Chromium headless no sincroniza Notification.permission con
+  // grantPermissions de forma fiable → se fija directamente. Las notificaciones
+  // reales pasan por el service worker (registration.showNotification, para
+  // poder llevar el botón «Ejecutar»), así que se espía ahí, no en `new Notification()`.
+  try { Object.defineProperty(Notification, 'permission', { value: 'granted', configurable: true }); } catch {}
+  const origRP = Notification.requestPermission?.bind(Notification);
+  Notification.requestPermission = (...a) => { window.__askedPermission++; return origRP ? origRP(...a) : Promise.resolve('granted'); };
 });
 const p = await ctx.newPage({ viewport: { width: 1300, height: 850 } });
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1500);
+await p.waitForFunction(() => navigator.serviceWorker && navigator.serviceWorker.controller, null, { timeout: 10000 }).catch(() => {});
+await p.evaluate(async () => {
+  const reg = await navigator.serviceWorker.ready;
+  const orig = reg.showNotification.bind(reg);
+  reg.showNotification = (title, opts) => { window.__notifs.push({ title, body: opts && opts.body }); return orig(title, { ...opts, silent: true }).catch(() => {}); };
+});
 
 // ── ciclo FLOJO: 1 sola propuesta sólida → NO debe notificar ──
-let r = await p.evaluate(async () => {
+// notify() es async (espera a navigator.serviceWorker.ready) y reportImprovements
+// NO la espera (fire-and-forget) → hay que dar tiempo antes de leer el spy.
+await p.evaluate(async () => {
   const m = await import('/js/main.js');
   window.__notifs.length = 0;
   m.reportImprovements({ proposals: [
@@ -30,14 +39,15 @@ let r = await p.evaluate(async () => {
     { dept: 'Rendimiento', text: 'Convendría memoizar el cálculo pesado de renderList() para evitar recomputarlo en cada frame, ahorra bastante CPU.' },
     { dept: 'Producto/DX', text: 'ok' },
   ], path: '.elffuss/soul/x.md' });
-  return { notifs: window.__notifs.length, noteworthy: m.isNoteworthy };
 });
+await p.waitForTimeout(400);
+let r = await p.evaluate(() => ({ notifs: window.__notifs.length }));
 ok('ciclo flojo (1 propuesta sólida) → NO notifica', r.notifs === 0, `${r.notifs} notificaciones`);
 const chatAfterWeak = await p.locator('#chat-log').innerText();
 ok('pero SÍ se reporta en el chat (visual, siempre)', /Rendimiento/.test(chatAfterWeak));
 
 // ── ciclo BUENO: ≥2 propuestas sólidas → SÍ debe notificar ──
-r = await p.evaluate(async () => {
+await p.evaluate(async () => {
   const m = await import('/js/main.js');
   window.__notifs.length = 0;
   m.reportImprovements({ proposals: [
@@ -46,8 +56,9 @@ r = await p.evaluate(async () => {
     { dept: 'Rendimiento', text: 'ok' },
     { dept: 'Producto/DX', text: 'nada' },
   ], path: '.elffuss/soul/y.md' });
-  return { notifs: window.__notifs.length, title: window.__notifs[0]?.title };
 });
+await p.waitForTimeout(400);
+r = await p.evaluate(() => ({ notifs: window.__notifs.length, title: window.__notifs[0]?.title }));
 ok('ciclo BUENO (2+ propuestas sólidas) → SÍ notifica', r.notifs === 1, JSON.stringify(r));
 ok('el título de la notificación es correcto', /mejora/.test(r.title || ''), r.title);
 

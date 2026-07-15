@@ -16,6 +16,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as code from './tools/code.js';
 import * as ceo from './ceo.js';
+import * as db from './db.js';
 import { renderMarkdown } from './md.js';
 import { buildModel } from './vcc/model.js';
 import { buildCity } from './vcc/builder.js';
@@ -105,8 +106,16 @@ function spawnStar(channel, text, kind = 'line') {
   if (stars.length > 160) { const old = stars.shift(); starGroup.remove(old.obj); old.obj.material.map.dispose(); old.obj.material.dispose(); }
 }
 
-// ── historial COMPLETO (todo lo que llega, sin recortar) ─────────────────
-function logLine(channel, text) {
+// ── historial COMPLETO (todo lo que llega, sin recortar) — PERSISTENTE: antes
+// vivía solo en el DOM/memoria y una recarga de página lo borraba entero.
+const LOG_CAP = 500;
+let logHistory = [];       // [{channel, text}] — se guarda en IndexedDB
+let logSaveTimer = null;
+function saveLogSoon() {
+  clearTimeout(logSaveTimer);
+  logSaveTimer = setTimeout(() => db.set('kv', 'mindLog', logHistory).catch(() => {}), 400);
+}
+function renderLogRow(channel, text) {
   const body = document.getElementById('mind-log-body');
   if (!body) return;
   const prof = profileOf(channel);
@@ -114,8 +123,22 @@ function logLine(channel, text) {
   row.className = 'ml-row';
   row.innerHTML = `<span class="ml-dot" style="background:${prof.color}"></span><b style="color:${prof.color}">${escHtml(prof.name)}</b> <span class="ml-t">${escHtml(text)}</span>`;
   body.appendChild(row);
-  while (body.children.length > 500) body.removeChild(body.firstChild);
+  while (body.children.length > LOG_CAP) body.removeChild(body.firstChild);
   body.scrollTop = body.scrollHeight;
+}
+function logLine(channel, text) {
+  logHistory.push({ channel, text });
+  if (logHistory.length > LOG_CAP) logHistory = logHistory.slice(-LOG_CAP);
+  saveLogSoon();
+  renderLogRow(channel, text);
+}
+async function loadPersistedLog() {
+  try {
+    const saved = await db.get('kv', 'mindLog');
+    if (!Array.isArray(saved) || !saved.length) return;
+    logHistory = saved;
+    for (const { channel, text } of saved) renderLogRow(channel, text);
+  } catch { /* aún no hay historial guardado */ }
 }
 
 function flushLine(channel, force = false) {
@@ -454,6 +477,7 @@ export async function openMind() {
   S = buildScene(canvas, window.innerWidth, window.innerHeight);
   buildBackgroundCity(S.scene);
   await loadExistingThoughts();
+  await loadPersistedLog(); // el historial de «≡ historial» sobrevive a recargas
 
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
   let downXY = null;

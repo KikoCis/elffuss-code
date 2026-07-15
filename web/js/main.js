@@ -97,7 +97,7 @@ export function thinkingBubble() {
   return {
     tick(t) {
       buf += t;
-      label.textContent = `Elffuss escribe · ${buf.length}`;
+      label.textContent = `Elffuss escribe · ${buf.length} car.`; // caracteres, no tokens
       // si el buffer entró en un bloque de tool-call, no enseñes el JSON crudo
       // según va llegando: una frase humana («leyendo app.js…») en su lugar.
       const preview = humanizeStreamPreview(buf);
@@ -647,6 +647,10 @@ export function isNoteworthy(ev) {
   const solid = (ev.proposals || []).filter(p => p.text && p.text.trim().length >= 60 && !WEAK_RE.test(p.text.trim()));
   return solid.length >= 2; // al menos 2 departamentos con algo sustancioso, no una ocurrencia suelta
 }
+// manda una propuesta (el .md completo del ciclo) a la MISMA cola/agente real
+// del chat — usado tanto por el botón del chat como por el de la notificación.
+function executeProposal(md) { send('Implementa esta propuesta de mejora con cambios reales en el código:\n\n' + md); }
+
 export function reportImprovements(ev) {
   const props = ev.proposals || [];
   if (!props.length) return;
@@ -654,15 +658,50 @@ export function reportImprovements(ev) {
   const body = `💡 **Mientras estabas fuera revisé el proyecto y encontré ${props.length} mejora${props.length === 1 ? '' : 's'}:**\n\n` +
     props.map(p => `**${p.dept}** — ${firstLine(p.text)}`).join('\n\n') +
     (ev.path ? `\n\n_Guardado en \`${ev.path}\`. Dale a la elfa para verlo en la Mente, o ábrelo en el editor._` : '');
-  addMsg('assistant', body);
-  if (isNoteworthy(ev)) notify(`Elffuss encontró ${props.length} mejora${props.length === 1 ? '' : 's'}`, props.map(p => p.dept).join(' · '));
+  const div = addMsg('assistant', body);
+  // botón REAL para ejecutar la propuesta desde el propio chat (antes solo
+  // se podía desde el panel de la Mente, había que ir a buscarlo)
+  const md = ev.md || body;
+  if (div) {
+    const btn = document.createElement('button');
+    btn.className = 'proposal-exec-btn';
+    btn.textContent = '▶ Ejecutar esta propuesta';
+    btn.onclick = () => { btn.disabled = true; btn.textContent = '▶ enviado a la cola…'; executeProposal(md); };
+    div.appendChild(btn);
+  }
+  if (isNoteworthy(ev)) notify(`Elffuss encontró ${props.length} mejora${props.length === 1 ? '' : 's'}`, props.map(p => p.dept).join(' · '), md);
 }
-// SOLO muestra la notificación si el permiso YA está concedido. Nunca pide
-// permiso aquí: fuera de un gesto de usuario, Chrome/Firefox lo bloquean en
-// silencio — pedirlo vive únicamente en el clic de la elfa y en ⚙ de la Mente.
-function notify(title, body) {
-  try { if ('Notification' in window && Notification.permission === 'granted') new Notification(title, { body, icon: 'img/elffuss-code.svg' }); }
-  catch { /* */ }
+// SOLO notifica si el permiso YA está concedido. Nunca pide permiso aquí:
+// fuera de un gesto de usuario, Chrome/Firefox lo bloquean en silencio —
+// pedirlo vive únicamente en el clic de la elfa y en ⚙ de la Mente.
+// Vía el service worker (registration.showNotification) para poder incluir
+// un botón «▶ Ejecutar» de verdad en la propia notificación del sistema
+// (new Notification() normal no soporta acciones); si el SW no está listo,
+// cae a la notificación simple sin botón.
+async function notify(title, body, md) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg.showNotification) {
+        await reg.showNotification(title, {
+          body, icon: 'img/elffuss-code.svg',
+          actions: [{ action: 'execute', title: '▶ Ejecutar' }, { action: 'open', title: 'Ver en la Mente' }],
+          data: { md },
+        });
+        return;
+      }
+    }
+  } catch { /* cae a la notificación simple */ }
+  try { new Notification(title, { body, icon: 'img/elffuss-code.svg' }); } catch { /* */ }
+}
+// clic en el botón de la notificación del sistema → lo mismo que en el chat
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data?.type !== 'notif-action') return;
+    if (e.data.action === 'execute' && e.data.md) executeProposal(e.data.md);
+    else mind.openMind();
+  });
 }
 // cualquier interacción FUERA de la Mente cuenta como actividad → pausa el CEO
 const noteAct = e => { if (!e.target.closest?.('#mind-overlay')) ceo.noteActivity(); };
