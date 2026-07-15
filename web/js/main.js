@@ -14,7 +14,9 @@ import { setTerminalEcho } from './tools/index.js';
 import { ensureModelCache, cacheEstimate, clearModelCache } from './model-cache.js';
 import * as ceo from './ceo.js';
 import * as mind from './mind.js';
+import { buildCityAdapter, loadThoughtsAdapter } from './mind-adapter.js';
 import { humanizeStreamPreview } from './humanize.js';
+import * as bridge from './bridge.js';
 
 const $ = id => document.getElementById(id);
 const agent = new Agent(rules);
@@ -331,6 +333,50 @@ function settingsShell(title) {
   return box;
 }
 
+function showBridgeMsg(card, text, isErr) {
+  let el2 = card.querySelector('.br-msg');
+  if (!el2) { el2 = document.createElement('div'); el2.className = 'br-msg muted'; el2.style.cssText = 'font-size:.7rem;margin-top:6px'; card.appendChild(el2); }
+  el2.textContent = text;
+  el2.style.color = isErr ? '#ff6b8b' : '';
+}
+
+// pequeño estallido de fuegos artificiales (canvas, un par de segundos) para
+// que se entienda de un vistazo que el bridge quedó conectado.
+function fireworks() {
+  const cv = document.createElement('canvas');
+  cv.id = 'fireworks-fx';
+  cv.width = innerWidth; cv.height = innerHeight;
+  document.body.appendChild(cv);
+  const ctx = cv.getContext('2d');
+  const colors = ['#ff4d8d', '#7c5cff', '#49e8ff', '#3fb970', '#ffd479'];
+  const bursts = Array.from({ length: 5 }, () => ({
+    x: innerWidth * (0.2 + Math.random() * 0.6), y: innerHeight * (0.2 + Math.random() * 0.4),
+    t0: performance.now() + Math.random() * 500,
+    particles: Array.from({ length: 40 }, (_, i) => { const a = (i / 40) * Math.PI * 2; const sp = 2 + Math.random() * 3; return { a, sp, color: colors[i % colors.length] }; }),
+  }));
+  const start = performance.now();
+  function frame(now) {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    let alive = false;
+    for (const b of bursts) {
+      const age = (now - b.t0) / 1000;
+      if (age < 0) { alive = true; continue; }
+      if (age > 1.4) continue;
+      alive = true;
+      for (const p of b.particles) {
+        const r = p.sp * age * 40;
+        const x = b.x + Math.cos(p.a) * r, y = b.y + Math.sin(p.a) * r + age * age * 60;
+        ctx.globalAlpha = Math.max(0, 1 - age / 1.4);
+        ctx.fillStyle = p.color;
+        ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    if (alive && now - start < 3000) requestAnimationFrame(frame);
+    else cv.remove();
+  }
+  requestAnimationFrame(frame);
+}
+
 function renderSettings() {
   const box = settingsShell('Ajustes');
 
@@ -373,6 +419,48 @@ function renderSettings() {
       + (quota ? ` · límite ~${gb(quota)}` : '');
   }
   paintStorage();
+
+  // --- Bridge local (ejecución REAL en tu máquina: node, npm, python…) ---
+  box.append(el('div', 'sk-h', '🔌 Bridge local (ejecución real en tu máquina)'));
+  const brCard = el('div', 'prov-card bridge-card');
+  const guessOS = () => {
+    const ua = navigator.userAgent;
+    if (/Mac/.test(ua)) return /Intel/.test(navigator.platform) && !/arm/i.test(ua) ? 'elffuss-bridge-mac-intel' : 'elffuss-bridge-mac-arm64';
+    if (/Win/.test(ua)) return 'elffuss-bridge-windows.exe';
+    if (/Linux/.test(ua)) return /aarch64|arm64/i.test(ua) ? 'elffuss-bridge-linux-arm64' : 'elffuss-bridge-linux';
+    return 'elffuss-bridge-mac-arm64';
+  };
+  const OTHER = { 'elffuss-bridge-mac-arm64': 'Mac (Apple Silicon)', 'elffuss-bridge-mac-intel': 'Mac (Intel)', 'elffuss-bridge-windows.exe': 'Windows', 'elffuss-bridge-linux': 'Linux (x64)', 'elffuss-bridge-linux-arm64': 'Linux (ARM)' };
+  const primary = guessOS();
+  brCard.innerHTML =
+    `<div class="prov-head"><span id="br-dot" class="dot off"></span><b>Bridge local</b><span id="br-status" class="muted" style="margin-left:auto;font-size:.72rem">desconectado</span></div>` +
+    `<p class="muted" style="font-size:.72rem;margin:6px 0">Un pequeño programa que TÚ ejecutas en tu ordenador — le da a la elfa ejecución real (node, npm, python…) sin salir de tu máquina. Nada se instala en el navegador.</p>` +
+    `<a class="prov-use" style="text-decoration:none;display:inline-block" href="bridge-dl/${primary}" download>⬇ Descargar para ${OTHER[primary]}</a>` +
+    `<details style="margin-top:6px"><summary class="muted" style="font-size:.7rem;cursor:pointer">otro sistema operativo</summary>` +
+    Object.entries(OTHER).filter(([f]) => f !== primary).map(([f, label]) => `<div><a href="bridge-dl/${f}" download style="color:var(--accent2);font-size:.72rem">${label}</a></div>`).join('') +
+    `</details>` +
+    `<div class="field" style="margin-top:8px"><label class="muted" style="font-size:.68rem">Token (lo imprime el programa al arrancarlo)</label><input id="br-token" placeholder="pega aquí el token…"></div>` +
+    `<div class="field" style="margin-top:6px"><label class="muted" style="font-size:.68rem">Carpeta de trabajo (opcional — si no, usa una temporal)</label><input id="br-folder" placeholder="/ruta/completa/a/tu/proyecto"></div>` +
+    `<button id="br-connect" class="prov-use" style="margin-top:8px">Conectar</button>`;
+  box.appendChild(brCard);
+  brCard.querySelector('#br-folder').value = bridge.getFolder();
+  brCard.querySelector('#br-token').value = localStorage.getItem('elffusscode.bridgeToken') || '';
+  const paintBridge = () => {
+    const on = bridge.isConnected();
+    brCard.querySelector('#br-dot').className = 'dot ' + (on ? 'on' : 'off');
+    brCard.querySelector('#br-status').textContent = on ? '✓ conectado — ejecución real activa' : 'desconectado';
+  };
+  paintBridge();
+  brCard.querySelector('#br-connect').onclick = async () => {
+    const btn = brCard.querySelector('#br-connect');
+    bridge.setFolder(brCard.querySelector('#br-folder').value);
+    const token = brCard.querySelector('#br-token').value.trim();
+    if (!token) return showBridgeMsg(brCard, '⚠️ pega el token que imprimió el programa al arrancarlo', true);
+    btn.disabled = true; btn.textContent = 'Conectando…';
+    try { await bridge.connect(token); paintBridge(); showBridgeMsg(brCard, '✔ conectado — ejecución real en tu máquina'); fireworks(); }
+    catch (e) { showBridgeMsg(brCard, '⚠️ ' + e.message, true); }
+    finally { btn.disabled = false; btn.textContent = 'Conectar'; }
+  };
 
   // --- Proveedores externos (API keys) ---
   box.append(el('div', 'sk-h', 'Proveedores externos (opcional · la clave se queda en tu navegador)'));
@@ -434,6 +522,7 @@ async function boot() {
   // Caché de modelos (persistente + service worker) ANTES de descargar nada,
   // para que hasta la primera descarga de pesos quede cacheada y no se repita.
   ensureModelCache().finally(() => preloadModel());
+  bridge.tryAutoConnect(); // reconecta en silencio si ya se conectó antes (mismo token)
   // galaxia en la landing (misma técnica que Elffuss)
   import('./splash-gl.js').then(m => { galaxy = m.startGalaxy($('landing')); }).catch(() => {});
 
@@ -620,11 +709,45 @@ $('view-close').addEventListener('click', closeView);
 // mejoras (en elffuss-mind/, sin tocar tu código). Clic en la elfa → abre la
 // «Mente» (mundo trance + pensamientos paralelos + música) y activa el cerebro.
 mind.setOpenFile(openFile);
+mind.init({ buildCity: buildCityAdapter, loadThoughts: loadThoughtsAdapter });
 // «Ejecutar esta propuesta»: la manda a la MISMA cola/agente del chat normal
 // (mismas herramientas reales, mismo gate de Auto-edit) — no un auto-apply
 // aparte sin supervisión.
 mind.setExecuteProposal(md => { mind.closeMind(); send('Implementa esta propuesta de mejora con cambios reales en el código:\n\n' + md); });
+// «perfiles»: cada uno es una línea de pensamiento paralela (foco + color de
+// su estrella) del cerebro CEO (compartido, core/ceo.js). El usuario los
+// edita/crea/borra desde ⚙ en la Mente.
+const CEO_DEFAULT_PROFILES = [
+  { id: 'arq', name: 'Arquitectura', focus: 'estructura, acoplamiento y dependencias; qué módulo conviene dividir o unificar', color: '#7c5cff' },
+  { id: 'cal', name: 'Calidad', focus: 'bugs latentes, casos borde sin cubrir, validaciones que faltan', color: '#49e8ff' },
+  { id: 'rend', name: 'Rendimiento', focus: 'cuellos de botella, trabajo repetido, estructuras de datos mejorables', color: '#ffb454' },
+  { id: 'dx', name: 'Producto/DX', focus: 'legibilidad, nombres, documentación y ergonomía para quien lo usa', color: '#3fb970' },
+];
+// adaptador de workspace para el cerebro CEO genérico (core/ceo.js): traduce
+// sus operaciones a las herramientas de code.js (proyecto de código único).
+async function ceoDirHandle(dirPath) {
+  let dir = codeTools.handle();
+  for (const seg of dirPath.split('/').filter(Boolean)) dir = await dir.getDirectoryHandle(seg, { create: true });
+  return dir;
+}
+const ceoWorkspace = {
+  isReady: () => !!codeTools.handle(),
+  tree: (opts) => codeTools.tree(opts),
+  write: (opts) => codeTools.write(opts),
+  read: (opts) => codeTools.read(opts),
+  list: async (dirPath) => {
+    const dir = await ceoDirHandle(dirPath);
+    const names = [];
+    for await (const e of dir.values()) if (e.kind === 'file') names.push(e.name);
+    return names;
+  },
+  remove: async (dirPath, name) => (await ceoDirHandle(dirPath)).removeEntry(name),
+};
 ceo.init({
+  namespace: 'elffusscode',
+  workspace: ceoWorkspace,
+  defaultProfiles: CEO_DEFAULT_PROFILES,
+  defaultMission: 'Revisar el proyecto y proponer mejoras concretas y accionables (código, procesos, datos o docs).',
   provider: () => agent.provider,
   // el usuario tiene PRIORIDAD: si hay algo en cola o procesándose, el cerebro espera
   isBusy: () => pumping || queue.length > 0,
@@ -712,13 +835,15 @@ if (elfAvatar) {
   elfAvatar.style.cursor = 'pointer';
   elfAvatar.title = 'Mente de Elffuss — cerebro autónomo';
   elfAvatar.addEventListener('click', () => {
-    if (!ceo.isEnabled()) { ceo.enable(); localStorage.setItem('elffusscode.ceo', '1'); }
+    // auto-activa SOLO la primera vez (nunca decidiste play/stop); si lo
+    // pausaste a propósito, abrir la Mente NO debe reactivarlo por sorpresa.
+    if (!ceo.isEnabled() && !ceo.hasDecided()) ceo.enable();
     try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* */ }
     mind.openMind();
   });
 }
-// si lo dejaste activado, el cerebro sigue de guardia al volver
-if (localStorage.getItem('elffusscode.ceo') === '1') ceo.enable();
+// restaura tu última elección (play o stop) tal cual la dejaste
+if (ceo.wasEnabledLastSession()) ceo.enable();
 
 // terminal integrado: xterm.js + shell sobre los ficheros REALES del proyecto.
 // La elfa comparte este shell (tool terminal.run) y su salida se refleja aquí.

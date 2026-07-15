@@ -137,6 +137,10 @@ body.hide-tree #sidebar { display: none; }
 #mind-close:hover { background: rgba(255,77,141,.28); }
 #mind-history { position: absolute; top: 14px; right: 182px; z-index: 6; background: rgba(73,232,221,.14); border: 1px solid #49e8ff; color: #bfeef6; border-radius: 999px; padding: 7px 12px; font-size: .78rem; cursor: pointer; backdrop-filter: blur(6px); }
 #mind-history:hover { background: rgba(73,232,221,.28); }
+#mind-playstop { position: absolute; top: 14px; right: 278px; z-index: 6; background: rgba(63,185,112,.16); border: 1px solid #3fb970; color: #b7f2cf; border-radius: 999px; padding: 7px 12px; font-size: .78rem; cursor: pointer; backdrop-filter: blur(6px); }
+#mind-playstop:hover { background: rgba(63,185,112,.3); }
+#mind-playstop.paused { background: rgba(255,180,70,.16); border-color: #ffb446; color: #ffe0b0; }
+#mind-playstop.paused:hover { background: rgba(255,180,70,.3); }
 #mind-config { position: absolute; top: 14px; right: 96px; z-index: 6; background: rgba(124,92,255,.16); border: 1px solid #7c5cff; color: #d8ccff; border-radius: 999px; padding: 7px 12px; font-size: .78rem; cursor: pointer; backdrop-filter: blur(6px); }
 #mind-config:hover { background: rgba(124,92,255,.3); }
 /* leyenda de perfiles: fija, no flota (siempre legible) */
@@ -176,6 +180,10 @@ body.hide-tree #sidebar { display: none; }
 .cfg-head { display: flex; align-items: center; font-size: .9rem; font-weight: 700; color: #fff; margin-bottom: 4px; }
 .cfg-head button { margin-left: auto; background: none; border: none; color: #b9a7ff; cursor: pointer; }
 .cfg-notif { font-size: .68rem; color: #9fb; background: rgba(63,185,112,.1); border: 1px solid rgba(63,185,112,.3); border-radius: 8px; padding: 6px 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bridge-card #br-token, .bridge-card #br-folder { background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 9px; font-size: .78rem; width: 100%; }
+.bridge-card details { color: var(--muted); }
+.bridge-card details summary::marker { color: var(--accent2); }
+#fireworks-fx { position: fixed; inset: 0; z-index: 999; pointer-events: none; }
 .cfg-notif-btn { background: #3fb970; border: none; color: #06180d; border-radius: 6px; padding: 3px 10px; font-size: .68rem; font-weight: 700; cursor: pointer; }
 #mind-cfg label { font-size: .68rem; color: #b9a7ff; margin-top: 4px; }
 #mind-cfg textarea, #mind-cfg input:not([type=color]) { background: #0b0716; border: 1px solid rgba(124,92,255,.4); color: #e8ebf4; border-radius: 8px; padding: 8px 10px; font-size: .78rem; font-family: inherit; resize: vertical; }
