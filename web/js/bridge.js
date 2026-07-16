@@ -70,6 +70,24 @@ export async function tryAutoConnect() {
   try { await connect(savedToken); return true; } catch { return false; }
 }
 
+// Detección continua en segundo plano: si el usuario arranca el bridge
+// DESPUÉS de cargar la página (o lo reinicia tras cerrarlo), esto lo detecta
+// solo y reconecta con el token guardado — sin que haga falta reabrir Ajustes
+// y pulsar «Conectar» de nuevo. Se apoya en probe() (sondeo ligero sin auth).
+let autoDetectTimer = null, connecting = false;
+export function startAutoDetect(intervalMs = 4000) {
+  if (autoDetectTimer) return () => stopAutoDetect();
+  autoDetectTimer = setInterval(async () => {
+    if (isConnected() || connecting || !savedToken) return;
+    if (!(await probe())) return;
+    connecting = true;
+    try { await connect(savedToken); } catch { /* el usuario aún no ha pegado token válido, o cayó de nuevo */ }
+    finally { connecting = false; }
+  }, intervalMs);
+  return () => stopAutoDetect();
+}
+export function stopAutoDetect() { clearInterval(autoDetectTimer); autoDetectTimer = null; }
+
 // ejecuta un comando REAL en la máquina del usuario, vía el bridge.
 // onOut/onErr reciben trozos de salida en vivo; devuelve el código de salida.
 export function exec(cmd, { cwd = savedFolder, onOut = () => {}, onErr = () => {} } = {}) {
