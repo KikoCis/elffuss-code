@@ -526,11 +526,16 @@ function renderSettings() {
   brCard.querySelector('#br-folder').value = bridge.getFolder();
   brCard.querySelector('#br-token').value = localStorage.getItem('elffusscode.bridgeToken') || '';
   const paintBridge = () => {
+    // el panel puede haberse cerrado entre sondeos de fondo — si ya no está
+    // en el DOM, nos desuscribimos en vez de tocar nodos huérfanos.
+    if (!document.body.contains(brCard)) { bridge.onStatusChange(() => {}); return; }
     const on = bridge.isConnected();
     brCard.querySelector('#br-dot').className = 'dot ' + (on ? 'on' : 'off');
     brCard.querySelector('#br-status').textContent = on ? '✓ conectado — ejecución real activa' : 'desconectado';
+    if (on) brCard.querySelector('#br-token').value = localStorage.getItem('elffusscode.bridgeToken') || '';
   };
   paintBridge();
+  bridge.onStatusChange(paintBridge); // repinta solo si el bridge conecta/cae mientras Ajustes está abierto
   brCard.querySelector('#br-connect').onclick = async () => {
     const btn = brCard.querySelector('#br-connect');
     bridge.setFolder(brCard.querySelector('#br-folder').value);
@@ -607,6 +612,7 @@ async function boot() {
   // para que hasta la primera descarga de pesos quede cacheada y no se repita.
   ensureModelCache().finally(() => preloadModel());
   bridge.tryAutoConnect(); // reconecta en silencio si ya se conectó antes (mismo token)
+  bridge.startAutoDetect(); // sigue sondeando en 2º plano: detecta el bridge si se arranca/reinicia más tarde
   // galaxia en la landing (misma técnica que Elffuss)
   import('./splash-gl.js').then(m => { galaxy = m.startGalaxy($('landing')); }).catch(() => {});
 
@@ -951,7 +957,7 @@ async function toggleTerminal(force) {
   $('act-term').classList.toggle('on', show);
   if (show) {
     const cap = shell.capabilities();
-    $('term-caps').textContent = cap.webcontainers ? 'node/npm reales (WebContainers)' : 'shell del proyecto · node/npm → WebContainers';
+    $('term-caps').textContent = cap.bridge ? '🔌 Bridge local: node/npm/python reales' : 'shell del proyecto · node/npm/python → Bridge local (⚙ Ajustes)';
     await terminal.mount($('terminal-host'));
     terminal.refit();
   }

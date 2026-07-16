@@ -119,8 +119,7 @@ export async function mount(host) {
   const cap = shell.capabilities();
   term.write('\x1b[1;35mElffuss shell\x1b[0m \x1b[90m— ficheros reales del proyecto, en tu navegador.\x1b[0m');
   const rtHint = cap.bridge ? '🔌 Bridge local conectado: node/npm/python REALES en tu máquina.'
-    : cap.webcontainers ? 'WebContainers activo: node/npm reales.'
-    : 'Escribe \x1b[0m\x1b[32mhelp\x1b[0m\x1b[90m. node/npm/python reales → Bridge local (⚙ Ajustes) o WebContainers.';
+    : 'Escribe \x1b[0m\x1b[32mhelp\x1b[0m\x1b[90m. node/npm/python reales → conecta el Bridge local (⚙ Ajustes).';
   term.write('\r\n\x1b[90m' + rtHint + '\x1b[0m');
   writePrompt();
   ready = true;

@@ -46,7 +46,7 @@ ok('tubería cat | grep', (await sh('cat src/utils.js | grep TODO')).includes('T
 ok('mkdir + echo> escriben en disco', (await sh('mkdir tests && echo hola-terminal > tests/nota.txt'), (await sh('cat tests/nota.txt')).trim()) === 'hola-terminal');
 ok('find -name localiza por patrón', /utils\.js/.test(await sh('find src -name *.js')));
 ok('wc -l cuenta líneas', (await sh('wc -l src/utils.js')).trim() === '2', await sh('wc -l src/utils.js'));
-ok('runtime real avisa con honestidad (npm)', /WebContainers/i.test(await sh('npm install').catch(e => e.message || '')) || /WebContainers/i.test(await p.evaluate(async () => { const s = await import('/js/shell.js'); try { await s.exec('npm install'); return ''; } catch (e) { return e.message; } })));
+ok('runtime real avisa con honestidad (npm)', /Bridge local/i.test(await sh('npm install').catch(e => e.message || '')) || /Bridge local/i.test(await p.evaluate(async () => { const s = await import('/js/shell.js'); try { await s.exec('npm install'); return ''; } catch (e) { return e.message; } })));
 
 // el fichero creado por el shell aparece en el árbol del explorador (fsChange)
 await p.waitForTimeout(400);
