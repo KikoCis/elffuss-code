@@ -89,13 +89,51 @@ export async function openFile(path) {
   editor.setModel(tab.model);
   setEmptyState(false);
   renderTabs();
-  applyView();
+  await applyView();
 }
 
-// modo «Vista previa» de un tab .md: en vez del código fuente en Monaco,
-// muestra el markdown renderizado (mismo motor que el chat y la Mente).
+// modo «Vista previa» de un tab .md/.html: en vez del código fuente en
+// Monaco, muestra el markdown renderizado (mismo motor que el chat y la
+// Mente) o el HTML en un iframe real.
 const PREVIEWABLE = new Set(['markdown', 'html']);
-function applyView() {
+
+// resuelve una ruta relativa (href/src) contra la carpeta del propio fichero
+function resolveRelative(ownPath, rel) {
+  if (/^([a-z][\w+.-]*:)?\/\//i.test(rel) || rel.startsWith('data:') || rel.startsWith('#')) return null; // externa/absoluta: no tocar
+  const baseDir = ownPath.includes('/') ? ownPath.slice(0, ownPath.lastIndexOf('/')) : '';
+  const segs = (baseDir ? baseDir.split('/') : []).concat(rel.split('/'));
+  const out = [];
+  for (const s of segs) { if (!s || s === '.') continue; if (s === '..') out.pop(); else out.push(s); }
+  return out.join('/');
+}
+// un iframe con srcdoc no tiene base URL propia: <link href="style.css"> o
+// <script src="app.js"> del proyecto real NUNCA se resuelven (por eso salía
+// sin CSS) — se leen del proyecto de verdad y se incrustan antes de mostrarlo.
+async function inlineLocalAssets(html, ownPath) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  for (const link of doc.querySelectorAll('link[rel~="stylesheet"][href]')) {
+    const path = resolveRelative(ownPath, link.getAttribute('href'));
+    if (!path) continue;
+    try {
+      const style = doc.createElement('style');
+      style.textContent = await code.read({ path });
+      link.replaceWith(style);
+    } catch { /* no se pudo leer: se deja el link (el navegador lo ignorará sin más) */ }
+  }
+  for (const script of doc.querySelectorAll('script[src]')) {
+    const path = resolveRelative(ownPath, script.getAttribute('src'));
+    if (!path) continue;
+    try {
+      const inline = doc.createElement('script');
+      if (script.type) inline.type = script.type;
+      inline.textContent = await code.read({ path });
+      script.replaceWith(inline);
+    } catch { /* deja el script tal cual */ }
+  }
+  return '<!doctype html>\n' + doc.documentElement.outerHTML;
+}
+
+async function applyView() {
   const tab = tabs.find(t => t.path === active);
   const lang = tab ? langOf(tab.path) : null;
   const showPreview = !!(tab && tab.preview && PREVIEWABLE.has(lang));
@@ -112,7 +150,7 @@ function applyView() {
       pane.replaceChildren();
       const frame = document.createElement('iframe');
       frame.sandbox = 'allow-scripts'; // sin allow-same-origin: aislado de tu proyecto real
-      frame.srcdoc = tab.model.getValue();
+      frame.srcdoc = await inlineLocalAssets(tab.model.getValue(), tab.path);
       pane.appendChild(frame);
     } else {
       pane.innerHTML = renderMarkdown(tab.model.getValue());
@@ -130,7 +168,7 @@ async function togglePreview(path) {
   if (!tab) return; // openFile no pudo (fichero borrado, etc.)
   tab.preview = !tab.preview;
   renderTabs();
-  applyView();
+  await applyView();
 }
 
 async function saveActive() {
@@ -142,7 +180,7 @@ async function saveActive() {
   alertBar('💾 ' + tab.path + ' guardado');
 }
 
-function closeTab(path) {
+async function closeTab(path) {
   const i = tabs.findIndex(t => t.path === path);
   if (i < 0) return;
   tabs[i].model.dispose();
@@ -154,7 +192,7 @@ function closeTab(path) {
     else { editor.setModel(monacoRef.editor.createModel('', 'plaintext')); setEmptyState(true); }
   }
   renderTabs();
-  applyView();
+  await applyView();
 }
 
 // Estado vacío: cuando no hay ningún fichero abierto, en vez de dejar el Monaco
