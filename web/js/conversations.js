@@ -14,6 +14,7 @@
 import { Agent } from './agent.js';
 import { runGoal, TASK_PREFIX } from './goal.js';
 import * as db from './db.js';
+import * as telemetry from './telemetry.js';
 
 const NS = 'elffusscode';
 const TABS_KEY = NS + '.openTabs';
@@ -197,6 +198,7 @@ async function pump(conv) {
       else await conv.agent.handle(item.text, onEvent);
     } catch (e) {
       console.error('[elffuss] fallo procesando el turno', e);
+      telemetry.reportError('pump: ' + (e?.message || e), { stack: e?.stack || '' });
       try { onChange('event', conv.id, { type: 'error', text: 'Error interno: ' + (e?.message || e) }); } catch { /* ya está registrado arriba */ }
     } finally { release(); }
     conv.queue.shift();
