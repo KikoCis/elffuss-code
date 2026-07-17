@@ -144,7 +144,16 @@ export async function tree({ path = '', depth = 3 } = {}) {
   return out.join('\n') || '(vacío)';
 }
 
-export async function read({ path } = {}) {
+const PAGE_SIZE = 100, PAGE_MAX = 500;
+
+// Lectura completa (comportamiento de siempre) O por páginas de líneas — para
+// ficheros grandes, o para plantarse justo en el número de línea que dio
+// code.search y traer contexto antes/después sin volcar el fichero entero.
+//   offset: línea 1-based donde empezar (con limit, PAGE_SIZE por defecto)
+//   around: centra la página en esa línea (offset = around - limit/2)
+// Sin offset/limit/around → fichero completo tal cual (no rompe nada que ya
+// dependa de leerlo entero, p.ej. code.edit).
+export async function read({ path, offset, limit, around } = {}) {
   if (!path) throw new Error('Falta path');
   let file;
   try {
@@ -158,8 +167,24 @@ export async function read({ path } = {}) {
       (hits.length ? ` ¿Quizá: ${hits.join(' · ')}?` : '') +
       ' Consulta el árbol (code.tree) o busca (code.search) antes de leer.');
   }
-  const text = await file.text();
-  return text.length > MAX_READ ? text.slice(0, MAX_READ) + `\n… (recortado, ${file.size} bytes)` : text;
+  const full = await file.text();
+
+  if (offset == null && limit == null && around == null) {
+    return full.length > MAX_READ ? full.slice(0, MAX_READ) + `\n… (recortado, ${file.size} bytes)` : full;
+  }
+
+  const lines = full.split('\n');
+  const total = lines.length;
+  const size = Math.max(1, Math.min(Math.round(limit) || PAGE_SIZE, PAGE_MAX));
+  const start = around != null
+    ? Math.max(1, Math.round(around) - Math.floor(size / 2))
+    : Math.max(1, Math.round(offset) || 1);
+  const startIdx = start - 1;
+  const slice = lines.slice(startIdx, startIdx + size);
+  const endLine = startIdx + slice.length;
+  const numbered = slice.map((l, i) => `${start + i}→${l}`).join('\n');
+  const more = endLine < total ? `\n… quedan líneas ${endLine + 1}-${total} — pide code.read con offset:${endLine + 1} para seguir` : '';
+  return `${path}: líneas ${start}-${endLine} de ${total}\n${numbered}${more}`;
 }
 
 // Aprobación de escritura: si «Auto» está apagado, el IDE pide confirmación

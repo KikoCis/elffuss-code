@@ -19,8 +19,10 @@ import { humanizeStreamPreview } from './humanize.js';
 import * as bridge from './bridge.js';
 import * as conv from './conversations.js';
 import { TASK_PREFIX } from './goal.js';
+import * as telemetry from './telemetry.js';
 
 const $ = id => document.getElementById(id);
+telemetry.init('elffuss-code'); // opt-in, apagado por defecto — ver Ajustes
 conv.setProvider(rules); // proveedor por defecto para cualquier conversación que se cree
 let activeModel = 'rules';
 
@@ -622,6 +624,37 @@ function renderSettings() {
     goalMode = goalCheckbox.checked;
     localStorage.setItem('elffusscode.goalmode', goalMode ? '1' : '0');
     paintGoal();
+  };
+
+  // --- 📨 Errores y feedback (opt-in — apagado no sale NADA de tu máquina) ---
+  box.append(el('div', 'sk-h', '📨 Errores y feedback'));
+  const telCard = el('div', 'prov-card');
+  telCard.innerHTML =
+    `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
+    `<input type="checkbox" id="tel-enabled"> ` +
+    `<span>Enviar automáticamente los errores técnicos que ocurran, para poder arreglarlos</span>` +
+    `</label>` +
+    `<p class="muted" style="font-size:.7rem;margin:6px 0 10px">Apagado por defecto — tu código y el contenido de tus proyectos NUNCA se incluyen, solo el mensaje de error técnico, la pila y datos del navegador.</p>` +
+    `<label class="muted" style="font-size:.68rem">O manda algo tú directamente (un fallo que viste, algo que eches en falta…)</label>` +
+    `<textarea id="tel-feedback" rows="2" style="width:100%;margin-top:4px;resize:vertical;background:var(--bg2);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:6px 8px;font:inherit" placeholder="Cuéntanos qué ha pasado o qué te gustaría que hiciera…"></textarea>` +
+    `<button id="tel-send" class="prov-use" style="margin-top:6px">Enviar</button>` +
+    `<span id="tel-msg" class="muted" style="font-size:.7rem;margin-left:8px"></span>`;
+  box.appendChild(telCard);
+  const telCheckbox = telCard.querySelector('#tel-enabled');
+  telCheckbox.checked = telemetry.isEnabled();
+  telCheckbox.onchange = () => telemetry.setEnabled(telCheckbox.checked);
+  telCard.querySelector('#tel-send').onclick = async () => {
+    const ta = telCard.querySelector('#tel-feedback');
+    const msg = telCard.querySelector('#tel-msg');
+    const text = ta.value.trim();
+    if (!text) { msg.textContent = 'escribe algo primero'; return; }
+    const wasEnabled = telemetry.isEnabled();
+    if (!wasEnabled) telemetry.setEnabled(true); // el envío manual es explícito, se permite aunque el automático esté apagado
+    await telemetry.sendFeedback(text);
+    if (!wasEnabled) telemetry.setEnabled(false); // no activa el automático de fondo si no lo pidió
+    ta.value = '';
+    msg.textContent = '¡enviado, gracias!';
+    setTimeout(() => { msg.textContent = ''; }, 4000);
   };
 
   // --- Proveedores externos (API keys) ---
