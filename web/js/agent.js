@@ -156,6 +156,17 @@ function extractBalanced(text, start) {
       else if (ch === '}' && --depth === 0) return text.slice(start, i + 1);
     }
   }
+  // Recuperación: los modelos pequeños a veces se dejan SIN escribir una
+  // llave de cierre (cierran "args":{…} pero no el objeto exterior) aunque
+  // el resto del JSON esté bien formado — antes esto tiraba el tool-call
+  // entero (ninguna escritura llegaba a ejecutarse, sin aviso). Si al llegar
+  // al final falta cerrar N llaves (fuera de cualquier cadena, así que no es
+  // un truncado a media cadena) probamos a añadirlas — solo se acepta si el
+  // JSON resultante es válido de verdad.
+  if (!inStr && depth > 0 && depth <= 4) {
+    const candidate = text.slice(start).replace(/```[\s\S]*$/, '').trimEnd() + '}'.repeat(depth);
+    try { JSON.parse(candidate); return candidate; } catch { /* no se pudo recuperar */ }
+  }
   return null;
 }
 
