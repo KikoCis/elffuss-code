@@ -18,6 +18,7 @@ import { buildCityAdapter, loadThoughtsAdapter } from './mind-adapter.js';
 import { humanizeStreamPreview } from './humanize.js';
 import * as bridge from './bridge.js';
 import * as conv from './conversations.js';
+import { TASK_PREFIX } from './goal.js';
 
 const $ = id => document.getElementById(id);
 conv.setProvider(rules); // proveedor por defecto para cualquier conversación que se cree
@@ -89,6 +90,37 @@ function addToolResult(result) {
   return det;
 }
 
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// 🎯 Modo Objetivo: tarjeta de plan (planificador → lista de tareas →
+// ejecutor). Un solo nodo por plan (mismo id), repintado in-place según
+// llegan los eventos 'plan'/'plan_update'/'plan_complete' — así se ve la
+// lista evolucionar en vivo en vez de reconstruirse entera cada vez.
+const PLAN_ICO = { pending: '⏳', 'in-progress': '🔄', done: '✅', failed: '❌', skipped: '⏭️' };
+const PLAN_STATUS_LABEL = { planning: 'planificando…', running: 'ejecutando…', done: 'completado', failed: 'con fallos' };
+function renderPlanCard(plan) {
+  const domId = 'plan-' + plan.id;
+  let div = document.getElementById(domId);
+  if (!div) {
+    div = document.createElement('div');
+    div.id = domId;
+    div.className = 'msg plan-card';
+    $('chat-log').appendChild(div);
+  }
+  div.innerHTML =
+    `<span class="plan-status">${escapeHtml(PLAN_STATUS_LABEL[plan.status] || plan.status)}</span>` +
+    `<div class="plan-head">🎯 Objetivo: ${escapeHtml(plan.goal)}</div>` +
+    (plan.planText ? `<div class="plan-summary">${escapeHtml(plan.planText)}</div>` : '') +
+    `<ul class="plan-tasks">` +
+    plan.tasks.map(t =>
+      `<li class="task-${t.status}"><span class="task-ico">${PLAN_ICO[t.status] || '⏳'}</span>` +
+      `<div><div class="task-title">${escapeHtml(t.title)}</div><div class="task-desc">${escapeHtml(t.description)}</div></div></li>`
+    ).join('') +
+    `</ul>`;
+  $('chat-log').scrollTop = $('chat-log').scrollHeight;
+  return div;
+}
+
 export function thinkingBubble() {
   const div = addMsg('thinking', '');
   const label = document.createElement('span');
@@ -127,6 +159,11 @@ function renderActiveLog() {
       if (m.content.startsWith('[resultado ')) {
         const nl = m.content.indexOf('\n');
         addToolResult(nl > 0 ? m.content.slice(nl + 1) : '');
+      } else if (m.content.startsWith(TASK_PREFIX)) {
+        // objetivo/tareas internas del modo Goal: no son burbujas sueltas —
+        // la tarjeta de plan las muestra todas. Se pinta justo en el punto
+        // donde se lanzó el objetivo, igual que aparece en directo.
+        if (m.content.startsWith(TASK_PREFIX + 'Objetivo: ') && active.plan) renderPlanCard(active.plan);
       } else if (!m.content.startsWith('[…')) {
         addMsg('user', m.content);
       }
@@ -163,6 +200,9 @@ function onConvEvent(kind, id, payload) {
     if (ev.type === 'tool') { activeThinking?.tool(ev.call.tool); addTool(ev.call.tool, ev.call.args?.path || ev.call.args?.query || ''); }
     if (ev.type === 'tool_result') addToolResult(ev.result);
     if (ev.type === 'error') addMsg('assistant err', ev.text);
+    // 🎯 Modo Objetivo: la tarjeta de plan se crea con 'plan' y se repinta
+    // in-place en cada 'plan_update'/'plan_complete' (mismo nodo, por id).
+    if (ev.type === 'plan' || ev.type === 'plan_update' || ev.type === 'plan_complete') renderPlanCard(ev.plan);
   }
 }
 
@@ -170,7 +210,8 @@ function send(text) {
   const active = conv.getActive();
   if (!active) return;
   addMsg('user', text);
-  conv.send(active.id, text);
+  if (goalMode) conv.startGoal(active.id, text);
+  else conv.send(active.id, text);
 }
 
 function renderTabsBar() {
@@ -563,6 +604,24 @@ function renderSettings() {
     autoEdit = permCheckbox.checked;
     localStorage.setItem('elffusscode.autoedit', autoEdit ? '1' : '0');
     paintAuto();
+  };
+
+  // --- 🎯 Modo Objetivo (planificador + ejecutor, mismo patrón que Auto) ---
+  box.append(el('div', 'sk-h', '🎯 Modo Objetivo'));
+  const goalCard = el('div', 'prov-card');
+  goalCard.innerHTML =
+    `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
+    `<input type="checkbox" id="perm-goalmode"> ` +
+    `<span>Tratar el próximo mensaje como un objetivo: lo descompone en tareas y las ejecuta una a una</span>` +
+    `</label>` +
+    `<p class="muted" style="font-size:.7rem;margin:6px 0 0">Igual que el botón 🎯 Goal de la barra — un planificador crea la lista de tareas y un ejecutor las va cumpliendo, marcando cada una como hecha o fallida (si una falla, las siguientes se saltan en vez de seguir a ciegas).</p>`;
+  box.appendChild(goalCard);
+  const goalCheckbox = goalCard.querySelector('#perm-goalmode');
+  goalCheckbox.checked = goalMode;
+  goalCheckbox.onchange = () => {
+    goalMode = goalCheckbox.checked;
+    localStorage.setItem('elffusscode.goalmode', goalMode ? '1' : '0');
+    paintGoal();
   };
 
   // --- Proveedores externos (API keys) ---
@@ -1130,6 +1189,21 @@ codeTools.setWriteApprover(async (path, content) => {
   if (autoEdit) return true;
   return confirm(`Elffuss quiere escribir en «${path}» (${content.split('\n').length} líneas).\n\n¿Aplicar el cambio?`);
 });
+
+// 🎯 Goal: el siguiente mensaje que mandes se trata como un OBJETIVO — se
+// planifica en tareas y se ejecutan una a una (goal.js), en vez del turno de
+// chat normal. Mismo patrón (interruptor persistente en localStorage) que
+// </> Auto de arriba.
+let goalMode = localStorage.getItem('elffusscode.goalmode') === '1';
+function paintGoal() {
+  $('btn-goal').classList.toggle('on', goalMode);
+}
+$('btn-goal').addEventListener('click', () => {
+  goalMode = !goalMode;
+  localStorage.setItem('elffusscode.goalmode', goalMode ? '1' : '0');
+  paintGoal();
+});
+paintGoal();
 
 // resolver @rutas del mensaje: se leen y se adjuntan como contexto
 const _send = send;

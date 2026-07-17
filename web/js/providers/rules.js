@@ -11,9 +11,22 @@ const HELP = `Estoy en modo básico (sin modelo). Entiendo:
 • «escribe <archivo>: <contenido>»
 Para programar de verdad, carga el modelo local (selector 🧠) o configura uno en ⚙️.`;
 
-export async function chat(history) {
+export async function chat(history, systemPrompt) {
   const last = history[history.length - 1];
   const text = (last?.content || '').trim();
+
+  // 🎯 Modo Objetivo (goal.js) también funciona en modo básico: un plan fijo
+  // de 2 tareas (explorar + escribir), para poder probar/usar el planificador
+  // sin depender de un modelo real cargado.
+  if (/^ROL: PLANIFICADOR/.test(systemPrompt || '')) {
+    return JSON.stringify({
+      plan: 'Plan básico (sin modelo) para: ' + text.slice(0, 60),
+      tasks: [
+        { title: 'Explorar el proyecto', description: 'Mira el árbol del proyecto para entender qué hay.' },
+        { title: 'Escribir el resultado', description: 'escribe objetivo.txt: ' + text },
+      ],
+    });
+  }
 
   if (text.startsWith('[resultado')) {
     const body = text.slice(text.indexOf('\n') + 1).trim();

@@ -12,6 +12,7 @@
 // modelo, pero cada una sigue funcionando y aceptando mensajes de forma
 // independiente mientras espera su turno.
 import { Agent } from './agent.js';
+import { runGoal, TASK_PREFIX } from './goal.js';
 import * as db from './db.js';
 
 const NS = 'elffusscode';
@@ -28,11 +29,17 @@ let onChange = () => {};
 const genId = () => 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const cleanTitle = s => String(s).replace(/\s+/g, ' ').trim();
 
+const GOAL_PREFIX = TASK_PREFIX + 'Objetivo: ';
 export function titleFor(conv) {
   if (conv.title) return conv.title;
-  const firstUser = conv.agent.history.find(m => m.role === 'user' && !m.content.startsWith('[resultado'));
+  const firstUser = conv.agent.history.find(m =>
+    m.role === 'user' && !m.content.startsWith('[resultado') &&
+    (!m.content.startsWith(TASK_PREFIX) || m.content.startsWith(GOAL_PREFIX)));
   if (!firstUser) return 'Nueva conversación';
-  const t = cleanTitle(firstUser.content);
+  // el objetivo lleva un prefijo interno ([tarea-objetivo] Objetivo: …) que
+  // no debe filtrarse al título de la pestaña — se muestra el texto limpio.
+  const raw = firstUser.content.startsWith(GOAL_PREFIX) ? firstUser.content.slice(GOAL_PREFIX.length) : firstUser.content;
+  const t = cleanTitle(raw);
   return t.length > 40 ? t.slice(0, 40) + '…' : t || 'Nueva conversación';
 }
 
@@ -55,7 +62,7 @@ async function persistConv(conv) {
   const i = all.findIndex(c => c.id === conv.id);
   const rec = {
     id: conv.id, title: titleFor(conv), history: conv.agent.history.slice(-HIST_CAP),
-    queue: conv.queue, createdAt: conv.createdAt, updatedAt: conv.updatedAt,
+    queue: conv.queue, plan: conv.plan || null, createdAt: conv.createdAt, updatedAt: conv.updatedAt,
   };
   if (i >= 0) all[i] = rec; else all.push(rec);
   await db.set('kv', 'conversations', all).catch(() => {});
@@ -68,7 +75,7 @@ function persistMeta() {
 function makeConv(id, saved) {
   const conv = {
     id, title: saved?.title || null, agent: new Agent(providerRef),
-    queue: saved?.queue ? [...saved.queue] : [], pumping: false,
+    queue: saved?.queue ? [...saved.queue] : [], pumping: false, plan: saved?.plan || null,
     createdAt: saved?.createdAt || Date.now(), updatedAt: saved?.updatedAt || Date.now(),
   };
   if (saved?.history) conv.agent.history = saved.history;
@@ -143,11 +150,28 @@ export async function listAll() {
 }
 
 // ---- envío / procesado ----
+// items de la cola: {kind:'chat'|'goal', text} — 'chat' es un turno normal
+// (agent.handle), 'goal' dispara el planificador/ejecutor de goal.js. Las
+// colas persistidas ANTES de que existiera el modo Objetivo guardaban texto
+// suelto (strings) — normalizeItem() los sigue aceptando como 'chat'.
 let inferenceLock = Promise.resolve();
+const normalizeItem = it => (typeof it === 'string' ? { kind: 'chat', text: it } : it);
+
 export function send(id, text) {
   const conv = convs.get(id);
   if (!conv) return;
-  conv.queue.push(text);
+  conv.queue.push({ kind: 'chat', text });
+  persistConv(conv);
+  pump(conv);
+}
+
+// 🎯 Modo Objetivo: en vez de un turno de chat normal, el mensaje se trata
+// como un objetivo — se planifica en tareas y se ejecutan una a una (ver
+// goal.js, mismo patrón planificador/ejecutor de clonagent).
+export function startGoal(id, text) {
+  const conv = convs.get(id);
+  if (!conv) return;
+  conv.queue.push({ kind: 'goal', text });
   persistConv(conv);
   pump(conv);
 }
@@ -157,7 +181,7 @@ async function pump(conv) {
   conv.pumping = true;
   onChange('pumping', conv.id, true);
   while (conv.queue.length) {
-    const text = conv.queue[0];
+    const item = normalizeItem(conv.queue[0]);
     const myTurn = inferenceLock;
     let release;
     inferenceLock = new Promise(r => { release = r; });
@@ -166,9 +190,11 @@ async function pump(conv) {
       // un fallo aquí (del modelo, de una tool, o del propio repintado en
       // main.js) NUNCA debe dejar la conversación "pumping" para siempre —
       // eso bloquearía sus futuros mensajes Y al cerebro CEO (isBusy()).
-      await conv.agent.handle(text, ev => {
+      const onEvent = ev => {
         try { onChange('event', conv.id, ev); } catch (e) { console.error('[elffuss] fallo pintando un evento de chat', e); }
-      });
+      };
+      if (item.kind === 'goal') await runGoal(conv, item.text, onEvent);
+      else await conv.agent.handle(item.text, onEvent);
     } catch (e) {
       console.error('[elffuss] fallo procesando el turno', e);
       try { onChange('event', conv.id, { type: 'error', text: 'Error interno: ' + (e?.message || e) }); } catch { /* ya está registrado arriba */ }

@@ -297,6 +297,25 @@ body.hide-tree #sidebar { display: none; }
 .msg.thinking { background: var(--bg3); border: 1px dashed var(--line); color: var(--muted); font-size: .8rem; }
 .msg.thinking .gen { font-family: ui-monospace, monospace; font-size: .7rem; color: #5f6880; max-height: 60px; overflow: hidden; white-space: pre-wrap; }
 .msg.thinking .gen.tool-preview { font-family: inherit; font-size: .78rem; color: var(--accent2); font-style: italic; }
+
+/* 🎯 Modo Objetivo: botón + tarjeta de plan (planificador/ejecutor) */
+.cbtn.goal { font-size: .74rem; }
+.cbtn.goal.on { color: #fff; border-color: var(--accent); background: linear-gradient(135deg, #3a2050, #2a1840); }
+.msg.plan-card { background: var(--bg3); border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; font-size: .82rem; align-self: stretch; max-width: 100%; }
+.plan-card .plan-head { font-weight: 600; margin-bottom: 2px; }
+.plan-card .plan-summary { color: var(--muted); font-size: .78rem; margin-bottom: 8px; }
+.plan-card .plan-status { float: right; font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.plan-card ul.plan-tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.plan-card ul.plan-tasks li { display: flex; align-items: baseline; gap: 7px; padding: 5px 7px; border-radius: 7px; background: var(--bg2); border: 1px solid var(--line); }
+.plan-card .task-ico { flex: 0 0 auto; }
+.plan-card .task-title { font-weight: 600; }
+.plan-card .task-desc { color: var(--muted); font-size: .76rem; }
+.plan-card li.task-in-progress { border-color: var(--accent2); }
+.plan-card li.task-done .task-title { color: #7ee787; }
+.plan-card li.task-failed { border-color: #a03050; }
+.plan-card li.task-failed .task-title { color: #e5a53a; }
+.plan-card li.task-skipped { opacity: .5; }
+.plan-card li.task-skipped .task-title { text-decoration: line-through; }
 #composer { display: flex; gap: 6px; padding: 10px; }
 #prompt { flex: 1; background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; color: var(--fg); padding: 9px 11px; outline: none; }
 #prompt:focus { border-color: var(--accent2); }
