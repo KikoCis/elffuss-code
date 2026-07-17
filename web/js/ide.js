@@ -109,8 +109,25 @@ function resolveRelative(ownPath, rel) {
 // un iframe con srcdoc no tiene base URL propia: <link href="style.css"> o
 // <script src="app.js"> del proyecto real NUNCA se resuelven (por eso salía
 // sin CSS) — se leen del proyecto de verdad y se incrustan antes de mostrarlo.
+// El iframe de Vista previa va con sandbox="allow-scripts" A PROPÓSITO, SIN
+// allow-same-origin (aislado de tu proyecto real — ver applyView). Pero eso
+// hace que referenciar `localStorage`/`sessionStorage` LANCE una excepción
+// síncrona — y como suele ser la primera línea de un script (guardar datos
+// es de lo más común), el resto del fichero entero se queda sin ejecutar,
+// sin aviso: los botones no hacen nada y parece que la app está rota. Se
+// incrusta un shim en memoria (nunca toca almacenamiento real, se pierde al
+// cerrar la vista previa) SOLO si de verdad hace falta — si el sandbox
+// permitiera acceso real, no se toca nada.
+const STORAGE_SHIM = `<script>(()=>{try{window.localStorage;return}catch(e){}` +
+  `const m=()=>{const d=new Map();return{getItem:k=>d.has(''+k)?d.get(''+k):null,` +
+  `setItem:(k,v)=>{d.set(''+k,''+v)},removeItem:k=>{d.delete(''+k)},clear:()=>{d.clear()},` +
+  `key:i=>[...d.keys()][i]??null,get length(){return d.size}}};` +
+  `for(const p of ['localStorage','sessionStorage'])` +
+  `try{Object.defineProperty(window,p,{value:m(),configurable:true})}catch(e){}})()<\/script>`;
+
 async function inlineLocalAssets(html, ownPath) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
+  (doc.head || doc.documentElement).insertAdjacentHTML('afterbegin', STORAGE_SHIM);
   for (const link of doc.querySelectorAll('link[rel~="stylesheet"][href]')) {
     const path = resolveRelative(ownPath, link.getAttribute('href'));
     if (!path) continue;
