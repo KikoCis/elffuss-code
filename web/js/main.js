@@ -547,6 +547,24 @@ function renderSettings() {
     finally { btn.disabled = false; btn.textContent = 'Conectar'; }
   };
 
+  // --- Permisos de ejecución (mismo interruptor que </> Auto de la barra) ---
+  box.append(el('div', 'sk-h', '✅ Permisos de ejecución'));
+  const permCard = el('div', 'prov-card');
+  permCard.innerHTML =
+    `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
+    `<input type="checkbox" id="perm-autoedit"> ` +
+    `<span>Ejecutar todo automáticamente (escribir/editar ficheros y comandos de terminal), sin pedir confirmación</span>` +
+    `</label>` +
+    `<p class="muted" style="font-size:.7rem;margin:6px 0 0">terminal.run ya se ejecuta siempre sin preguntar. Esto controla solo la escritura de ficheros (code.write/code.edit) — desmárcalo si prefieres revisar cada cambio antes de aplicarlo.</p>`;
+  box.appendChild(permCard);
+  const permCheckbox = permCard.querySelector('#perm-autoedit');
+  permCheckbox.checked = autoEdit;
+  permCheckbox.onchange = () => {
+    autoEdit = permCheckbox.checked;
+    localStorage.setItem('elffusscode.autoedit', autoEdit ? '1' : '0');
+    paintAuto();
+  };
+
   // --- Proveedores externos (API keys) ---
   box.append(el('div', 'sk-h', 'Proveedores externos (opcional · la clave se queda en tu navegador)'));
   for (const [id, c] of Object.entries(settings.configs())) {
