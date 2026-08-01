@@ -72,7 +72,8 @@ const runModel = async task => p.evaluate(async ({ task, model, timeout }) => {
   return { tools: reads + writes, reads, writes, note: writes ? '' : (lastText || 'sin write') };
 }, { task: task.task, model: MODEL, timeout: TIMEOUT });
 async function waitModel() {
-  await p.waitForFunction(() => document.getElementById('model-dot')?.classList.contains('on'), null, { timeout: 300000 })
+  // 1ª carga del E4B baja ~4 GB → margen amplio; las siguientes van de caché-blob.
+  await p.waitForFunction(() => document.getElementById('model-dot')?.classList.contains('on'), null, { timeout: 720000 })
     .catch(() => console.log('  (aviso: modelo no confirmó carga; continúo)'));
 }
 

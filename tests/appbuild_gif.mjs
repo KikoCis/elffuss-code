@@ -73,13 +73,20 @@ console.log('3) Gemma-4 cargado');
 // así el GIF va alternando chat + ficheros reales conforme se crean.
 let frameN = 0, capturing = true;
 const shown = new Set();
+async function treeFiles() {
+  // data-path (no el texto visible: ese lleva el icono pegado al nombre, p.ej. "JSapp.js")
+  return p.locator('#tree .file').evaluateAll(els => els.map(e => e.dataset.path).filter(Boolean));
+}
+async function openFile(path) {
+  return p.locator(`#tree .file[data-path="${path}"]`).first().click({ force: true }).catch(() => {});
+}
 async function captureLoop() {
   while (capturing) {
     try {
-      const files = await p.locator('#tree .file').allTextContents();
+      const files = await treeFiles();
       const fresh = files.find(f => !shown.has(f));
       if (fresh) {
-        await p.locator('#tree .file', { hasText: fresh }).first().click({ force: true }).catch(() => {});
+        await openFile(fresh);
         shown.add(fresh);
         await p.waitForTimeout(200);
       }
@@ -119,9 +126,9 @@ for (let i = 0; i < PROMPTS.length; i++) {
 ok('la elfa terminó los 3 turnos sin quedarse colgada', allIdle);
 
 // unos frames finales mostrando cada fichero creado, uno a uno
-const finalFiles = await p.locator('#tree .file').allTextContents();
+const finalFiles = await treeFiles();
 for (const f of finalFiles) {
-  await p.locator('#tree .file', { hasText: f }).first().click({ force: true }).catch(() => {});
+  await openFile(f);
   await p.waitForTimeout(500);
   frameN++;
   await p.screenshot({ path: `${FRAMES}/f${String(frameN).padStart(3, '0')}.png` }).catch(() => {});
@@ -130,6 +137,35 @@ for (const f of finalFiles) {
 capturing = false;
 await loopDone;
 console.log(`5) captura terminada — ${frameN} frames`);
+
+// --- el "resultado" de verdad: la app RENDERIZADA, no solo el código fuente
+// (Vista previa del index.html), con una interacción real para probar que
+// funciona — sin esto el GIF nunca enseña lo que se construyó, solo cómo.
+let previewOk = false;
+try {
+  await p.locator('#tabs-bar .tab', { hasText: 'index.html' }).click({ button: 'right' });
+  await p.waitForTimeout(200);
+  await p.click('#tab-menu .tm-item:has-text("Vista previa")');
+  await p.waitForTimeout(700);
+  frameN++;
+  await p.screenshot({ path: `${FRAMES}/f${String(frameN).padStart(3, '0')}.png` }).catch(() => {});
+
+  const frame = p.frameLocator('#md-preview-pane iframe');
+  await frame.locator('#nueva').fill('Comprar pan', { timeout: 5000 });
+  await frame.locator('#add').click({ timeout: 5000 });
+  await p.waitForTimeout(400);
+  const liText = await frame.locator('#lista').innerText().catch(() => '');
+  previewOk = /Comprar pan/.test(liText);
+  frameN++;
+  await p.screenshot({ path: `${FRAMES}/f${String(frameN).padStart(3, '0')}.png` }).catch(() => {});
+  // un pelín más de vida: márcala como completada si el CSS .done existe
+  await frame.locator('#lista li').first().click({ timeout: 3000 }).catch(() => {});
+  await p.waitForTimeout(400);
+  frameN++;
+  await p.screenshot({ path: `${FRAMES}/f${String(frameN).padStart(3, '0')}.png` }).catch(() => {});
+} catch (e) { console.log('   (vista previa interactiva falló:', e.message.slice(0, 150), ')'); }
+ok('la app RENDERIZADA funciona de verdad (añadir tarea real en la vista previa)', previewOk);
+console.log(`6) vista previa capturada — ${frameN} frames en total`);
 
 // --- diagnóstico: verdad de OPFS + historial real del agente, sin fiarse
 // solo del DOM del árbol (por si acaso no se ha refrescado) ---
@@ -149,8 +185,10 @@ ok('hay CSS y JS reales (no solo el HTML)', finalFiles.some(f => /\.css$/i.test(
 
 const jsFile = finalFiles.find(f => /\.js$/i.test(f));
 if (jsFile) {
-  const jsContent = await p.evaluate(async f => (await (await import('/js/tools/code.js')).read({ path: f })), jsFile);
-  ok('el JS real menciona localStorage (persistencia pedida)', /localStorage/.test(jsContent), jsFile);
+  try {
+    const jsContent = await p.evaluate(async f => (await (await import('/js/tools/code.js')).read({ path: f })), jsFile);
+    ok('el JS real menciona localStorage (persistencia pedida)', /localStorage/.test(jsContent), jsFile);
+  } catch (e) { ok('el JS real menciona localStorage (persistencia pedida)', false, e.message.slice(0, 100)); }
 }
 
 const toolCalls = await p.locator('#chat-log .msg.tool').count();

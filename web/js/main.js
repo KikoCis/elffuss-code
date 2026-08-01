@@ -16,6 +16,7 @@ import * as ceo from './ceo.js';
 import * as mind from './mind.js';
 import { buildCityAdapter, loadThoughtsAdapter } from './mind-adapter.js';
 import { humanizeStreamPreview } from './humanize.js';
+import { t, applyI18n } from './i18n.js';
 import * as bridge from './bridge.js';
 import * as conv from './conversations.js';
 import { TASK_PREFIX } from './goal.js';
@@ -126,15 +127,15 @@ function renderPlanCard(plan) {
 export function thinkingBubble() {
   const div = addMsg('thinking', '');
   const label = document.createElement('span');
-  label.textContent = 'Elffuss está pensando';
+  label.textContent = t('thinking');
   const gen = document.createElement('div');
   gen.className = 'gen';
   div.append(label, gen);
   let buf = '';
   return {
-    tick(t) {
-      buf += t;
-      label.textContent = `Elffuss escribe · ${buf.length} car.`; // caracteres, no tokens
+    tick(tok) {
+      buf += tok;
+      label.textContent = t('writing', { n: buf.length }); // caracteres, no tokens
       // si el buffer entró en un bloque de tool-call, no enseñes el JSON crudo
       // según va llegando: una frase humana («leyendo app.js…») en su lugar.
       const preview = humanizeStreamPreview(buf);
@@ -142,7 +143,7 @@ export function thinkingBubble() {
       gen.textContent = preview ? '⟐ ' + preview : (buf.length > 200 ? '…' : '') + buf.slice(-200);
       $('chat-log').scrollTop = $('chat-log').scrollHeight;
     },
-    tool(name) { buf = ''; gen.textContent = ''; label.textContent = `Elffuss usa ${name}`; },
+    tool(name) { buf = ''; gen.textContent = ''; label.textContent = t('using', { name }); },
     remove() { div.remove(); },
   };
 }
@@ -232,7 +233,7 @@ function renderTabsBar() {
     name.title = title;
     const x = document.createElement('b');
     x.textContent = '×';
-    x.title = 'Cerrar pestaña (no borra la conversación)';
+    x.title = t('tabClose');
     x.onclick = e => { e.stopPropagation(); conv.closeTab(c.id); };
     el.append(name, x);
     el.onclick = () => conv.switchTo(c.id);
@@ -240,7 +241,7 @@ function renderTabsBar() {
   }
   const plus = document.createElement('button');
   plus.className = 'tab-add';
-  plus.title = 'Nueva conversación';
+  plus.title = t('newConv');
   plus.textContent = '+';
   plus.onclick = () => conv.create();
   bar.appendChild(plus);
@@ -251,7 +252,7 @@ async function renderHistoryPanel() {
   panel.replaceChildren();
   const head = document.createElement('div');
   head.className = 'hp-head';
-  head.append(document.createTextNode('Historial de conversaciones'));
+  head.append(document.createTextNode(t('tHistory')));
   const xBtn = document.createElement('button');
   xBtn.textContent = '✕';
   xBtn.onclick = () => { panel.hidden = true; };
@@ -264,31 +265,31 @@ async function renderHistoryPanel() {
   if (!all.length) {
     const empty = document.createElement('div');
     empty.className = 'hp-empty';
-    empty.textContent = 'Sin conversaciones guardadas todavía.';
+    empty.textContent = t('histEmpty');
     list.appendChild(empty);
     return;
   }
   for (const c of all) {
     const row = document.createElement('div');
     row.className = 'hp-row';
-    const t = document.createElement('div');
-    t.className = 'hp-title';
-    t.textContent = c.title || 'Nueva conversación';
+    const titEl = document.createElement('div');
+    titEl.className = 'hp-title';
+    titEl.textContent = c.title || t('newConv');
     const d = new Date(c.updatedAt);
     const date = document.createElement('div');
     date.className = 'hp-date';
     date.textContent = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const del = document.createElement('button');
     del.className = 'hp-del';
-    del.title = 'Eliminar para siempre';
+    del.title = t('histDel');
     del.textContent = '🗑';
     del.onclick = async e => {
       e.stopPropagation();
-      if (!confirm(`¿Eliminar «${c.title || 'esta conversación'}» para siempre?`)) return;
+      if (!confirm(t('confirmDel', { title: c.title || t('thisConv') }))) return;
       await conv.remove(c.id);
       renderHistoryPanel();
     };
-    row.append(t, date, del);
+    row.append(titEl, date, del);
     row.onclick = async () => { await conv.open(c.id); panel.hidden = true; };
     list.appendChild(row);
   }
@@ -388,16 +389,16 @@ async function changeModel(id) {
       if (typeof p === 'string') return showModelProgress(p);
       if (p?.status === 'progress' && p.total) {
         const pct = Math.round(p.loaded / p.total * 100);
-        showModelProgress(`Descargando el modelo IA · ${pct}% · ${(p.loaded / 1e6 | 0)}/${(p.total / 1e6 | 0)} MB`, pct);
+        showModelProgress(t('modelLoading', { pct, loaded: (p.loaded / 1e6 | 0), total: (p.total / 1e6 | 0) }), pct);
       }
     });
     conv.setProvider(mod);
     activeModel = id;
     localStorage.setItem('elffusscode.model', id);
     $('model-dot').className = 'dot on';
-    showModelProgress('Modelo IA listo · готово ✳', 100);
+    showModelProgress(t('modelReadyBadge'), 100);
     setTimeout(() => showModelProgress(null), 2500);
-    $('statusbar').textContent = 'Modelo IA listo';
+    $('statusbar').textContent = t('modelReady');
     rebuildSelect();
     return true;
   } catch (e) {
@@ -406,7 +407,7 @@ async function changeModel(id) {
     if (id.startsWith('litert') && !_fellBack) {
       _fellBack = true;
       sessionStorage.setItem('elffusscode.skipGemma', '1');
-      showModelProgress('Ese Gemma no cargó (memoria/GPU) — uso Elffuss LM (ligero)…');
+      showModelProgress(t('fallbackToast'));
       loadingId = null;
       const okc = await changeModel('onnx');
       _fellBack = false;
@@ -523,23 +524,23 @@ function renderSettings() {
   box.appendChild(grid);
 
   // --- Almacenamiento del modelo (caché persistente) ---
-  box.append(el('div', 'sk-h', 'Modelo descargado (se cachea en tu navegador)'));
+  box.append(el('div', 'sk-h', t('setStoreTitle')));
   const storeCard = el('div', 'prov-card');
-  const storeInfo = el('span', null, 'Calculando espacio…'); storeInfo.style.cssText = 'font-size:.8rem;color:var(--fg)';
+  const storeInfo = el('span', null, t('setCalc')); storeInfo.style.cssText = 'font-size:.8rem;color:var(--fg)';
   const storeSub = el('div', 'field'); storeSub.style.marginTop = '2px';
   const storeMuted = el('span', 'muted', ''); storeMuted.style.fontSize = '.72rem';
-  const clearBtn = el('button', 'prov-use', 'Vaciar caché');
+  const clearBtn = el('button', 'prov-use', t('setClear'));
   clearBtn.style.marginTop = '8px';
-  clearBtn.onclick = async () => { clearBtn.textContent = 'Vaciando…'; await clearModelCache(); await paintStorage(); clearBtn.textContent = 'Vaciar caché'; };
+  clearBtn.onclick = async () => { clearBtn.textContent = t('setClearing'); await clearModelCache(); await paintStorage(); clearBtn.textContent = t('setClear'); };
   const storeHead = el('div', 'prov-head'); storeHead.append(storeInfo);
   storeCard.append(storeHead, storeMuted, clearBtn);
   box.appendChild(storeCard);
   async function paintStorage() {
     const { usage, quota, persisted } = await cacheEstimate();
     const gb = n => (n / 1073741824).toFixed(2) + ' GB';
-    storeInfo.textContent = usage ? `${gb(usage)} en caché` : 'Nada cacheado todavía';
-    storeMuted.textContent = (persisted ? '✓ almacenamiento persistente (no se borra solo)' : '⚠ sin persistencia: el navegador podría desalojarlo')
-      + (quota ? ` · límite ~${gb(quota)}` : '');
+    storeInfo.textContent = usage ? t('setCached', { gb: gb(usage) }) : t('setNone');
+    storeMuted.textContent = (persisted ? t('setPersist') : t('setNoPersist'))
+      + (quota ? t('setLimit', { gb: gb(quota) }) : '');
   }
   paintStorage();
 
@@ -562,7 +563,7 @@ function renderSettings() {
     `<details style="margin-top:6px"><summary class="muted" style="font-size:.7rem;cursor:pointer">otro sistema operativo</summary>` +
     Object.entries(OTHER).filter(([f]) => f !== primary).map(([f, label]) => `<div><a href="bridge-dl/${f}" download style="color:var(--accent2);font-size:.72rem">${label}</a></div>`).join('') +
     `</details>` +
-    `<div class="field" style="margin-top:8px"><label class="muted" style="font-size:.68rem">Token (lo imprime el programa al arrancarlo)</label><input id="br-token" placeholder="pega aquí el token…"></div>` +
+    `<div class="field" style="margin-top:8px"><label class="muted" style="font-size:.68rem">${t('setBrToken')}</label><input id="br-token" placeholder="${t('brTokenPh')}"></div>` +
     `<div class="field" style="margin-top:6px"><label class="muted" style="font-size:.68rem">Carpeta de trabajo (opcional — si no, usa una temporal)</label><input id="br-folder" placeholder="/ruta/completa/a/tu/proyecto"></div>` +
     `<button id="br-connect" class="prov-use" style="margin-top:8px">Conectar</button>`;
   box.appendChild(brCard);
@@ -636,7 +637,7 @@ function renderSettings() {
     `</label>` +
     `<p class="muted" style="font-size:.7rem;margin:6px 0 10px">Apagado por defecto — tu código y el contenido de tus proyectos NUNCA se incluyen, solo el mensaje de error técnico, la pila y datos del navegador.</p>` +
     `<label class="muted" style="font-size:.68rem">O manda algo tú directamente (un fallo que viste, algo que eches en falta…)</label>` +
-    `<textarea id="tel-feedback" rows="2" style="width:100%;margin-top:4px;resize:vertical;background:var(--bg2);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:6px 8px;font:inherit" placeholder="Cuéntanos qué ha pasado o qué te gustaría que hiciera…"></textarea>` +
+    `<textarea id="tel-feedback" rows="2" style="width:100%;margin-top:4px;resize:vertical;background:var(--bg2);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:6px 8px;font:inherit" placeholder="${t('setFeedbackPh')}"></textarea>` +
     `<button id="tel-send" class="prov-use" style="margin-top:6px">Enviar</button>` +
     `<span id="tel-msg" class="muted" style="font-size:.7rem;margin-left:8px"></span>`;
   box.appendChild(telCard);
@@ -669,10 +670,10 @@ function renderSettings() {
     use.onclick = () => { changeModel('ext:' + id); renderSettings(); };
     head.append(toggle, title, use);
     const fields = el('div', 'prov-fields' + (c.enabled ? '' : ' hide'));
-    const model = document.createElement('input'); model.value = c.model || ''; model.placeholder = 'modelo (p. ej. gpt-4o-mini)';
+    const model = document.createElement('input'); model.value = c.model || ''; model.placeholder = t('setModelPh');
     const key = document.createElement('input'); key.type = 'password'; key.value = c.apiKey || '';
-    key.placeholder = c.kind === 'anthropic' ? 'sk-ant-…' : (id === 'ollama' || id === 'server' ? 'clave (no necesaria)' : 'sk-…');
-    fields.append(labeled('Modelo', model), labeled('API key', key));
+    key.placeholder = c.kind === 'anthropic' ? 'sk-ant-…' : (id === 'ollama' || id === 'server' ? t('keyNeeded') : 'sk-…');
+    fields.append(labeled(t('lblModel'), model), labeled(t('lblApiKey'), key));
     const save = () => {
       settings.update(id, { enabled: toggle.checked, model: model.value.trim(), apiKey: key.value });
       rebuildSelect();
@@ -712,12 +713,13 @@ async function enterIDE(handle) {
   await conv.init({ onEvent: onConvEvent });
   renderTabsBar();
   renderActiveLog();
-  addMsg('sys', `Привіт 👋 Proyecto «${name}» abierto. Pregúntame por el código, pídeme cambios o dime «árbol». Todo se queda en tu máquina.`);
+  addMsg('sys', t('welcome', { name }));
   refreshGit();
   preloadModel(); // por si el arranque en la landing no llegó a dispararse
 }
 
 async function boot() {
+  applyI18n(); // localiza el chrome estático (placeholder) antes de pintar nada
   // Caché de modelos (persistente + service worker) ANTES de descargar nada,
   // para que hasta la primera descarga de pesos quede cacheada y no se repita.
   ensureModelCache().finally(() => preloadModel());
@@ -920,7 +922,7 @@ mind.init({ buildCity: buildCityAdapter, loadThoughts: loadThoughtsAdapter });
 // «Ejecutar esta propuesta»: la manda a la MISMA cola/agente del chat normal
 // (mismas herramientas reales, mismo gate de Auto-edit) — no un auto-apply
 // aparte sin supervisión.
-mind.setExecuteProposal(md => { mind.closeMind(); send('Implementa esta propuesta de mejora con cambios reales en el código:\n\n' + md); });
+mind.setExecuteProposal(md => { mind.closeMind(); send(t('pProposal') + md); });
 // «perfiles»: cada uno es una línea de pensamiento paralela (foco + color de
 // su estrella) del cerebro CEO (compartido, core/ceo.js). El usuario los
 // edita/crea/borra desde ⚙ en la Mente.
@@ -979,7 +981,7 @@ export function isNoteworthy(ev) {
 }
 // manda una propuesta (el .md completo del ciclo) a la MISMA cola/agente real
 // del chat — usado tanto por el botón del chat como por el de la notificación.
-function executeProposal(md) { send('Implementa esta propuesta de mejora con cambios reales en el código:\n\n' + md); }
+function executeProposal(md) { send(t('pProposal') + md); }
 
 export function reportImprovements(ev) {
   const props = ev.proposals || [];
@@ -1020,7 +1022,7 @@ async function notify(title, body, md) {
       if (reg.showNotification) {
         await reg.showNotification(title, {
           body, icon: 'img/elffuss-code.svg',
-          actions: [{ action: 'execute', title: '▶ Ejecutar' }, { action: 'open', title: 'Ver en la Mente' }],
+          actions: [{ action: 'execute', title: t('nExec') }, { action: 'open', title: t('nView') }],
           data: { md },
         });
         return;
@@ -1044,7 +1046,7 @@ document.addEventListener('keydown', noteAct, true);
 const elfAvatar = document.querySelector('#activity img');
 if (elfAvatar) {
   elfAvatar.style.cursor = 'pointer';
-  elfAvatar.title = 'Mente de Elffuss — cerebro autónomo';
+  elfAvatar.title = t('avatarTitle');
   elfAvatar.addEventListener('click', () => {
     // auto-activa SOLO la primera vez (nunca decidiste play/stop); si lo
     // pausaste a propósito, abrir la Mente NO debe reactivarlo por sorpresa.
@@ -1178,12 +1180,12 @@ document.addEventListener('click', e => {
 
 // [/] comandos
 $('btn-slash').addEventListener('click', () => openMenu([
-  { sep: 'Comandos' },
-  { label: '/tree', hint: 'árbol del proyecto', run: () => send('árbol') },
-  { label: '/search', hint: 'buscar en el código', run: () => { $('prompt').value = 'busca '; $('prompt').focus(); } },
-  { label: '/skills', hint: 'gestionar skills', run: () => openSkillsPanel() },
-  { label: '/model', hint: 'proveedores y modelo', run: () => $('btn-settings').click() },
-  { label: '/clear', hint: 'nueva conversación', run: () => conv.create() },
+  { sep: t('cmdsSep') },
+  { label: '/tree', hint: t('slTree'), run: () => send(t('pTree')) },
+  { label: '/search', hint: t('slSearch'), run: () => { $('prompt').value = t('pSearch'); $('prompt').focus(); } },
+  { label: '/skills', hint: t('slSkills'), run: () => openSkillsPanel() },
+  { label: '/model', hint: t('slModel'), run: () => $('btn-settings').click() },
+  { label: '/clear', hint: t('slClear'), run: () => conv.create() },
 ]));
 
 // [+] adjuntar archivo del proyecto como @ruta
@@ -1192,11 +1194,11 @@ $('btn-plus').addEventListener('click', async () => {
   try { tree = await codeTools.tree({ depth: 3 }); } catch { /* sin proyecto */ }
   const files = tree.split('\n').filter(l => l.trim() && !l.includes('📁')).map(l => l.trim()).slice(0, 40);
   const { currentFile } = codeTools.current();
-  const items = [{ sep: 'Adjuntar al mensaje (@)' }];
-  if (currentFile) items.push({ label: '@' + currentFile, hint: 'archivo abierto', run: () => attach(currentFile) });
+  const items = [{ sep: t('attachSep') }];
+  if (currentFile) items.push({ label: '@' + currentFile, hint: t('attachOpen'), run: () => attach(currentFile) });
   for (const f of files.filter(f => f !== currentFile).slice(0, 20))
     items.push({ label: '@' + f, run: () => attach(f) });
-  openMenu(items.length > 1 ? items : [{ sep: 'Abre un proyecto primero' }]);
+  openMenu(items.length > 1 ? items : [{ sep: t('openProjFirst') }]);
 });
 function attach(path) {
   const p = $('prompt');
@@ -1209,8 +1211,8 @@ let autoEdit = localStorage.getItem('elffusscode.autoedit') !== '0';
 function paintAuto() {
   const b = $('btn-autoedit');
   b.classList.toggle('on', autoEdit);
-  b.querySelector('.ae-txt').textContent = autoEdit ? 'Auto' : 'Revisar';
-  b.title = autoEdit ? 'Editar archivos automáticamente (clic para revisar antes)' : 'Pedir confirmación antes de escribir (clic para automático)';
+  b.querySelector('.ae-txt').textContent = autoEdit ? t('autoTxt') : t('reviewTxt');
+  b.title = autoEdit ? t('autoOn') : t('autoOff');
 }
 $('btn-autoedit').addEventListener('click', () => {
   autoEdit = !autoEdit;
@@ -1355,14 +1357,14 @@ async function browseRepo(repo, box) {
 // ---------- command palette (Cmd/Ctrl+P) ----------
 let palItems = [], palSel = 0;
 const COMMANDS = [
-  { label: 'Nueva conversación', run: () => conv.create() },
-  { label: 'Historial de conversaciones', run: () => $('btn-history').click() },
-  { label: 'Buscar en el código…', run: () => { closePalette(); $('prompt').value = 'busca '; $('prompt').focus(); } },
-  { label: 'Gestionar skills', run: () => { closePalette(); openSkillsPanel(); } },
-  { label: 'Ajustes y modelo', run: () => { closePalette(); renderSettings(); } },
-  { label: 'Alternar explorador', run: () => $('act-files').click() },
-  { label: 'Alternar terminal', hint: 'Ctrl+`', run: () => { closePalette(); toggleTerminal(); } },
-  { label: 'Guardar (Ctrl+S)', run: () => triggerEditor('') || (hasEditor() && triggerEditor('workbench.action.files.save')) },
+  { label: t('newConv'), run: () => conv.create() },
+  { label: t('tHistory'), run: () => $('btn-history').click() },
+  { label: t('pSearchCode'), run: () => { closePalette(); $('prompt').value = t('pSearch'); $('prompt').focus(); } },
+  { label: t('pManageSkills'), run: () => { closePalette(); openSkillsPanel(); } },
+  { label: t('tActSettings'), run: () => { closePalette(); renderSettings(); } },
+  { label: t('pToggleExplorer'), run: () => $('act-files').click() },
+  { label: t('pToggleTerm'), hint: 'Ctrl+`', run: () => { closePalette(); toggleTerminal(); } },
+  { label: t('pSave'), run: () => triggerEditor('') || (hasEditor() && triggerEditor('workbench.action.files.save')) },
 ];
 
 function openPalette(prefix = '') {
@@ -1392,9 +1394,9 @@ async function renderPalette() {
 
   if (raw.startsWith('>')) {                       // comandos
     const q = raw.slice(1).trim().toLowerCase();
-    palItems = COMMANDS.filter(c => c.label.toLowerCase().includes(q)).map(c => ({ label: c.label, hint: 'comando', run: c.run }));
+    palItems = COMMANDS.filter(c => c.label.toLowerCase().includes(q)).map(c => ({ label: c.label, hint: t('palCmd'), run: c.run }));
   } else if (raw.startsWith('@')) {                // símbolos del archivo abierto (Monaco)
-    palItems = [{ label: 'Ir a símbolo en el editor…', hint: '@', run: () => { closePalette(); triggerEditor('editor.action.quickOutline'); } }];
+    palItems = [{ label: t('palGotoSym'), hint: '@', run: () => { closePalette(); triggerEditor('editor.action.quickOutline'); } }];
   } else {                                          // archivos (con :línea opcional)
     const [pathQ, lineQ] = raw.split(':');
     const files = await codeTools.fileList().catch(() => []);
@@ -1414,7 +1416,7 @@ async function renderPalette() {
     row.onclick = () => it.run();
     list.appendChild(row);
   });
-  if (!palItems.length) list.appendChild(el('div', 'pal-empty', 'Sin resultados'));
+  if (!palItems.length) list.appendChild(el('div', 'pal-empty', t('palEmpty')));
 }
 function paintPalSel() {
   [...$('pal-list').children].forEach((c, i) => c.classList.toggle('sel', i === palSel));
@@ -1436,30 +1438,30 @@ document.addEventListener('click', e => { if (!e.target.closest('#palette')) clo
 // ---------- barra de menú File/Edit/View/Git ----------
 async function menuFor(which) {
   if (which === 'file') return [
-    { label: 'Nuevo archivo…', run: () => { const p = prompt('Ruta del nuevo archivo:'); if (p) codeTools.write({ path: p, content: '' }).then(() => { openFile(p); refreshTree(); }); } },
-    { label: 'Guardar', hint: 'Ctrl+S', run: () => triggerEditor('workbench.action.files.save') },
-    { label: 'Abrir carpeta…', run: async () => { try { await enterIDE(await window.showDirectoryPicker({ mode: 'readwrite' })); } catch {} } },
+    { label: t('mNewFile'), run: () => { const p = prompt(t('promptNewPath')); if (p) codeTools.write({ path: p, content: '' }).then(() => { openFile(p); refreshTree(); }); } },
+    { label: t('mSave'), hint: 'Ctrl+S', run: () => triggerEditor('workbench.action.files.save') },
+    { label: t('mOpenFolder'), run: async () => { try { await enterIDE(await window.showDirectoryPicker({ mode: 'readwrite' })); } catch {} } },
   ];
   if (which === 'edit') return [
-    { label: 'Buscar en el código', run: () => { $('prompt').value = 'busca '; $('prompt').focus(); } },
-    { label: 'Ir a archivo…', hint: 'Cmd+P', run: () => openPalette('') },
-    { label: 'Ir a símbolo…', run: () => triggerEditor('editor.action.quickOutline') },
+    { label: t('mSearchCode'), run: () => { $('prompt').value = t('pSearch'); $('prompt').focus(); } },
+    { label: t('mGotoFile'), hint: 'Cmd+P', run: () => openPalette('') },
+    { label: t('mGotoSym'), run: () => triggerEditor('editor.action.quickOutline') },
   ];
   if (which === 'view') return [
-    { label: 'Explorador', run: () => $('act-files').click() },
-    { label: 'Terminal', hint: 'Ctrl+`', run: () => toggleTerminal(true) },
-    { label: 'Arquitectura', run: () => openView('arch') },
-    { label: 'Ciudad 3D', run: () => openView('city') },
+    { label: t('tFiles'), run: () => $('act-files').click() },
+    { label: t('mTerminal'), hint: 'Ctrl+`', run: () => toggleTerminal(true) },
+    { label: t('mArch'), run: () => openView('arch') },
+    { label: t('tCity'), run: () => openView('city') },
     { label: 'Command Palette', hint: 'Cmd+Shift+P', run: () => openPalette('>') },
     { label: 'Skills', run: () => openSkillsPanel() },
-    { label: 'Acerca de Elffuss Code (GitHub)', hint: '↗', run: () => window.open('https://github.com/KikoCis/elffuss-code', '_blank', 'noopener') },
+    { label: t('mAbout'), hint: '↗', run: () => window.open('https://github.com/KikoCis/elffuss-code', '_blank', 'noopener') },
   ];
   if (which === 'git') {
     const g = await codeTools.gitInfo();
-    if (!g.isRepo) return [{ label: 'No es un repositorio git', hint: '', run: () => {} }];
-    const items = [{ label: 'Rama: ' + g.branch, hint: 'git', run: () => {} }];
-    if (g.lastCommit) items.push({ label: 'Último: ' + g.lastCommit.msg.slice(0, 40), hint: g.lastCommit.author, run: () => {} });
-    items.push({ label: 'Pídele a Elffuss que commitee', run: () => { $('prompt').value = 'resume los cambios y prepárame el mensaje de commit'; $('prompt').focus(); } });
+    if (!g.isRepo) return [{ label: t('gNotRepo'), hint: '', run: () => {} }];
+    const items = [{ label: t('gBranch', { b: g.branch }), hint: 'git', run: () => {} }];
+    if (g.lastCommit) items.push({ label: t('gLast', { m: g.lastCommit.msg.slice(0, 40) }), hint: g.lastCommit.author, run: () => {} });
+    items.push({ label: t('gCommit'), run: () => { $('prompt').value = t('pCommit'); $('prompt').focus(); } });
     return items;
   }
   return [];
