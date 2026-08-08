@@ -38,6 +38,28 @@ ok('conserva el mensaje reciente (la consulta)', cres.keptRecent);
 ok('conserva el mensaje ANTIGUO relevante por BM25 (token secreto)', cres.keptRelevant);
 ok('marca los huecos con marca de omisión', cres.hasOmission);
 
+// ---- 1b) MISMA prueba pero con mensajes del TAMAÑO REAL de una herramienta ----
+// El caso de arriba usa mensajes de ~68 tokens; un [resultado code.read] real son
+// ~1.5k. Con tamaños reales, los últimos RECENT mensajes por sí solos se salían del
+// presupuesto → no sobrevivía NINGÚN mensaje antiguo y se devolvían 2× los tokens
+// pedidos. Esta prueba es la que lo detecta; sin ella el fallo es invisible.
+const rres = await p.evaluate(async () => {
+  const { packHistory } = await import('/js/context.js');
+  const relleno = (i) => `linea ${i} de salida de herramienta con rutas web/js/mod${i}.js y detalles varios`;
+  const hist = [];
+  for (let i = 0; i < 40; i++) {
+    hist.push({ role: 'assistant', content: `Voy a mirar esto.\n{"tool":"code.read","args":{"path":"web/js/mod${i}.js"}}` });
+    hist.push({ role: 'user', content: `[resultado code.read]\n` + Array.from({ length: 90 }, (_, k) => relleno(i * 100 + k)).join('\n') });
+  }
+  hist[13] = { role: 'user', content: '[resultado code.read]\nconst TOKEN_SECRETO = "ZANActl-42";\n' + Array.from({ length: 80 }, (_, k) => relleno(k)).join('\n') };
+  hist.push({ role: 'user', content: '¿cuál era el valor de TOKEN_SECRETO? cítame la línea' });
+  const packed = packHistory(hist, 2200);
+  const tok = packed.reduce((s, m) => s + Math.ceil((m.content || '').length / 4), 0);
+  return { tok, kept: packed.some(m => m.content.includes('ZANActl-42')) };
+});
+ok('presupuesto RESPETADO con mensajes de tamaño real', rres.tok <= 2400, `~${rres.tok} tok para un presupuesto de 2200`);
+ok('el dato antiguo que se vuelve a pedir SOBREVIVE (tamaños reales)', rres.kept);
+
 // ---- 2) bucle largo del agente: 10 rondas de tool-calls sin romperse ----
 const loop = await p.evaluate(async () => {
   const { Agent } = await import('/js/agent.js');
