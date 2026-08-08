@@ -1,7 +1,7 @@
 // Mente v2: mundo audio-reactivo + consolas flotantes + nodos clicables +
 // config de cerebro + persistencia (música/animación) + reporte al chat.
 import { chromium } from 'playwright';
-const OUT = '/tmp/trabajo';
+const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n,c,e='')=>{console.log((c?'✅':'❌')+' '+n+(e?'  — '+e:''));if(!c)fails++};
 const b = await chromium.launch({ args:['--enable-unsafe-webgpu','--use-angle=metal','--autoplay-policy=no-user-gesture-required'] });

@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-const VDIR='/tmp/trabajo';
+const VDIR=(process.env.SCRATCH || '/tmp/elffuss-test') + '/vid';
 const BASE = process.env.BASE || 'http://localhost:8799';
 const b=await chromium.launch({args:['--enable-unsafe-webgpu','--use-angle=metal','--autoplay-policy=no-user-gesture-required']});
 const ctx=await b.newContext({viewport:{width:1280,height:720},recordVideo:{dir:VDIR,size:{width:1280,height:720}}});

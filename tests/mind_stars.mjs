@@ -1,7 +1,7 @@
 // Mente v3: estrellas por perfil (no consolas), historial completo, perfiles
 // editables, ciudad de fondo + haces de actividad, y tool-calling REAL del CEO.
 import { chromium } from 'playwright';
-const OUT = '/tmp/trabajo';
+const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 

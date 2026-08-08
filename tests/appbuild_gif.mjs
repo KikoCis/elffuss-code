@@ -7,7 +7,7 @@ import { chromium } from 'playwright';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync } from 'node:fs';
 
-const OUT = '/tmp/trabajo';
+const OUT = (process.env.SCRATCH || '/tmp/elffuss-test') + '/appbuild';
 const FRAMES = OUT + '/frames';
 mkdirSync(FRAMES, { recursive: true });
 const BASE = process.env.BASE || 'https://elffuss-code.utopiaia.com';
@@ -25,7 +25,7 @@ async function waitIdle(p, maxMs = 180000) {
   return false;
 }
 
-const PROFILE = '/tmp/trabajo';
+const PROFILE = (process.env.SCRATCH || '/tmp/elffuss-test') + '/profile-code-gemma';
 const ctx = await chromium.launchPersistentContext(PROFILE, {
   args: ['--autoplay-policy=no-user-gesture-required', '--enable-unsafe-webgpu', '--use-angle=metal'],
   viewport: { width: 1440, height: 900 },

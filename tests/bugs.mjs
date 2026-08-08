@@ -1,7 +1,7 @@
 // Bug A: al cerrar la última pestaña → estado vacío (no Monaco en blanco).
 // Bug B: abrir/cerrar/alternar vistas (grafo/ciudad) → siempre cargan bien.
 import { chromium } from 'playwright';
-const OUT='/tmp/trabajo';
+const OUT=(process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails=0; const ok=(n,c,e='')=>{console.log((c?'✅':'❌')+' '+n+(e?'  — '+e:''));if(!c)fails++};
 const b=await chromium.launch({args:['--enable-unsafe-webgpu','--use-angle=metal']});

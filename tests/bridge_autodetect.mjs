@@ -3,7 +3,7 @@
 // vez que el proceso local se reinicia. Aquí lo comprobamos contra un Bridge
 // REAL ya arrancado en esta máquina (127.0.0.1:8765).
 import { chromium } from 'playwright';
-const OUT = '/tmp/trabajo';
+const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 const TOKEN = process.env.BRIDGE_TOKEN;
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };

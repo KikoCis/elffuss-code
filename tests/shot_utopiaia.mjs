@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-const OUT = '/tmp/trabajo';
+const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const b = await chromium.launch();
 const p = await b.newContext({ viewport: { width: 1280, height: 900 }, locale: 'es-ES' }).then(c => c.newPage());
 await p.goto('https://utopiaia.com/#elffuss', { waitUntil: 'networkidle' }).catch(()=>{});

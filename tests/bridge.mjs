@@ -4,9 +4,10 @@
 // producir — no algo que el shell emulado en JS pudiera fingir.
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
-const OUT = '/tmp/trabajo';
+const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
-const BRIDGE_BIN = '/Users/dev/work2026/elffuss-code/web/bridge-dl/elffuss-bridge-mac-arm64';
+const BRIDGE_BIN = process.env.BRIDGE_BIN
+  || new URL('../web/bridge-dl/elffuss-bridge-mac-arm64', import.meta.url).pathname;
 const PORT = 8765; // puerto real que usa bridge.js (fijo)
 const TOKEN = 'test-token-e2e-' + Math.random().toString(36).slice(2);
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };

@@ -1,10 +1,10 @@
 import { chromium } from 'playwright';
 import { readFileSync, writeFileSync } from 'fs';
 
-const SB = '/tmp/trabajo';
+const SB = (process.env.SCRATCH || '/tmp/elffuss-test');
 const tpl = readFileSync(SB + '/og_template.html', 'utf8');
-const svgCode = readFileSync('/Users/dev/work2026/elffuss-code/web/img/elffuss-code.svg', 'utf8').replace(/`/g,'\\`');
-const svgClaw = readFileSync('/Users/dev/work2026/elffuss-claw/web/img/elffuss.svg', 'utf8').replace(/`/g,'\\`');
+const svgCode = readFileSync(new URL('../../elffuss-code/web/img/elffuss-code.svg', import.meta.url).pathname, 'utf8').replace(/`/g,'\\`');
+const svgClaw = readFileSync(new URL('../../elffuss-claw/web/img/elffuss.svg', import.meta.url).pathname, 'utf8').replace(/`/g,'\\`');
 const html = tpl.replace('__SVG_CODE__', svgCode).replace('__SVG_CLAW__', svgClaw);
 writeFileSync(SB + '/og_built.html', html);
 

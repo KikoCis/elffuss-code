@@ -2,7 +2,7 @@
 // distinguir enviado/pensando) + Enter explícito tras recuperar del
 // historial con ↑ (antes dependía del submit-on-Enter nativo del <form>).
 import { chromium } from 'playwright';
-const OUT = '/tmp/trabajo';
+const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 

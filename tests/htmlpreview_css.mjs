@@ -2,7 +2,7 @@
 // LOCALES del proyecto se incrustan de verdad (antes salían sin CSS: un
 // iframe con srcdoc no tiene base URL y esas rutas relativas nunca resuelven).
 import { chromium } from 'playwright';
-const OUT = '/tmp/trabajo';
+const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
