@@ -216,7 +216,18 @@ export async function write({ path, content = '' } = {}) {
 export async function edit({ path, search, replace } = {}) {
   if (!path) throw new Error('Falta path');
   if (search == null || replace == null) throw new Error('Faltan search y replace');
-  const current = await read({ path });
+  // Contenido COMPLETO, sin el tope de MAX_READ. edit reescribe el fichero
+  // entero, así que leer la vista recortada de read() truncaría todo lo que
+  // hubiese más allá de MAX_READ (bug histórico: editar un fichero >60KB lo
+  // dejaba en 60KB y metía el marcador «… (recortado)» dentro del código).
+  let current;
+  try {
+    const { dir, name } = await dirOf(path);
+    current = await (await (await dir.getFileHandle(name)).getFile()).text();
+  } catch {
+    await read({ path });   // relanza el error «que enseña» (sugiere code.tree/search); nunca retorna
+    throw new Error(`no existe «${path}»`);
+  }
 
   const first = current.indexOf(search);
   if (first !== -1) {
@@ -226,44 +237,88 @@ export async function edit({ path, search, replace } = {}) {
     return write({ path, content: current.slice(0, first) + replace + current.slice(first + search.length) });
   }
 
-  // fallback difuso: el texto no aparece tal cual, prueba con la misma
-  // tolerancia con la que un desarrollador reconocería "es este trozo"
-  const { diff_match_patch } = await import('https://esm.sh/diff-match-patch@1.0.5');
-  const dmp = new diff_match_patch();
-  const patches = dmp.patch_make(search, replace);
-  const [next, results] = dmp.patch_apply(patches, current);
-  if (!results.length || !results.every(Boolean)) {
+  // fallback difuso, LOCAL y por líneas (sin depender de esm.sh en tiempo de
+  // edición — eso rompería la edición sin conexión, justo lo contrario del
+  // producto). El error típico del modelo al recordar «search» es la sangría o
+  // los espacios; localizamos el bloque normalizando espacios y, si hace falta,
+  // por parecido de líneas — y sustituimos ESE bloque, esté donde esté (también
+  // en lo hondo de un fichero grande).
+  const norm = s => s.replace(/[ \t]+/g, ' ').trim();
+  const curLines = current.split('\n');
+  const seaLines = search.replace(/\n+$/, '').split('\n');
+  const nSea = seaLines.map(norm);
+  const k = seaLines.length;
+
+  // 1) bloque idéntico salvo espacios → tiene que ser ÚNICO
+  let exactStart = -1, exactHits = 0;
+  for (let i = 0; i + k <= curLines.length; i++) {
+    let same = true;
+    for (let j = 0; j < k; j++) if (norm(curLines[i + j]) !== nSea[j]) { same = false; break; }
+    if (same) { exactHits++; if (exactStart === -1) exactStart = i; if (exactHits > 1) break; }
+  }
+  if (exactHits > 1)
+    throw new Error(`«search» coincide (ignorando espacios) en más de un sitio de ${path} — añade líneas de contexto para que sea inequívoco.`);
+
+  let start = exactStart;
+  if (start === -1) {
+    // 2) por parecido: la ventana con más líneas coincidentes (normalizadas),
+    // exigiendo ≥70% y que gane con claridad a la segunda mejor (sin ambigüedad)
+    let best = -1, bestScore = 0, second = 0;
+    for (let i = 0; i + k <= curLines.length; i++) {
+      let hit = 0;
+      for (let j = 0; j < k; j++) if (norm(curLines[i + j]) === nSea[j]) hit++;
+      const score = hit / k;
+      if (score > bestScore) { second = bestScore; bestScore = score; best = i; }
+      else if (score > second) second = score;
+    }
+    if (bestScore >= 0.7 && bestScore - second >= 0.2) start = best;
+  }
+  if (start === -1)
     throw new Error(`No encontré con suficiente confianza el punto exacto a editar en ${path} (ni exacto ni aproximado). ` +
       `Vuelve a leerlo (code.read) y copia «search» literal de esas líneas, más corto si hace falta.`);
-  }
-  return write({ path, content: next });
+
+  const nextLines = [...curLines.slice(0, start), ...replace.split('\n'), ...curLines.slice(start + k)];
+  const nextContent = nextLines.join('\n');
+  if (nextContent === current)
+    throw new Error(`La edición en ${path} no cambió nada — revisa «replace».`);
+  return write({ path, content: nextContent });
 }
 
-// grep-lite por el proyecto (texto, con límites para no arrasar).
+// grep-lite por el proyecto (texto, con límites para no arrasar). Los topes
+// existen por rendimiento, pero si se alcanzan hay que DECÍRSELO al modelo
+// (igual que read() avisa «quedan líneas…»); si no, un corte silencioso se lee
+// como «no hay más» y el modelo da por cerrada una búsqueda incompleta.
+const SEARCH_MAX_FILES = 1500, SEARCH_MAX_HITS = 80;
 export async function search({ query, ext = '' } = {}) {
   if (!query) throw new Error('Falta query');
   if (!projectHandle) throw new Error('No hay proyecto abierto');
   const results = [];
-  let checked = 0;
+  let checked = 0, capped = false;
   const q = query.toLowerCase();
   async function walk(dir, prefix) {
-    if (results.length > 80 || checked > 400) return;
+    if (results.length >= SEARCH_MAX_HITS || checked >= SEARCH_MAX_FILES) { capped = true; return; }
     for await (const e of dir.values()) {
       if (IGNORE.has(e.name)) continue;
       const p = prefix ? prefix + '/' + e.name : e.name;
-      if (e.kind === 'directory') { await walk(e, p); continue; }
+      if (e.kind === 'directory') { await walk(e, p); if (capped) return; continue; }
       if (ext && !e.name.endsWith(ext)) continue;
       const f = await e.getFile();
       if (f.size > 200_000) continue;
       checked++;
       const lines = (await f.text()).split('\n');
-      lines.forEach((l, i) => {
-        if (results.length <= 80 && l.toLowerCase().includes(q))
-          results.push(`${p}:${i + 1}: ${l.trim().slice(0, 140)}`);
-      });
-      if (results.length > 80 || checked > 400) return;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().includes(q)) {
+          results.push(`${p}:${i + 1}: ${lines[i].trim().slice(0, 140)}`);
+          if (results.length >= SEARCH_MAX_HITS) { capped = true; break; }
+        }
+      }
+      if (results.length >= SEARCH_MAX_HITS || checked >= SEARCH_MAX_FILES) { capped = true; return; }
     }
   }
   await walk(projectHandle, '');
-  return results.length ? results.join('\n') : `Sin resultados para «${query}»`;
+  if (!results.length)
+    return `Sin resultados para «${query}»` + (capped ? ` (búsqueda cortada tras ${checked} ficheros; afina con ext:".js" o un término más concreto).` : '');
+  return results.join('\n') + (capped
+    ? `\n… búsqueda cortada (${results.length} resultados, ${checked} ficheros revisados) — puede haber más: afina con ext o un término más concreto.`
+    : '');
 }
