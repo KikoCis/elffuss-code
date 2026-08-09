@@ -7,6 +7,15 @@
 //   3) el fallback difuso (diff-match-patch por esm.sh) no localizaba objetivos
 //      profundos, aplicaba el parche en OTRO sitio y REPORTABA ÉXITO (falso
 //      positivo); además dependía de la red (rompía la edición sin conexión).
+//   4) code.tree cortaba a 350 entradas con un «…» pelado: el modelo daba por
+//      completo un árbol que no lo estaba.
+//   5) search se saltaba EN SILENCIO todo fichero >200KB — «Sin resultados»
+//      sonaba a «ese código no existe» siendo mentira, y justo en los ficheros
+//      grandes, que son los que el modelo no puede leer enteros.
+//   6) read con offset más allá del final devolvía un rango imposible
+//      («líneas 999-998 de 6») y ningún contenido.
+//   7) el difuso rehacía el fichero con split/join('\n'): un fichero CRLF salía
+//      con finales de línea MEZCLADOS (se tocaba lo que no se había editado).
 // Determinista, sin modelo (modo rules). Corre contra local o producción:
 //   BASE=http://localhost:8790 node bigfile_edit.mjs
 import { chromium } from 'playwright';
@@ -131,6 +140,58 @@ await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.w
   });
   ok('5 · fichero de varios MB: edición aplicada, cola intacta, sin truncar', r.edit && r.tail && r.lines >= 40000);
   ok('5 · fichero de varios MB: rápido (<4s)', r.ms < 4000, `${r.ms}ms`);
+}
+
+// ---------- 6 · search DENTRO de ficheros grandes, y confiesa lo que no miró ----------
+// Bug: se saltaba EN SILENCIO todo fichero >200KB, así que «Sin resultados» se
+// leía como «ese código no existe» — mentira. Y un fichero grande es justo el
+// que el modelo no puede leer entero: el que más falta hace poder buscar.
+await p.evaluate(async () => {
+  const o = await navigator.storage.getDirectory();
+  const put = async (n, s) => { const w = await (await o.getFileHandle(n, { create: true })).createWritable(); await w.write(s); await w.close(); };
+  let mid = ''; for (let i = 0; i < 5000; i++) mid += `const p${i} = ${i}; // relleno relleno relleno\n`;
+  await put('mid.js', mid + 'const MID_NEEDLE = 1;\n');                 // ~250KB (antes: invisible)
+  let mb = ''; for (let i = 0; i < 60000; i++) mb += `function m${i}(){ return ${i}; }\n`;
+  await put('mb.js', mb);                                               // >2MB (fuera de tope: hay que DECIRLO)
+});
+await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1200);
+{
+  const r = await p.evaluate(async () => {
+    const code = await import('/js/tools/code.js');
+    const s = await code.search({ query: 'MID_NEEDLE' });
+    return { found: /mid\.js:\d+/.test(s), declares: /NO buscados por tamaño/.test(s) && /mb\.js/.test(s), raw: s.slice(0, 200) };
+  });
+  ok('6 · search encuentra dentro de un fichero de ~250KB', r.found, r.raw);
+  ok('6 · search DECLARA los ficheros que no pudo mirar por tamaño', r.declares);
+}
+
+// ---------- 7 · bordes: leer más allá del final, y CRLF que sobrevive a edit ----------
+await p.evaluate(async () => {
+  const o = await navigator.storage.getDirectory();
+  const put = async (n, s) => { const w = await (await o.getFileHandle(n, { create: true })).createWritable(); await w.write(s); await w.close(); };
+  await put('small.js', 'a\nb\nc\nd\ne\n');
+  await put('crlf.js', 'const A = 1;\r\n  function calc(x){\r\n    return x + 1;\r\n  }\r\nconst B = 2;\r\n');
+});
+await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1000);
+{
+  const r = await p.evaluate(async () => {
+    const code = await import('/js/tools/code.js');
+    const past = await code.read({ path: 'small.js', offset: 999, limit: 10 });
+    // sangría distinta a propósito → entra por el camino difuso, que es el que
+    // reescribía el bloque con finales de línea LF y dejaba el fichero mezclado
+    await code.edit({ path: 'crlf.js', search: 'function calc(x){\nreturn x + 1;\n}', replace: 'function calc(x){\n    return x + 2;\n  }' });
+    const o = await navigator.storage.getDirectory();
+    const t = await (await (await o.getFileHandle('crlf.js')).getFile()).text();
+    return {
+      pastSane: !/líneas 999-998/.test(past) && /6/.test(past),
+      applied: t.includes('x + 2'),
+      crs: (t.match(/\r/g) || []).length,
+      lfAlone: /[^\r]\n/.test(t),
+    };
+  });
+  ok('7 · read más allá del final: mensaje útil, no un rango imposible', r.pastSane);
+  ok('7 · CRLF: la edición se aplica…', r.applied);
+  ok('7 · CRLF: …y NO mezcla finales de línea (los 5 CR siguen ahí)', r.crs === 5 && !r.lfAlone, `${r.crs} CR`);
 }
 
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ TODO VERDE — edición y búsqueda robustas en grande');
