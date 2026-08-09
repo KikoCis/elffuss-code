@@ -121,7 +121,7 @@ export function switchTo(id) {
 export async function appendMessage(id, role, content) {
   const c = convs.get(id);
   if (!c) return;
-  c.agent.history.push({ role, content });
+  c.agent.history.push({ role, content, ts: Date.now() });
   c.updatedAt = Date.now();
   await persistConv(c);
 }
