@@ -3,8 +3,8 @@
 // la lista de herramientas permitidas OMITÍA code.edit y el paso 3 mandaba
 // reescribir entero con code.write → el modelo reescribía ficheros completos
 // (carísimo y destructivo en ficheros grandes). Determinista, sin modelo.
-import { chromium } from 'playwright/index.mjs';
-const BASE='http://localhost:8790';
+import { chromium } from 'playwright';
+const BASE=process.env.BASE||'http://localhost:8790';
 let fails=0; const ok=(n,c,e='')=>{console.log((c?'✅':'❌')+' '+n+(e?'  — '+e:''));if(!c)fails++;};
 const b=await chromium.launch();const ctx=await b.newContext();
 await ctx.addInitScript(()=>{try{localStorage.setItem('elffusscode.model','rules');}catch{}});

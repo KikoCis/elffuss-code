@@ -194,6 +194,43 @@ await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.w
   ok('7 · CRLF: …y NO mezcla finales de línea (los 5 CR siguen ahí)', r.crs === 5 && !r.lfAlone, `${r.crs} CR`);
 }
 
+// ---------- 8 · el fichero tiene líneas que el modelo NO vio, en lo hondo ----------
+// Bug: al cambiar diff-match-patch por el emparejador por líneas, se perdió la
+// tolerancia a líneas INSERTADAS dentro del bloque (un comentario añadido
+// después). El bloque entero dejaba de encajar y edit fallaba del todo; y si
+// hubiese encajado por parecido, se habría COMIDO la línea no vista.
+await p.evaluate(async () => {
+  const o = await navigator.storage.getDirectory();
+  const w = await (await o.getFileHandle('shift.js', { create: true })).createWritable();
+  let s = 'const HEAD=1;\n';
+  for (let i = 1; i <= 4000; i++) s += (i === 2500)
+    ? 'function precio(base){\n  // TODO: revisar con contabilidad (añadido luego)\n  const iva = 0.21;\n  return base * (1 + iva);\n}\n'
+    : `function s${i}(){ return ${i}; }\n`;
+  s += 'const TAIL="SHIFT_TAIL";\n';
+  await w.write(s); await w.close();
+});
+await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1200);
+{
+  const r = await p.evaluate(async () => {
+    const code = await import('/js/tools/code.js');
+    let err = null;
+    // el modelo recuerda la función SIN el comentario que se añadió después
+    try {
+      await code.edit({
+        path: 'shift.js',
+        search: 'function precio(base){\n  const iva = 0.21;\n  return base * (1 + iva);\n}',
+        replace: 'function precio(base){\n  const iva = 0.10;\n  return base * (1 + iva);\n}',
+      });
+    } catch (e) { err = e.message; }
+    const o = await navigator.storage.getDirectory();
+    const t = await (await (await o.getFileHandle('shift.js')).getFile()).text();
+    return { err, applied: t.includes('0.10'), keptComment: t.includes('contabilidad'), tail: t.includes('SHIFT_TAIL'), lines: t.split('\n').length };
+  });
+  ok('8 · el modelo no vio una línea intermedia: la edición SE APLICA igual', r.applied && !r.err, r.err || '');
+  ok('8 · …y la línea que no vio SIGUE ahí (no se la come)', r.keptComment);
+  ok('8 · …y el resto del fichero grande queda intacto', r.tail && r.lines >= 4000);
+}
+
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ TODO VERDE — edición y búsqueda robustas en grande');
 await b.close();
 process.exit(fails ? 1 : 0);

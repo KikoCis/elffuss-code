@@ -186,6 +186,10 @@ export async function read({ path, offset, limit, around } = {}) {
     ? Math.max(1, Math.round(around) - Math.floor(size / 2))
     : Math.max(1, Math.round(offset) || 1);
   const startIdx = start - 1;
+  // Pedir más allá del final devolvía un rango imposible («líneas 999-998 de 6»)
+  // y CERO contenido: el modelo se quedaba sin nada que hacer. Mejor decírselo.
+  if (startIdx >= total)
+    return `${path}: solo tiene ${total} líneas y pediste desde la ${start} — usa offset entre 1 y ${total}.`;
   const slice = lines.slice(startIdx, startIdx + size);
   const endLine = startIdx + slice.length;
   const numbered = slice.map((l, i) => `${start + i}→${l}`).join('\n');
@@ -249,30 +253,84 @@ export async function edit({ path, search, replace } = {}) {
   // los espacios; localizamos el bloque normalizando espacios y, si hace falta,
   // por parecido de líneas — y sustituimos ESE bloque, esté donde esté (también
   // en lo hondo de un fichero grande).
-  const norm = s => s.replace(/[ \t]+/g, ' ').trim();
-  const curLines = current.split('\n');
-  const seaLines = search.replace(/\n+$/, '').split('\n');
-  const nSea = seaLines.map(norm);
-  const k = seaLines.length;
-
-  // 1) bloque idéntico salvo espacios → tiene que ser ÚNICO
-  let exactStart = -1, exactHits = 0;
-  for (let i = 0; i + k <= curLines.length; i++) {
-    let same = true;
-    for (let j = 0; j < k; j++) if (norm(curLines[i + j]) !== nSea[j]) { same = false; break; }
-    if (same) { exactHits++; if (exactStart === -1) exactStart = i; if (exactHits > 1) break; }
+  const norm = s => s.replace(/[ \t]+/g, ' ').trim();   // .trim() se lleva también el \r final
+  // Partimos guardando el offset de carácter de cada línea: así el bloque se
+  // sustituye por CORTE EXACTO y todo lo de fuera queda byte a byte igual
+  // (incluidos sus finales de línea). Con split/join se reescribía el fichero
+  // entero y un fichero CRLF acababa con finales de línea MEZCLADOS.
+  const curLines = [], lineStart = [];
+  for (let i = 0; i <= current.length;) {
+    const nl = current.indexOf('\n', i);
+    lineStart.push(i);
+    if (nl === -1) { curLines.push(current.slice(i)); break; }
+    curLines.push(current.slice(i, nl));                // puede acabar en \r
+    i = nl + 1;
   }
-  if (exactHits > 1)
-    throw new Error(`«search» coincide (ignorando espacios) en más de un sitio de ${path} — añade líneas de contexto para que sea inequívoco.`);
+  const crlf = (current.match(/\r\n/g) || []).length;
+  const eol = crlf && crlf * 2 >= (current.match(/\n/g) || []).length ? '\r\n' : '\n';
+  const nCur = curLines.map(norm);                        // normalizamos UNA vez
+  let seaLines = search.replace(/[\r\n]+$/, '').split(/\r?\n/);
+  let repLines = replace.split(/\r?\n/);
 
-  let start = exactStart;
+  // Posiciones donde un bloque de líneas encaja (ignorando espacios).
+  const locate = (nBlock) => {
+    const at = [];
+    for (let i = 0; i + nBlock.length <= nCur.length; i++) {
+      let same = true;
+      for (let j = 0; j < nBlock.length; j++) if (nCur[i + j] !== nBlock[j]) { same = false; break; }
+      if (same) { at.push(i); if (at.length > 8) break; }
+    }
+    return at;
+  };
+  const ambiguous = () => new Error(`«search» coincide (ignorando espacios) en más de un sitio de ${path} — añade líneas de contexto para que sea inequívoco.`);
+
+  let start = -1, k = seaLines.length;
+
+  // 1) el bloque ENTERO, idéntico salvo espacios → tiene que ser ÚNICO
+  {
+    const at = locate(seaLines.map(norm));
+    if (at.length > 1) throw ambiguous();
+    if (at.length === 1) start = at[0];
+  }
+
+  // 2) si no aparece entero, puede ser que el fichero tenga líneas que el modelo
+  // NO vio (un comentario añadido después, p. ej.) metidas dentro del bloque.
+  // Como search y replace comparten el contexto sin tocar al principio y al
+  // final, recortamos esa parte común y buscamos solo el NÚCLEO que cambia: así
+  // lo que el modelo no vio se queda donde estaba en vez de desaparecer.
   if (start === -1) {
-    // 2) por parecido: la ventana con más líneas coincidentes (normalizadas),
-    // exigiendo ≥70% y que gane con claridad a la segunda mejor (sin ambigüedad)
+    let pre = 0, suf = 0;
+    while (pre < seaLines.length && pre < repLines.length && norm(seaLines[pre]) === norm(repLines[pre])) pre++;
+    while (suf < seaLines.length - pre && suf < repLines.length - pre &&
+           norm(seaLines[seaLines.length - 1 - suf]) === norm(repLines[repLines.length - 1 - suf])) suf++;
+    const core = seaLines.slice(pre, seaLines.length - suf);
+    if (core.length) {
+      let at = locate(core.map(norm));
+      if (at.length > 1) {
+        // desempate por CONTEXTO: gana el candidato con más líneas del contexto
+        // recortado alrededor (y solo si gana en solitario).
+        const ctx = [...seaLines.slice(0, pre), ...seaLines.slice(seaLines.length - suf)].map(norm).filter(Boolean);
+        const near = i => {
+          const from = Math.max(0, i - pre - 3), to = Math.min(nCur.length, i + core.length + suf + 3);
+          const around = nCur.slice(from, to);
+          return ctx.filter(c => around.includes(c)).length;
+        };
+        const scored = at.map(i => ({ i, s: near(i) })).sort((a, b) => b.s - a.s);
+        if (ctx.length && scored[0].s > scored[1].s) at = [scored[0].i];
+      }
+      if (at.length > 1) throw ambiguous();
+      if (at.length === 1) { start = at[0]; k = core.length; repLines = repLines.slice(pre, repLines.length - suf); }
+    }
+  }
+
+  // 3) por parecido: la ventana con más líneas coincidentes, exigiendo ≥70% y
+  // que gane con claridad a la segunda mejor (sin ambigüedad)
+  if (start === -1) {
+    const nSea = seaLines.map(norm);
     let best = -1, bestScore = 0, second = 0;
-    for (let i = 0; i + k <= curLines.length; i++) {
+    for (let i = 0; i + k <= nCur.length; i++) {
       let hit = 0;
-      for (let j = 0; j < k; j++) if (norm(curLines[i + j]) === nSea[j]) hit++;
+      for (let j = 0; j < k; j++) if (nCur[i + j] === nSea[j]) hit++;
       const score = hit / k;
       if (score > bestScore) { second = bestScore; bestScore = score; best = i; }
       else if (score > second) second = score;
@@ -283,8 +341,13 @@ export async function edit({ path, search, replace } = {}) {
     throw new Error(`No encontré con suficiente confianza el punto exacto a editar en ${path} (ni exacto ni aproximado). ` +
       `Vuelve a leerlo (code.read) y copia «search» literal de esas líneas, más corto si hace falta.`);
 
-  const nextLines = [...curLines.slice(0, start), ...replace.split('\n'), ...curLines.slice(start + k)];
-  const nextContent = nextLines.join('\n');
+  // Corte exacto del bloque [start, start+k): desde el inicio de su primera
+  // línea hasta el inicio de la siguiente (es decir, salto de línea incluido).
+  const cutFrom = lineStart[start];
+  const hasTrailingNL = start + k < lineStart.length;
+  const cutTo = hasTrailingNL ? lineStart[start + k] : current.length;
+  const block = repLines.join(eol) + (hasTrailingNL ? eol : '');
+  const nextContent = current.slice(0, cutFrom) + block + current.slice(cutTo);
   if (nextContent === current)
     throw new Error(`La edición en ${path} no cambió nada — revisa «replace».`);
   return write({ path, content: nextContent });
@@ -294,11 +357,16 @@ export async function edit({ path, search, replace } = {}) {
 // existen por rendimiento, pero si se alcanzan hay que DECÍRSELO al modelo
 // (igual que read() avisa «quedan líneas…»); si no, un corte silencioso se lee
 // como «no hay más» y el modelo da por cerrada una búsqueda incompleta.
-const SEARCH_MAX_FILES = 1500, SEARCH_MAX_HITS = 80;
+const SEARCH_MAX_FILES = 1500, SEARCH_MAX_HITS = 80, SEARCH_MAX_BYTES = 2_000_000;
+// Binarios: NO pueden contener el texto que se busca y leerlos como texto es
+// caro. Fuera de esta lista quedan .svg/.json/.md/.csv, que son texto y sí se
+// buscan. (Antes el tope de tamaño hacía de filtro accidental de binarios.)
+const BINARY_EXT = /\.(png|jpe?g|gif|webp|avif|ico|bmp|tiff?|mp[34]|m4a|wav|ogg|mov|avi|webm|pdf|zip|gz|bz2|xz|tar|7z|rar|woff2?|ttf|eot|otf|wasm|bin|exe|dll|so|dylib|class|jar|pyc|sqlite3?)$/i;
 export async function search({ query, ext = '' } = {}) {
   if (!query) throw new Error('Falta query');
   if (!projectHandle) throw new Error('No hay proyecto abierto');
   const results = [];
+  const skipped = [];                       // ficheros de texto NO buscados por tamaño
   let checked = 0, capped = false;
   const q = query.toLowerCase();
   async function walk(dir, prefix) {
@@ -308,8 +376,13 @@ export async function search({ query, ext = '' } = {}) {
       const p = prefix ? prefix + '/' + e.name : e.name;
       if (e.kind === 'directory') { await walk(e, p); if (capped) return; continue; }
       if (ext && !e.name.endsWith(ext)) continue;
+      if (BINARY_EXT.test(e.name)) continue;
       const f = await e.getFile();
-      if (f.size > 200_000) continue;
+      // Un fichero grande es justo donde el modelo NO puede leerlo entero, así
+      // que es el que más falta hace buscar. Se busca hasta SEARCH_MAX_BYTES; y
+      // lo que quede fuera se DICE (antes: >200KB se saltaba en silencio, y
+      // «Sin resultados» sonaba a «ese código no existe» siendo mentira).
+      if (f.size > SEARCH_MAX_BYTES) { skipped.push(p); continue; }
       checked++;
       const lines = (await f.text()).split('\n');
       for (let i = 0; i < lines.length; i++) {
@@ -322,9 +395,13 @@ export async function search({ query, ext = '' } = {}) {
     }
   }
   await walk(projectHandle, '');
+  // Todo lo que la búsqueda NO ha mirado se cuenta; un resultado incompleto que
+  // se presenta como completo es peor que no buscar.
+  const notes = [];
+  if (capped) notes.push(`búsqueda cortada (${results.length} resultados, ${checked} ficheros revisados) — puede haber más: afina con ext o un término más concreto`);
+  if (skipped.length) notes.push(`${skipped.length} fichero(s) NO buscados por tamaño (>${SEARCH_MAX_BYTES / 1e6} MB): ${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''} — mira dentro con code.read`);
+  const tail = notes.length ? '\n… ' + notes.join('. ') + '.' : '';
   if (!results.length)
-    return `Sin resultados para «${query}»` + (capped ? ` (búsqueda cortada tras ${checked} ficheros; afina con ext:".js" o un término más concreto).` : '');
-  return results.join('\n') + (capped
-    ? `\n… búsqueda cortada (${results.length} resultados, ${checked} ficheros revisados) — puede haber más: afina con ext o un término más concreto.`
-    : '');
+    return `Sin resultados para «${query}»` + (tail || '');
+  return results.join('\n') + tail;
 }
