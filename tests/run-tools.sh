@@ -24,10 +24,13 @@ if leak=$(grep -rnE '/(Users|home)/[a-z]' *.mjs 2>/dev/null); then
 fi
 for t in $SUITES; do
   printf '%-24s ' "$t"
-  out=$(node "$t.mjs" 2>&1)
+  out=$(node "$t.mjs" 2>&1); rc=$?
   n=$(printf '%s' "$out" | grep -c '✅')
-  if printf '%s' "$out" | grep -q 'FALLO\|Error:'; then
-    echo "❌ FALLA"
+  # CERO asserts NO es verde: si la suite se muere antes de comprobar nada (o el
+  # navegador se cae), «sin fallos» se leía como «todo bien». Silencio ≠ éxito —
+  # que es justo el fallo que perseguimos en el producto.
+  if printf '%s' "$out" | grep -q 'FALLO\|Error:' || [ "$rc" -ne 0 ] || [ "$n" -eq 0 ]; then
+    echo "❌ FALLA (rc=$rc, $n asserts)"
     printf '%s\n' "$out" | tail -8 | sed 's/^/    /'
     fail=1
   else
