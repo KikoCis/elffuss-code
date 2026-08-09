@@ -97,6 +97,42 @@ await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.w
   ok('3 · proyecto grande: AVISA cuando corta (no corte silencioso)', r.capped);
 }
 
+// ---------- 4 · code.tree: al cortar, AVISA y guía (no un «…» pelado) ----------
+await p.evaluate(async () => {
+  const o = await navigator.storage.getDirectory();
+  const d = await o.getDirectoryHandle('many', { create: true });
+  for (let i = 0; i < 900; i++) { const w = await (await d.getFileHandle('t' + i + '.js', { create: true })).createWritable(); await w.write('//' + i); await w.close(); }
+});
+await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1000);
+{
+  const t = await p.evaluate(async () => (await import('/js/tools/code.js')).tree({ depth: 3 }));
+  ok('4 · proyecto grande: code.tree AVISA al cortar y dice cómo ver más', /recortado/.test(t) && /(code\.tree|code\.search)/.test(t));
+}
+
+// ---------- 5 · fichero de varios MB: edita rápido, sin truncar ----------
+await p.evaluate(async () => {
+  const o = await navigator.storage.getDirectory();
+  const w = await (await o.getFileHandle('huge.js', { create: true })).createWritable();
+  const parts = ['const HEAD=1;\n'];
+  for (let i = 1; i <= 40000; i++) parts.push(i === 30000 ? 'export function target(){ return "AAA"; }\n' : `function h${i}(){ return ${i}; }\n`);
+  parts.push('const TAIL="HUGE_TAIL";\n');
+  await w.write(parts.join('')); await w.close();
+});
+await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1200);
+{
+  const r = await p.evaluate(async () => {
+    const code = await import('/js/tools/code.js');
+    const t0 = performance.now();
+    await code.edit({ path: 'huge.js', search: 'export function target(){ return "AAA"; }', replace: 'export function target(){ return "BBB"; }' });
+    const ms = performance.now() - t0;
+    const o = await navigator.storage.getDirectory();
+    const t = await (await (await o.getFileHandle('huge.js')).getFile()).text();
+    return { ms: Math.round(ms), edit: t.includes('"BBB"'), tail: t.includes('HUGE_TAIL'), lines: t.split('\n').length };
+  });
+  ok('5 · fichero de varios MB: edición aplicada, cola intacta, sin truncar', r.edit && r.tail && r.lines >= 40000);
+  ok('5 · fichero de varios MB: rápido (<4s)', r.ms < 4000, `${r.ms}ms`);
+}
+
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ TODO VERDE — edición y búsqueda robustas en grande');
 await b.close();
 process.exit(fails ? 1 : 0);

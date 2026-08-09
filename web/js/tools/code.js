@@ -122,26 +122,32 @@ export async function findByName(basename, limit = 5) {
 }
 
 // Árbol de texto (para el modelo y el CONTEXTO). Ignora dependencias/binarios.
+const TREE_MAX = 800;
 export async function tree({ path = '', depth = 3 } = {}) {
   if (!projectHandle) throw new Error('No hay proyecto abierto');
   let root = projectHandle;
   for (const p of normalize(path)) root = await root.getDirectoryHandle(p);
   const out = [];
-  let count = 0;
+  let count = 0, truncated = false;
   async function walk(dir, prefix, d) {
-    if (d > depth || count > 350) return;
+    if (d > depth || count >= TREE_MAX) return;
     const entries = [];
     for await (const e of dir.values()) entries.push(e);
     entries.sort((a, b) => (a.kind !== b.kind) ? (a.kind === 'directory' ? -1 : 1) : a.name.localeCompare(b.name));
     for (const e of entries) {
       if (IGNORE.has(e.name)) continue;
-      if (++count > 350) { out.push(prefix + '…'); return; }
+      if (++count > TREE_MAX) { truncated = true; return; }
       out.push(prefix + (e.kind === 'directory' ? '📁 ' : '') + e.name);
-      if (e.kind === 'directory') await walk(e, prefix + '  ', d + 1);
+      if (e.kind === 'directory') { await walk(e, prefix + '  ', d + 1); if (truncated) return; }
     }
   }
   await walk(root, '', 1);
-  return out.join('\n') || '(vacío)';
+  let res = out.join('\n') || '(vacío)';
+  // Corte con AVISO y guía (como read/search): un «…» pelado se lee como «esto
+  // es todo» y el modelo trabaja sobre un árbol incompleto sin saberlo.
+  if (truncated)
+    res += `\n… árbol recortado (>${TREE_MAX} entradas). Acota con code.tree({path:"subcarpeta"}) o localiza con code.search.`;
+  return res;
 }
 
 const PAGE_SIZE = 100, PAGE_MAX = 500;
