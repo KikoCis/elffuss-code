@@ -10,3 +10,4 @@ tests/_gpuprobe.mjs
 tests/_quotaprobe.mjs
 tests/_bigblob.mjs
 tests/_threshold*.mjs
+tests/_*.mjs
