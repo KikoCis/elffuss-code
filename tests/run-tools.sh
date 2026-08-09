@@ -10,9 +10,18 @@ set -uo pipefail
 cd "$(dirname "$0")"
 export BASE="${BASE:-http://localhost:8790}"
 
-SUITES="bigfile_edit codeedit codeedit_agent prompt_prefers_edit readpaging multiwrite glob_rm autoedit_settings toolparse toolparse_missingbrace"
+SUITES="bigfile_edit codeedit codeedit_agent prompt_prefers_edit readpaging multiwrite glob_rm autoedit_settings toolparse toolparse_missingbrace toolparse_malformed litertcache modelcache_honest"
 echo "▶ BASE=$BASE"
 fail=0
+
+# Guardia de PRIVACIDAD: ya han colado DOS VECES un import de playwright por
+# ruta absoluta con el nombre de usuario, y las dos acabaron empujadas al repo
+# público. Que salte aquí y no en la auditoría de después.
+if leak=$(grep -rnE '/(Users|home)/[a-z]' *.mjs 2>/dev/null); then
+  echo "❌ RUTA CON USUARIO en los tests (no se puede publicar):"
+  printf '%s\n' "$leak" | sed 's/^/    /'
+  fail=1
+fi
 for t in $SUITES; do
   printf '%-24s ' "$t"
   out=$(node "$t.mjs" 2>&1)

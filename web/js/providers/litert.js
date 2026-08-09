@@ -78,11 +78,20 @@ export async function cachedModelBlob(url, onProgress = () => {}) {
     if (!net.ok || !net.body) return url;
     const total = +net.headers.get('content-length') || 0;
     const t0 = performance.now();
-    const [prog, toCache] = net.body.tee();
-    (async () => {
-      const r = prog.getReader(); let loaded = 0;
-      for (;;) { const { done, value } = await r.read(); if (done) break; loaded += value.length; onProgress(fmtBytes(loaded, total, t0)); }
-    })().catch(() => {});
+    // Progreso SIN tee(): con un modelo de gigabytes, tee() crea dos ramas que
+    // se consumen a ritmos distintos y el navegador tiene que bufferizar la
+    // diferencia en memoria → el cache.put acababa reventando y el modelo NO se
+    // cacheaba NUNCA (medido con E4B: 2832 MB bajados y cero guardados; el
+    // usuario se los re-bajaba en cada sesión). Con un TransformStream hay un
+    // solo consumidor: contamos al vuelo y el mismo flujo va a la caché.
+    let loaded = 0;
+    const counted = net.body.pipeThrough(new TransformStream({
+      transform(chunk, ctrl) {
+        loaded += chunk.byteLength ?? chunk.length;
+        onProgress(fmtBytes(loaded, total, t0));
+        ctrl.enqueue(chunk);
+      },
+    }));
     const headers = { 'Content-Type': 'application/octet-stream' };
     if (total) headers['Content-Length'] = String(total);
     // Cachear GIGABYTES puede fallar de verdad: ventana privada (Cache Storage
@@ -90,7 +99,7 @@ export async function cachedModelBlob(url, onProgress = () => {}) {
     // progreso ya ha prometido «se cachea para la próxima vez» y, callándolo,
     // el usuario se re-baja el modelo entero cada sesión sin saber por qué.
     try {
-      await cache.put(url, new Response(toCache, { headers }));
+      await cache.put(url, new Response(counted, { headers }));
     } catch (e) {
       onProgress(`No se pudo guardar el modelo en caché (${e.name || 'error'}): habrá que descargarlo otra vez la próxima. ` +
         `Suele ser ventana privada o falta de espacio.`);
