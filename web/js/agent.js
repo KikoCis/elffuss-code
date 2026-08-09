@@ -88,11 +88,66 @@ CONTEXTO AHORA (estado real del IDE, úsalo):
 ${context}` : ''}`;
 }
 
+// Repara el JSON que emiten los modelos pequeños: coma final + saltos de línea/
+// tab/CR LITERALES dentro de cadenas (un HTML escrito «tal cual» en content los
+// lleva y rompen JSON.parse). No resuelve comillas internas sin escapar — de eso
+// se encarga looseToolCall.
+function repairJson(raw) {
+  const s = raw.replace(/,(\s*[}\]])/g, '$1');   // coma final
+  let out = '', inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (esc) { out += ch; esc = false; continue; }
+    if (ch === '\\') { out += ch; esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; out += ch; continue; }
+    if (inStr && ch === '\n') { out += '\\n'; continue; }
+    if (inStr && ch === '\r') { out += '\\r'; continue; }
+    if (inStr && ch === '\t') { out += '\\t'; continue; }
+    out += ch;
+  }
+  return out;
+}
+
+// Extractor TOLERANTE de una tool-call, dirigido por claves. La forma es fija
+// ({"tool":"…","args":{…}}), así que localizamos cada clave conocida y leemos su
+// valor hasta la comilla de cierre REAL (la « seguida de , " o }} »), tolerando
+// comillas y saltos de línea sin escapar dentro del valor (lo típico en un HTML).
+function looseToolCall(raw) {
+  const tm = raw.match(/"tool"\s*:\s*"([\w.]+)"/);
+  if (!tm) return null;
+  const am = raw.match(/"args"\s*:\s*\{/);
+  const body = am ? raw.slice(am.index + am[0].length) : raw;
+  const args = {};
+  for (const key of ['path', 'content', 'search', 'replace', 'query', 'ext', 'command']) {
+    const km = body.match(new RegExp('"' + key + '"\\s*:\\s*"'));
+    if (!km) continue;
+    let val = '', closed = false;
+    for (let i = km.index + km[0].length; i < body.length; i++) {
+      const ch = body[i];
+      if (ch === '\\') { val += ch + (body[i + 1] || ''); i++; continue; }
+      if (ch === '"' && /^\s*(,\s*"|\}\s*[}\]]|\}\s*$|$)/.test(body.slice(i + 1))) { closed = true; break; } // cierre real
+      val += ch;
+    }
+    // Si la cadena NUNCA cierra, el mensaje se truncó a media escritura: NO
+    // recuperar (completarlo sería inventar un content que no existe).
+    if (!closed) return null;
+    try { val = JSON.parse('"' + val.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"'); } catch { /* crudo */ }
+    args[key] = val;
+  }
+  for (const key of ['offset', 'limit', 'around', 'depth']) {
+    const nm = body.match(new RegExp('"' + key + '"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)'));
+    if (nm) args[key] = Number(nm[1]);
+  }
+  return { tool: tm[1], args };
+}
+
 function tryJson(raw) {
-  try {
-    const obj = JSON.parse(raw);
-    if (obj && typeof obj.tool === 'string') return { tool: obj.tool, args: obj.args || {} };
-  } catch { /* no era JSON */ }
+  for (const cand of [raw, repairJson(raw)]) {
+    try {
+      const obj = JSON.parse(cand);
+      if (obj && typeof obj.tool === 'string') return { tool: obj.tool, args: obj.args || {} };
+    } catch { /* siguiente capa */ }
+  }
   return null;
 }
 
@@ -141,7 +196,12 @@ export function parseToolCalls(text) {
   let m;
   while ((m = re.exec(text))) {
     const obj = extractBalanced(text, m.index);
-    if (obj) { push(tryJson(obj)); re.lastIndex = m.index + obj.length; }
+    let call = obj ? tryJson(obj) : null;
+    // última capa: si ni el JSON estricto ni el reparado valen (comillas internas
+    // sin escapar en el content, etc.), extractor tolerante desde el «{"tool"».
+    if (!call) call = looseToolCall(text.slice(m.index));
+    if (call) push(call);
+    re.lastIndex = m.index + (obj ? obj.length : 1);
   }
   // 3) último recurso: nativo suelto de una línea
   if (!calls.length) push(parseNativeCall(text));

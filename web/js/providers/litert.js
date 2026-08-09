@@ -85,10 +85,25 @@ export async function cachedModelBlob(url, onProgress = () => {}) {
     })().catch(() => {});
     const headers = { 'Content-Type': 'application/octet-stream' };
     if (total) headers['Content-Length'] = String(total);
-    await cache.put(url, new Response(toCache, { headers }));
+    // Cachear GIGABYTES puede fallar de verdad: ventana privada (Cache Storage
+    // en memoria), disco lleno, cuota del origen. Si falla hay que DECIRLO: el
+    // progreso ya ha prometido «se cachea para la próxima vez» y, callándolo,
+    // el usuario se re-baja el modelo entero cada sesión sin saber por qué.
+    try {
+      await cache.put(url, new Response(toCache, { headers }));
+    } catch (e) {
+      onProgress(`No se pudo guardar el modelo en caché (${e.name || 'error'}): habrá que descargarlo otra vez la próxima. ` +
+        `Suele ser ventana privada o falta de espacio.`);
+      console.warn('[elffuss] modelo NO cacheado:', e);
+      return url;
+    }
     const cached = await cache.match(url);
-    return cached ? await cached.blob() : url;
-  } catch { return url; }
+    if (!cached) { onProgress('No se pudo guardar el modelo en caché: habrá que descargarlo otra vez la próxima.'); return url; }
+    return await cached.blob();
+  } catch (e) {
+    console.warn('[elffuss] caché de modelo no disponible:', e);
+    return url;
+  }
 }
 function fmtBytes(loaded, total, t0) {
   const mb = n => (n / 1048576).toFixed(0);

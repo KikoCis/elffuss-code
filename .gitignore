@@ -4,3 +4,9 @@ tests/node_modules/
 tests/out_*.png
 tests/node_modules
 tests/node_modules/
+web/__*
+tests/_probe*.mjs
+tests/_gpuprobe.mjs
+tests/_quotaprobe.mjs
+tests/_bigblob.mjs
+tests/_threshold*.mjs
