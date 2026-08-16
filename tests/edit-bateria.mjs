@@ -88,6 +88,27 @@ const CASOS = [
     f: 'a.js', txt: 'export function max(arr) {\n  return arr.reduce((a, b) => a > b ? a : b);\n}\n',
     s: 'export function max(arr) {\n  return arr.reduce((a, b) => a > b ? a : b);\n}',
     r: 'export function max(arr) {\n  if (!arr.length) return undefined;\n  return arr.reduce((a, b) => a > b ? a : b);\n}', esperado: 'if (!arr.length)' },
+
+  // ── code.write, que es por donde se pierde código ───────────────────────────
+  // Medido: tras dos rechazos de la guarda en edit, el modelo se escapó por
+  // write y reescribió el fichero entero. En uno de cuatro líneas da igual.
+  { id: 'write-trunca', op: 'write', desc: 'reescribir 300 líneas con 10 → debe NEGARSE',
+    f: 'a.js', txt: Array.from({length:300},(_,i)=>`export const v${i} = ${i};`).join('\n')+'\n',
+    contenido: 'export const v0 = 0;\n', debeFallar: true },
+
+  { id: 'write-rompe', op: 'write', desc: 'reescribir con JS roto un fichero sano → debe NEGARSE',
+    f: 'a.js', txt: Array.from({length:60},(_,i)=>`export const v${i} = ${i};`).join('\n')+'\n',
+    contenido: Array.from({length:60},(_,i)=>`export const v${i} = ${i};`).join('\n')+'\nfunction rota( {\n', debeFallar: true },
+
+  { id: 'write-nuevo', op: 'write', desc: 'crear un fichero nuevo no se toca',
+    f: 'nuevo.js', txt: null, contenido: 'export const x = 1;\n', esperado: 'export const x = 1;' },
+
+  { id: 'write-legitimo', op: 'write', desc: 'reescritura completa de tamaño parecido sí pasa',
+    f: 'a.js', txt: Array.from({length:60},(_,i)=>`export const v${i} = ${i};`).join('\n')+'\n',
+    contenido: Array.from({length:58},(_,i)=>`export const w${i} = ${i};`).join('\n')+'\n', esperado: 'export const w0 = 0;' },
+
+  { id: 'write-corto', op: 'write', desc: 'un fichero pequeño sí se puede reescribir corto',
+    f: 'a.js', txt: 'export const a = 1;\nexport const b = 2;\n', contenido: 'export const a = 1;\n', esperado: 'export const a = 1;' },
 ];
 
 const b = await chromium.launch({ channel: 'chrome', headless: true });
@@ -103,15 +124,20 @@ const res = await p.evaluate(async (CASOS) => {
   const out = [];
   for (const c of CASOS) {
     for await (const [n] of raiz.entries()) await raiz.removeEntry(n, { recursive: true }).catch(() => {});
-    const fh = await raiz.getFileHandle(c.f, { create: true });
-    const w = await fh.createWritable(); await w.write(c.txt); await w.close();
+    if (c.txt != null) {
+      const fh = await raiz.getFileHandle(c.f, { create: true });
+      const w = await fh.createWritable(); await w.write(c.txt); await w.close();
+    }
     code.invalidateFileList();
-    let error = null, despues = c.txt;
+    let error = null, despues = c.txt ?? '';
     const antes = { ...code.editStats };
-    try { await code.edit({ path: c.f, search: c.s, replace: c.r }); }
+    try {
+      if (c.op === 'write') await code.write({ path: c.f, content: c.contenido });
+      else await code.edit({ path: c.f, search: c.s, replace: c.r });
+    }
     catch (e) { error = e.message; }
     try { despues = await (await (await raiz.getFileHandle(c.f)).getFile()).text(); } catch {}
-    const via = ['exacta','bloque','nucleo','difusa','ambigua','noEncontrado','sinCambio','noExiste','rompeSintaxis','yaAplicado']
+    const via = ['exacta','bloque','nucleo','difusa','ambigua','noEncontrado','sinCambio','noExiste','rompeSintaxis','yaAplicado','truncaria']
       .find(k => code.editStats[k] > (antes[k] || 0)) || '—';
     out.push({ id: c.id, error, via, cambio: despues !== c.txt,
       texto: despues, lineas: despues.split('\n').length,

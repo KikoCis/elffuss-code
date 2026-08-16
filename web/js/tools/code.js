@@ -202,8 +202,29 @@ export async function read({ path, offset, limit, around } = {}) {
 let approveWrite = async () => true;
 export function setWriteApprover(fn) { approveWrite = fn; }
 
-export async function write({ path, content = '' } = {}) {
+// `write` reescribe el fichero ENTERO, así que es la vía por la que se pierde
+// código. Medido: tras dos rechazos de la guarda de sintaxis en `edit`, el
+// modelo se escapó por aquí y reescribió el fichero. En uno de cuatro líneas da
+// igual; en uno de seiscientas, así es como desaparece medio proyecto.
+// `_interno` lo pone `edit`, que ya ha comprobado lo suyo sobre el texto exacto.
+export async function write({ path, content = '', _interno = false } = {}) {
   if (!path) throw new Error('Falta path');
+  if (!_interno) {
+    let previo = null;
+    try { const { dir, name } = await dirOf(path); previo = await (await (await dir.getFileHandle(name)).getFile()).text(); }
+    catch { /* fichero nuevo: nada que preservar */ }
+    if (previo !== null) {
+      const antes = previo.split('\n').length, ahora = content.split('\n').length;
+      // Un fichero con cuerpo que se queda en menos de la mitad casi nunca es
+      // intencionado: es el modelo reescribiendo de memoria lo que no recuerda.
+      if (antes >= 40 && ahora < antes * 0.5) {
+        anota('truncaria', path, { antes, ahora });
+        throw new Error(`Eso dejaría ${path} en ${ahora} líneas cuando tiene ${antes}: perderías el resto del fichero. ` +
+          `Para cambiar una parte usa code.edit con «search» y «replace»; code.write solo para ficheros nuevos o reescrituras completas de verdad.`);
+      }
+      revisaSintaxis(path, previo, content);
+    }
+  }
   if (!await approveWrite(path, content)) return `Cambio en ${path} rechazado por el usuario`;
   const { dir, name } = await dirOf(path, { create: true });
   const fh = await dir.getFileHandle(name, { create: true });
@@ -226,10 +247,10 @@ export async function write({ path, content = '' } = {}) {
 // Telemetría de edición: por qué vía se resolvió cada intento. Sin esto,
 // «la edición falla» no es accionable — no sabes si el modelo cita mal, si
 // cita ambiguo o si no encuentra el sitio.
-export const editStats = { total: 0, exacta: 0, bloque: 0, nucleo: 0, difusa: 0, ambigua: 0, noEncontrado: 0, sinCambio: 0, noExiste: 0, rompeSintaxis: 0, yaAplicado: 0, detalle: [] };
+export const editStats = { total: 0, exacta: 0, bloque: 0, nucleo: 0, difusa: 0, ambigua: 0, noEncontrado: 0, sinCambio: 0, noExiste: 0, rompeSintaxis: 0, yaAplicado: 0, truncaria: 0, detalle: [] };
 export function resetEditStats() {
   editStats.total = editStats.exacta = editStats.bloque = editStats.nucleo = editStats.difusa = 0;
-  editStats.ambigua = editStats.noEncontrado = editStats.sinCambio = editStats.noExiste = editStats.rompeSintaxis = editStats.yaAplicado = 0;
+  editStats.ambigua = editStats.noEncontrado = editStats.sinCambio = editStats.noExiste = editStats.rompeSintaxis = editStats.yaAplicado = editStats.truncaria = 0;
   editStats.detalle.length = 0;
 }
 const anota = (via, path, extra) => { editStats[via]++; editStats.detalle.push({ via, path, ...extra }); };
@@ -338,7 +359,7 @@ export async function edit({ path, search, replace } = {}) {
     }
     revisaSintaxis(path, current, siguiente);
     anota('exacta', path, {});
-    return write({ path, content: siguiente });
+    return write({ path, content: siguiente, _interno: true });
   }
 
   // fallback difuso, LOCAL y por líneas (sin depender de esm.sh en tiempo de
@@ -463,7 +484,7 @@ export async function edit({ path, search, replace } = {}) {
     throw new Error(`La edición en ${path} no cambió nada — revisa «replace».`);
   }
   revisaSintaxis(path, current, nextContent);
-  return write({ path, content: nextContent });
+  return write({ path, content: nextContent, _interno: true });
 }
 
 // grep-lite por el proyecto (texto, con límites para no arrasar). Los topes
