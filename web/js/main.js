@@ -20,6 +20,24 @@ import { t, applyI18n } from './i18n.js';
 import * as bridge from './bridge.js';
 import * as conv from './conversations.js';
 import { TASK_PREFIX } from './goal.js';
+import { hardWork, gatherFolder } from './rlm.js';
+import * as workspace from './workspace.js';
+
+// Espacio de trabajo (core): qué de Code puede guardarse en tu disco.
+workspace.init({
+  app: 'code', ns: 'elffusscode', db,
+  stores: [
+    { id: 'conversations', label: 'Conversaciones', icon: '💬', kind: 'idb-key', store: 'kv', key: 'conversations',
+      files: { ext: '.json', name: c => c.title || c.id } },
+    { id: 'skills', label: 'Skills', icon: '🧩', kind: 'idb-key', store: 'kv', key: 'skills',
+      files: { ext: '.md', name: s => s.name, body: s => `---\nname: ${s.name}\ndescription: ${s.description || ''}\n---\n\n${s.content || ''}` } },
+    { id: 'prefs', label: 'Preferencias', icon: '⚙️', kind: 'ls',
+      keys: ['elffusscode.model', 'elffusscode.autoedit', 'elffusscode.goalmode', 'elffuss.acer', 'elffuss.resumen', 'elffuss.semantic'] },
+  ],
+});
+workspace.restore().catch(() => {});
+if (workspace.autosaveEnabled()) workspace.autosave({ enabled: true });
+
 import * as telemetry from './telemetry.js';
 
 const $ = id => document.getElementById(id);
@@ -100,7 +118,7 @@ const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
 // llegan los eventos 'plan'/'plan_update'/'plan_complete' — así se ve la
 // lista evolucionar en vivo en vez de reconstruirse entera cada vez.
 const PLAN_ICO = { pending: '⏳', 'in-progress': '🔄', done: '✅', failed: '❌', skipped: '⏭️' };
-const PLAN_STATUS_LABEL = { planning: 'planificando…', running: 'ejecutando…', done: 'completado', failed: 'con fallos' };
+const PLAN_STATUS_LABEL = { planning: t("planPlanning"), running: t("planRunning"), done: t("planDone"), failed: t("planFailed") };
 function renderPlanCard(plan) {
   const domId = 'plan-' + plan.id;
   let div = document.getElementById(domId);
@@ -338,7 +356,7 @@ function modelOptions() {
   if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
   if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
   opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) — ligero' });
-  opts.push({ id: 'rules', label: 'Básico (sin modelo)' });
+  opts.push({ id: 'rules', label: t('setModelRulesName') });
   return [...opts, ...settings.enabledExternals()];
 }
 
@@ -382,7 +400,7 @@ async function changeModel(id) {
   if (loadingId === id || activeModel === id) return true; // un solo modelo, una sola carga
   loadingId = id;
   $('model-dot').className = 'dot loading';
-  showModelProgress('Cargando el modelo IA…', 4);
+  showModelProgress(t("stModelLoadingAI"), 4);
   try {
     const mod = await resolveProvider(id);
     await mod.load(p => {
@@ -451,7 +469,7 @@ function settingsShell(title) {
   const box = $('settings-panel');
   box.hidden = false;
   box.replaceChildren();
-  const close = el('button', 'panel-close'); close.innerHTML = UI.close; close.title = 'cerrar';
+  const close = el('button', 'panel-close'); close.innerHTML = UI.close; close.title = t("close");
   close.onclick = () => { box.hidden = true; };
   box.append(close, el('h3', 'panel-title', title));
   return box;
@@ -502,15 +520,15 @@ function fireworks() {
 }
 
 function renderSettings() {
-  const box = settingsShell('Ajustes');
+  const box = settingsShell(t("setTitle"));
 
   // --- Cerebro (modelo) ---
-  box.append(el('div', 'sk-h', 'Cerebro (modelo)'));
+  box.append(el('div', 'sk-h', t("setBrainTitle")));
   const LOCAL = [
-    { id: 'litert:gemma-e4b', name: 'Gemma-4 E4B ★', sub: 'El mejor · WebGPU local · ~4 GB', need: 'gpu' },
-    { id: 'litert:gemma-e2b', name: 'Gemma-4 E2B', sub: 'Ligero · WebGPU local · ~2 GB', need: 'gpu' },
-    { id: 'onnx', name: 'Elffuss LM (healed)', sub: 'Modelo propio · 850 MB · tool-calls + apps' },
-    { id: 'rules', name: 'Básico (sin modelo)', sub: 'Órdenes directas, cero descarga' },
+    { id: 'litert:gemma-e4b', name: 'Gemma-4 E4B ★', sub: t("setModelE4bSub"), need: 'gpu' },
+    { id: 'litert:gemma-e2b', name: 'Gemma-4 E2B', sub: t("setModelE2bSub"), need: 'gpu' },
+    { id: 'onnx', name: 'Elffuss LM (healed)', sub: t("setModelOnnxSub") },
+    { id: 'rules', name: t('setModelRulesName'), sub: t("setModelRulesSub") },
   ];
   const grid = el('div', 'model-grid');
   for (const m of LOCAL) {
@@ -522,6 +540,53 @@ function renderSettings() {
     grid.appendChild(card);
   }
   box.appendChild(grid);
+
+  // --- Espacio de trabajo: guardar conversaciones/skills en disco ---
+  box.append(el('div', 'sk-h', '💾 ' + t('wsTitle')));
+  const wsCard = el('div', 'prov-card');
+  const wsState = el('div', 'muted'); wsState.style.fontSize = '.78rem';
+  const wsRow = el('div', 'field'); wsRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px';
+  const wsInv = el('div'); wsInv.style.cssText = 'margin-top:10px;font-size:.78rem';
+  wsCard.append(el('span', 'muted', t('wsDesc')), wsState, wsRow, wsInv);
+  box.appendChild(wsCard);
+  const wsKb = n => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
+  async function paintWs() {
+    const st = workspace.status();
+    wsRow.replaceChildren();
+    wsState.textContent = !st.supported.pick ? t('wsNoSupport')
+      : !st.folder ? t('wsNoFolder')
+      : st.ready ? t('wsFolder', { name: st.folder }) : t('wsNeedsPerm', { name: st.folder });
+    const mk = (label, fn) => { const b = el('button', 'prov-use', label); b.onclick = fn; wsRow.appendChild(b); };
+    if (st.supported.pick) {
+      if (!st.folder) {
+        mk(t('wsPick'), async () => { try { await workspace.pick(); await paintWs(); } catch (e) { wsState.textContent = '⚠️ ' + e.message; } });
+        // Code ya tiene una carpeta abierta: reutilizarla es un clic
+        if (codeTools.handle()) mk(t('wsUseProject'), async () => { await workspace.adopt(codeTools.handle()); await paintWs(); });
+      } else if (!st.ready) mk(t('wsRegrant'), async () => { try { await workspace.regrant(); await paintWs(); } catch (e) { wsState.textContent = '⚠️ ' + e.message; } });
+      else {
+        mk(t('wsSaveNow'), async () => { try { const r = await workspace.save(); wsState.textContent = r.ok ? t('wsSaved', { n: r.wrote.length }) : '⚠️ ' + (r.errors[0]?.error || ''); } catch (e) { wsState.textContent = '⚠️ ' + e.message; await paintWs(); } });
+        const lbl = el('label', null); lbl.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:.78rem';
+        const chk = el('input'); chk.type = 'checkbox'; chk.checked = workspace.autosaveEnabled();
+        chk.onchange = () => workspace.autosave({ enabled: chk.checked });
+        lbl.append(chk, el('span', 'muted', t('wsAuto'))); wsRow.appendChild(lbl);
+        mk(t('wsForget'), async () => { await workspace.forget(); await paintWs(); });
+      }
+    }
+    mk(t('wsDownload'), async () => {
+      const blob = await workspace.bundle();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `elffuss-code-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    });
+    wsInv.replaceChildren(el('b', null, t('wsWhat')));
+    for (const it of await workspace.inventory()) {
+      const line = el('div'); line.style.cssText = 'display:flex;justify-content:space-between;padding:3px 0';
+      line.append(el('span', null, `${it.icon} ${it.label}`), el('span', 'muted', it.error ? '⚠️' : `${it.count} · ${wsKb(it.bytes)}`));
+      wsInv.appendChild(line);
+    }
+  }
+  paintWs().catch(() => {});
 
   // --- Almacenamiento del modelo (caché persistente) ---
   box.append(el('div', 'sk-h', t('setStoreTitle')));
@@ -545,7 +610,7 @@ function renderSettings() {
   paintStorage();
 
   // --- Bridge local (ejecución REAL en tu máquina: node, npm, python…) ---
-  box.append(el('div', 'sk-h', '🔌 Bridge local (ejecución real en tu máquina)'));
+  box.append(el('div', 'sk-h', t("setBridgeTitle")));
   const brCard = el('div', 'prov-card bridge-card');
   const guessOS = () => {
     const ua = navigator.userAgent;
@@ -558,14 +623,14 @@ function renderSettings() {
   const primary = guessOS();
   brCard.innerHTML =
     `<div class="prov-head"><span id="br-dot" class="dot off"></span><b>Bridge local</b><span id="br-status" class="muted" style="margin-left:auto;font-size:.72rem">desconectado</span></div>` +
-    `<p class="muted" style="font-size:.72rem;margin:6px 0">Un pequeño programa que TÚ ejecutas en tu ordenador — le da a la elfa ejecución real (node, npm, python…) sin salir de tu máquina. Nada se instala en el navegador.</p>` +
-    `<a class="prov-use" style="text-decoration:none;display:inline-block" href="bridge-dl/${primary}" download>⬇ Descargar para ${OTHER[primary]}</a>` +
-    `<details style="margin-top:6px"><summary class="muted" style="font-size:.7rem;cursor:pointer">otro sistema operativo</summary>` +
+    `<p class="muted" style="font-size:.72rem;margin:6px 0">${t('setBridgeDesc')}</p>` +
+    `<a class="prov-use" style="text-decoration:none;display:inline-block" href="bridge-dl/${primary}" download>${t('setBridgeDownload',{os:OTHER[primary]})}</a>` +
+    `<details style="margin-top:6px"><summary class="muted" style="font-size:.7rem;cursor:pointer">${t('setBridgeOtherOS')}</summary>` +
     Object.entries(OTHER).filter(([f]) => f !== primary).map(([f, label]) => `<div><a href="bridge-dl/${f}" download style="color:var(--accent2);font-size:.72rem">${label}</a></div>`).join('') +
     `</details>` +
     `<div class="field" style="margin-top:8px"><label class="muted" style="font-size:.68rem">${t('setBrToken')}</label><input id="br-token" placeholder="${t('brTokenPh')}"></div>` +
-    `<div class="field" style="margin-top:6px"><label class="muted" style="font-size:.68rem">Carpeta de trabajo (opcional — si no, usa una temporal)</label><input id="br-folder" placeholder="/ruta/completa/a/tu/proyecto"></div>` +
-    `<button id="br-connect" class="prov-use" style="margin-top:8px">Conectar</button>`;
+    `<div class="field" style="margin-top:6px"><label class="muted" style="font-size:.68rem">${t('setBridgeFolderLabel')}</label><input id="br-folder" placeholder="${t('setBridgeFolderPh')}"></div>` +
+    `<button id="br-connect" class="prov-use" style="margin-top:8px">${t('setBridgeConnect')}</button>`;
   box.appendChild(brCard);
   brCard.querySelector('#br-folder').value = bridge.getFolder();
   brCard.querySelector('#br-token').value = localStorage.getItem('elffusscode.bridgeToken') || '';
@@ -575,7 +640,7 @@ function renderSettings() {
     if (!document.body.contains(brCard)) { bridge.onStatusChange(() => {}); return; }
     const on = bridge.isConnected();
     brCard.querySelector('#br-dot').className = 'dot ' + (on ? 'on' : 'off');
-    brCard.querySelector('#br-status').textContent = on ? '✓ conectado — ejecución real activa' : 'desconectado';
+    brCard.querySelector('#br-status').textContent = on ? t("setBridgeOnStatus") : t("setBridgeDisconnected");
     if (on) brCard.querySelector('#br-token').value = localStorage.getItem('elffusscode.bridgeToken') || '';
   };
   paintBridge();
@@ -584,15 +649,15 @@ function renderSettings() {
     const btn = brCard.querySelector('#br-connect');
     bridge.setFolder(brCard.querySelector('#br-folder').value);
     const token = brCard.querySelector('#br-token').value.trim();
-    if (!token) return showBridgeMsg(brCard, '⚠️ pega el token que imprimió el programa al arrancarlo', true);
-    btn.disabled = true; btn.textContent = 'Conectando…';
-    try { await bridge.connect(token); paintBridge(); showBridgeMsg(brCard, '✔ conectado — ejecución real en tu máquina'); fireworks(); }
+    if (!token) return showBridgeMsg(brCard, t("setBridgeNoToken"), true);
+    btn.disabled = true; btn.textContent = t("setBridgeConnecting");
+    try { await bridge.connect(token); paintBridge(); showBridgeMsg(brCard, t("setBridgeConnectedMsg")); fireworks(); }
     catch (e) { showBridgeMsg(brCard, '⚠️ ' + e.message, true); }
-    finally { btn.disabled = false; btn.textContent = 'Conectar'; }
+    finally { btn.disabled = false; btn.textContent = t("setBridgeConnect"); }
   };
 
   // --- Permisos de ejecución (mismo interruptor que </> Auto de la barra) ---
-  box.append(el('div', 'sk-h', '✅ Permisos de ejecución'));
+  box.append(el('div', 'sk-h', t("setPermTitle")));
   const permCard = el('div', 'prov-card');
   permCard.innerHTML =
     `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
@@ -610,7 +675,7 @@ function renderSettings() {
   };
 
   // --- 🎯 Modo Objetivo (planificador + ejecutor, mismo patrón que Auto) ---
-  box.append(el('div', 'sk-h', '🎯 Modo Objetivo'));
+  box.append(el('div', 'sk-h', t("setGoalTitle")));
   const goalCard = el('div', 'prov-card');
   goalCard.innerHTML =
     `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
@@ -628,7 +693,7 @@ function renderSettings() {
   };
 
   // --- 📨 Errores y feedback (opt-in — apagado no sale NADA de tu máquina) ---
-  box.append(el('div', 'sk-h', '📨 Errores y feedback'));
+  box.append(el('div', 'sk-h', t("setTelTitle")));
   const telCard = el('div', 'prov-card');
   telCard.innerHTML =
     `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
@@ -648,24 +713,24 @@ function renderSettings() {
     const ta = telCard.querySelector('#tel-feedback');
     const msg = telCard.querySelector('#tel-msg');
     const text = ta.value.trim();
-    if (!text) { msg.textContent = 'escribe algo primero'; return; }
+    if (!text) { msg.textContent = t("setTelEmpty"); return; }
     const wasEnabled = telemetry.isEnabled();
     if (!wasEnabled) telemetry.setEnabled(true); // el envío manual es explícito, se permite aunque el automático esté apagado
     await telemetry.sendFeedback(text);
     if (!wasEnabled) telemetry.setEnabled(false); // no activa el automático de fondo si no lo pidió
     ta.value = '';
-    msg.textContent = '¡enviado, gracias!';
+    msg.textContent = t("setTelThanks");
     setTimeout(() => { msg.textContent = ''; }, 4000);
   };
 
   // --- Proveedores externos (API keys) ---
-  box.append(el('div', 'sk-h', 'Proveedores externos (opcional · la clave se queda en tu navegador)'));
+  box.append(el('div', 'sk-h', t("setProvTitle")));
   for (const [id, c] of Object.entries(settings.configs())) {
     const card = el('div', 'prov-card' + (c.enabled ? ' on' : ''));
     const head = el('div', 'prov-head');
     const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = c.enabled;
     const title = el('b', null, c.label);
-    const use = el('button', 'prov-use', 'Usar');
+    const use = el('button', 'prov-use', t("setProvUse"));
     use.hidden = !c.enabled || activeModel === 'ext:' + id;
     use.onclick = () => { changeModel('ext:' + id); renderSettings(); };
     head.append(toggle, title, use);
@@ -687,7 +752,7 @@ function renderSettings() {
   // --- Skills ---
   box.append(el('div', 'sk-h', 'Skills'));
   const skBtn = el('button', 'primary wide', '🧩 Gestionar skills de Claude Code');
-  skBtn.textContent = 'Gestionar skills de Claude Code';
+  skBtn.textContent = t("setManageSkillsBtn");
   skBtn.onclick = openSkillsPanel;
   box.appendChild(skBtn);
 }
@@ -1069,7 +1134,7 @@ async function toggleTerminal(force) {
   $('act-term').classList.toggle('on', show);
   if (show) {
     const cap = shell.capabilities();
-    $('term-caps').textContent = cap.bridge ? '🔌 Bridge local: node/npm/python reales' : 'shell del proyecto · node/npm/python → Bridge local (⚙ Ajustes)';
+    $('term-caps').textContent = cap.bridge ? t("termCapsBridge") : t("termCapsNoBridge");
     await terminal.mount($('terminal-host'));
     terminal.refit();
   }
@@ -1240,9 +1305,50 @@ $('btn-goal').addEventListener('click', () => {
 });
 paintGoal();
 
+// ── Hard Work (RLM): lee el proyecto ENTERO por partes ──
+let hardMode = false;
+$('btn-hardwork').addEventListener('click', () => {
+  hardMode = !hardMode;
+  $('btn-hardwork').classList.toggle('on', hardMode);
+  $('prompt').placeholder = hardMode ? t("hwPlaceholder") : 'Pídele código a Elffuss…';
+});
+
+// Trabaja el proyecto abierto por partes: trocea, pregunta a cada parte y funde.
+async function runHardWork(question) {
+  const active = conv.getActive();
+  if (!active) return;
+  addMsg('user', question);
+  const thinking = thinkingBubble();
+  const fail = msg => { thinking.remove(); addMsg('assistant', msg); };
+  try {
+    const provider = conv.getProvider();
+    if (!provider || provider === rules) return fail(t("hwNeedBrain"));
+    const root = codeTools.handle();
+    if (!root) return fail(t("hwNeedProject"));
+    thinking.tool(t("hwReading"));
+    const context = await gatherFolder(root, { maxBytes: 1.5e6 });
+    if (!context.trim()) return fail(t("hwNoFiles"));
+    const res = await hardWork({
+      question, context, provider,
+      onProgress: p => {
+        if (p.phase === 'plan') thinking.tool(`Hard Work · ${p.chunks} partes (${Math.round(p.chars / 1000)}k)${p.truncated ? t("hwTrimmed") : ''}`);
+        else if (p.phase === 'map') thinking.tool(`Hard Work · leyendo ${p.i}/${p.n}`);
+        else if (p.phase === 'reduce-group') thinking.tool(`Hard Work · fundiendo ${p.g}/${p.n}`);
+        else if (p.phase === 'reduce') thinking.tool(t("hwPhaseReduce"));
+      },
+    });
+    thinking.remove();
+    addMsg('assistant', res.answer + `\n\n_⛏ Hard Work (RLM): ${res.chunks} partes, ${res.kept} con señal.${res.truncated ? t("hwResultTrunc") : ''}_`);
+  } catch (e) {
+    thinking.remove();
+    addMsg('assistant err', 'Hard Work falló: ' + (e?.message || String(e)));
+  }
+}
+
 // resolver @rutas del mensaje: se leen y se adjuntan como contexto
 const _send = send;
 send = async (text) => {
+  if (hardMode) return runHardWork(text);
   const refs = [...text.matchAll(/@([\w./-]+\.\w+)/g)].map(m => m[1]);
   if (refs.length) {
     let ctx = '';
@@ -1279,7 +1385,7 @@ async function openSkillsPanel() {
     row.className = 'sk-row';
     row.innerHTML = `<b>${s.name}</b><span class="muted">${s.repo || 'local'}</span>`;
     const rm = document.createElement('button');
-    rm.className = 'ghost'; rm.textContent = 'Quitar';
+    rm.className = 'ghost'; rm.textContent = t("skRemove");
     rm.onclick = async () => { await skills.remove(s.name); openSkillsPanel(); };
     row.appendChild(rm);
     instBox.appendChild(row);
@@ -1296,7 +1402,7 @@ async function openSkillsPanel() {
     row.className = 'sk-row';
     row.innerHTML = `<b>${s.label}</b><a href="https://github.com/${s.repo}" target="_blank" rel="noopener">${s.repo} ↗</a>`;
     const browse = document.createElement('button');
-    browse.className = 'primary'; browse.textContent = 'Explorar';
+    browse.className = 'primary'; browse.textContent = t("skBrowse");
     browse.onclick = () => browseRepo(s.repo, box);
     row.appendChild(browse);
     if (!s.official) {
@@ -1310,9 +1416,9 @@ async function openSkillsPanel() {
   const addRow = document.createElement('div');
   addRow.className = 'sk-row';
   const inp = document.createElement('input');
-  inp.placeholder = 'owner/repo o URL de GitHub (p. ej. OpenClaude/…)';
+  inp.placeholder = t("skAddRepoPh");
   const add = document.createElement('button');
-  add.className = 'primary'; add.textContent = 'Añadir repo';
+  add.className = 'primary'; add.textContent = t("skAddRepo");
   add.onclick = async () => {
     try { await skills.addSource(inp.value); openSkillsPanel(); }
     catch (e) { alert(e.message); }

@@ -19,16 +19,36 @@ export const DEFAULT_SOURCES = [
 
 let cache = []; // instaladas, en memoria (para que el systemPrompt sea síncrono)
 
+// `loaded` distingue «no hay skills» de «no se pudo leer»: si la lectura
+// falla, cache queda vacío pero loaded=false, y install() se niega a persistir
+// (antes, un fallo transitorio de IndexedDB borraba TODAS las skills al
+// guardar la siguiente).
+let loaded = false;
 export async function initSkills() {
-  cache = (await db.get('kv', KEY).catch(() => null)) || [];
+  try {
+    const stored = await db.get('kv', KEY);
+    cache = Array.isArray(stored) ? stored : [];
+    loaded = true;
+  } catch (e) {
+    cache = [];
+    loaded = false;
+    console.warn('[elffuss] no se pudieron leer las skills; no las sobrescribiré', e);
+  }
   return cache;
 }
+export function skillsLoaded() { return loaded; }
 
 export async function all() { return cache; }
 export function installed() { return cache; }
 export function isInstalled(repo, path) { return cache.some(s => s.repo === repo && s.path === path); }
 
 export async function install(skill) {
+  // Si la carga inicial falló, cache no representa lo instalado: reintentar
+  // leer antes de escribir. Sin esto, guardar aquí borraría las skills reales.
+  if (!loaded) {
+    await initSkills();
+    if (!loaded) throw new Error('No pude leer tus skills guardadas; no instalo para no perderlas. Recarga la página e inténtalo otra vez.');
+  }
   cache = cache.filter(s => !(s.repo === skill.repo && s.path === skill.path) && s.name !== skill.name);
   const entry = { ...skill, content: (skill.content || '').slice(0, MAX_SKILL) };
   cache.push(entry);

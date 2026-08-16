@@ -1,7 +1,8 @@
 /* Elffuss Code — VS Code oscuro con alma élfica */
 :root {
-  --bg: #0b0d12; --bg2: #11141c; --bg3: #171b26; --line: #262c3d;
-  --fg: #e8ebf4; --muted: #8b93a8; --accent: #ff4d8d; --accent2: #7c5cff;
+  --bg: #090a11; --bg2: #101317; --bg3: #161a24; --line: #20252c;
+  --fg: #eae8f2; --muted: #8b929c; --accent: #c8a06a; --accent2: #8272ff;
+  --serif: "Iowan Old Style", Georgia, "Times New Roman", serif;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -301,6 +302,8 @@ body.hide-tree #sidebar { display: none; }
 /* 🎯 Modo Objetivo: botón + tarjeta de plan (planificador/ejecutor) */
 .cbtn.goal { font-size: .74rem; }
 .cbtn.goal.on { color: #fff; border-color: var(--accent); background: linear-gradient(135deg, #3a2050, #2a1840); }
+.cbtn.hardwork { font-size: .74rem; }
+.cbtn.hardwork.on { color: #fff; border-color: var(--accent); background: linear-gradient(135deg, #3a2a18, #2a1f40); box-shadow: 0 0 0 1px var(--accent) inset; }
 .msg.plan-card { background: var(--bg3); border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; font-size: .82rem; align-self: stretch; max-width: 100%; }
 .plan-card .plan-head { font-weight: 600; margin-bottom: 2px; }
 .plan-card .plan-summary { color: var(--muted); font-size: .78rem; margin-bottom: 8px; }

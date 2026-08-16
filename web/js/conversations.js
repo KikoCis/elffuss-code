@@ -59,7 +59,15 @@ export function getActive() { return activeId ? convs.get(activeId) : null; }
 export function getOpenTabs() { return openTabIds.map(id => convs.get(id)).filter(Boolean); }
 
 async function persistConv(conv) {
-  const all = await db.get('kv', 'conversations').catch(() => null) || [];
+  // NO tragarse el error de lectura: un fallo transitorio devolvía [] y el
+  // db.set de abajo reescribía el store entero con UNA sola conversación,
+  // borrando el resto. Distinguir «no existe aún» (undefined → []) de «no se
+  // pudo leer» (excepción → no escribir nada este turno).
+  let stored;
+  try { stored = await db.get('kv', 'conversations'); }
+  catch (e) { console.warn('[elffuss] no se pudo leer conversations; no sobrescribo', e); return; }
+  const all = stored == null ? [] : stored;
+  if (!Array.isArray(all)) { console.warn('[elffuss] conversations corrupto; no sobrescribo'); return; }
   const i = all.findIndex(c => c.id === conv.id);
   const rec = {
     id: conv.id, title: titleFor(conv), history: conv.agent.history.slice(-HIST_CAP),

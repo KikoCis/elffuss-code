@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elffuss Lab — banco de pruebas</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="css/lab.css">
+</head>
+<body>
+
+<header>
+  <h1>Elffuss <span>Lab</span></h1>
+  <div class="sub">banco de pruebas · algoritmos y compresión de contexto</div>
+  <div class="spacer"></div>
+  <div class="led" id="led-model"><i></i><span>modelo: sin cargar</span></div>
+  <div class="led" id="led-run"><i></i><span>en reposo</span></div>
+  <a class="sub" href="index.html">← volver al IDE</a>
+</header>
+
+<main>
+  <!-- ══════════ IZQUIERDA: configuración del experimento ══════════ -->
+  <section>
+    <div class="panel">
+      <h2>Cerebro <span class="tag" id="brain-tag">—</span></h2>
+      <div class="body">
+        <div class="seg" id="brains"></div>
+        <p class="hint">El banco usa el mismo proveedor que el IDE. «Reglas» no
+        gasta GPU y sirve para validar el arnés; los benchmarks que exigen
+        generación real necesitan un modelo de verdad.</p>
+        <div class="row" style="margin-top:10px">
+          <button class="btn" id="btn-load">Cargar cerebro</button>
+          <span class="sub" id="load-state"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Algoritmo de generación <span class="tag" id="algo-tag">directo</span></h2>
+      <div class="body">
+        <div class="seg" id="algos"></div>
+        <div class="group-title">parámetros</div>
+        <div class="knobs" id="algo-knobs"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Compresión de contexto (ACER) <span class="tag" id="ctx-tag">—</span></h2>
+      <div class="body">
+        <div class="row" style="margin-bottom:8px">
+          <button class="btn ghost" id="ctx-all">Todo ON</button>
+          <button class="btn ghost" id="ctx-none">Todo OFF</button>
+          <button class="btn ghost" id="ctx-def">Por defecto</button>
+        </div>
+        <div id="ctx-knobs"></div>
+        <p class="hint">Cada perilla es la del motor real (<code>acer-core.js</code>).
+        Lo que marques aquí es lo que se le pasa a <code>packHistoryACER</code>
+        en el banco de contexto y lo que se guarda al lanzar el IDE.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ DERECHA: ejecución y resultados ══════════ -->
+  <section>
+    <div class="panel">
+      <h2>Banco de pruebas <span class="tag" id="bench-tag">—</span></h2>
+      <div class="body">
+        <div class="seg" id="benches"></div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn primary" id="btn-run">▶ Lanzar benchmark</button>
+          <button class="btn" id="btn-stop" disabled>■ Parar</button>
+          <button class="btn" id="btn-save">★ Guardar en el ranking</button>
+          <button class="btn ghost" id="btn-launch">Lanzar el IDE con esta configuración</button>
+        </div>
+        <div class="bar" style="margin-top:12px"><i id="prog"></i></div>
+        <div class="sub" id="prog-txt" style="margin-top:6px">—</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Métricas en vivo</h2>
+      <div class="body"><div class="tiles" id="tiles"></div></div>
+    </div>
+
+    <div class="panel">
+      <h2>Resultados por caso</h2>
+      <div class="body" style="padding:0">
+        <table><thead id="res-head"></thead><tbody id="res-body"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="arena-panel" hidden>
+      <h2>Arena <span class="tag">lo generado, ejecutándose</span></h2>
+      <div class="body"><iframe class="arena" id="arena" sandbox="allow-scripts allow-same-origin"></iframe></div>
+    </div>
+
+    <div class="panel">
+      <h2>Ranking local <span class="tag" id="rank-tag">—</span></h2>
+      <div class="body" style="padding:0">
+        <table>
+          <thead><tr><th>#</th><th>score</th><th>configuración</th><th>cuándo</th><th></th></tr></thead>
+          <tbody id="rank-body"></tbody>
+        </table>
+      </div>
+      <div class="body" style="border-top:1px solid var(--line)">
+        <div class="row">
+          <span class="pill">todo en esta máquina · no se envía nada</span>
+          <div class="spacer" style="flex:1"></div>
+          <button class="btn ghost" id="btn-clear">Borrar historial</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Consola</h2>
+      <div class="body"><div class="log" id="log"></div></div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="js/lab.js"></script>
+</body>
+</html>
