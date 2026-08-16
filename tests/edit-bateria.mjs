@@ -20,6 +20,13 @@ const CASOS = [
   { id: 'numeros-de-linea', desc: 'el modelo copia «12→» de la lectura paginada',
     f: 'a.js', txt: 'const a = 1;\nconst b = 2;\n', s: '2→const b = 2;', r: '2→const b = 7;', esperado: 'const b = 7;' },
 
+  { id: 'numeros-parciales', desc: 'el modelo numera unas líneas sí y otras no',
+    f: 'a.js', txt: 'const a = 1;\nconst b = 2;\nconst c = 3;\n', s: '1→const a = 1;\nconst b = 2;\n3→const c = 3;',
+    r: '1→const a = 9;\nconst b = 2;\n3→const c = 3;', esperado: 'const a = 9;', noContiene: '→' },
+
+  { id: 'numeros-en-replace', desc: 'los números NO pueden acabar escritos dentro del fichero',
+    f: 'a.js', txt: 'const a = 1;\nconst b = 2;\n', s: 'const b = 2;', r: '2→const b = 7;', noContiene: '→' },
+
   { id: 'linea-extra-dentro', desc: 'el fichero tiene un comentario que el modelo no vio',
     f: 'a.js', txt: 'function f() {\n  // añadido luego\n  return 1;\n}\n', s: 'function f() {\n  return 1;\n}', r: 'function f() {\n  return 5;\n}', esperado: 'return 5;', conserva: 'añadido luego' },
 
@@ -52,6 +59,25 @@ const CASOS = [
 
   { id: 'fichero-grande', desc: 'el bloque está en la línea 800 de un fichero largo',
     f: 'a.js', txt: Array.from({length:1500},(_,i)=>`const v${i} = ${i};`).join('\n')+'\n', s: 'const v800 = 800;', r: 'const v800 = 999;', esperado: 'const v800 = 999;', intactas: 1500 },
+
+  // Caso REAL medido con Gemma E4B en la tarea max-empty: sustituyó la línea de
+  // la firma por una función entera CON su llave de cierre, dejando huérfano el
+  // cuerpo anterior. El fichero quedaba sin poder cargarse y el modelo remataba
+  // con «el cambio se ha aplicado correctamente».
+  { id: 'rompe-sintaxis', desc: 'la edición dejaría el fichero sin cargar → debe NEGARSE',
+    f: 'a.js', txt: 'export function max(arr) {\n  return arr.reduce((a, b) => a > b ? a : b);\n}\n',
+    s: 'export function max(arr) {', r: 'export function max(arr) {\n  if (!arr.length) return undefined;\n}', debeFallar: true },
+
+  { id: 'ya-estaba-roto', desc: 'si el fichero YA venía roto, la guarda no puede estorbar',
+    f: 'a.js', txt: 'export function f() {\n  return 1;\n\n', s: 'return 1;', r: 'return 2;', esperado: 'return 2;' },
+
+  { id: 'markdown', desc: 'la guarda solo mira JS: un .md con llaves sueltas se edita igual',
+    f: 'a.md', txt: '# doc\nabre { sin cerrar\n', s: 'abre { sin cerrar', r: 'abre { otra vez sin cerrar', esperado: 'otra vez' },
+
+  { id: 'sintaxis-ok', desc: 'una edición correcta de varias líneas no se bloquea',
+    f: 'a.js', txt: 'export function max(arr) {\n  return arr.reduce((a, b) => a > b ? a : b);\n}\n',
+    s: 'export function max(arr) {\n  return arr.reduce((a, b) => a > b ? a : b);\n}',
+    r: 'export function max(arr) {\n  if (!arr.length) return undefined;\n  return arr.reduce((a, b) => a > b ? a : b);\n}', esperado: 'if (!arr.length)' },
 ];
 
 const b = await chromium.launch({ channel: 'chrome', headless: true });
@@ -75,7 +101,7 @@ const res = await p.evaluate(async (CASOS) => {
     try { await code.edit({ path: c.f, search: c.s, replace: c.r }); }
     catch (e) { error = e.message.slice(0, 90); }
     try { despues = await (await (await raiz.getFileHandle(c.f)).getFile()).text(); } catch {}
-    const via = ['exacta','nucleo','difusa','ambigua','noEncontrado','sinCambio','noExiste']
+    const via = ['exacta','bloque','nucleo','difusa','ambigua','noEncontrado','sinCambio','noExiste','rompeSintaxis']
       .find(k => code.editStats[k] > (antes[k] || 0)) || '—';
     out.push({ id: c.id, error, via, cambio: despues !== c.txt,
       texto: despues, lineas: despues.split('\n').length,
@@ -84,7 +110,7 @@ const res = await p.evaluate(async (CASOS) => {
   return out;
 }, CASOS);
 
-console.log('BATERÍA DE EDICIÓN — 15 formas reales de citar mal\n');
+console.log('BATERÍA DE EDICIÓN — formas reales de citar mal un bloque\n');
 let ok = 0;
 for (const c of CASOS) {
   const r = res.find(x => x.id === c.id);

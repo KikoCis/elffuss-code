@@ -226,10 +226,10 @@ export async function write({ path, content = '' } = {}) {
 // Telemetría de edición: por qué vía se resolvió cada intento. Sin esto,
 // «la edición falla» no es accionable — no sabes si el modelo cita mal, si
 // cita ambiguo o si no encuentra el sitio.
-export const editStats = { total: 0, exacta: 0, nucleo: 0, difusa: 0, ambigua: 0, noEncontrado: 0, sinCambio: 0, noExiste: 0, detalle: [] };
+export const editStats = { total: 0, exacta: 0, bloque: 0, nucleo: 0, difusa: 0, ambigua: 0, noEncontrado: 0, sinCambio: 0, noExiste: 0, rompeSintaxis: 0, detalle: [] };
 export function resetEditStats() {
-  editStats.total = editStats.exacta = editStats.nucleo = editStats.difusa = 0;
-  editStats.ambigua = editStats.noEncontrado = editStats.sinCambio = editStats.noExiste = 0;
+  editStats.total = editStats.exacta = editStats.bloque = editStats.nucleo = editStats.difusa = 0;
+  editStats.ambigua = editStats.noEncontrado = editStats.sinCambio = editStats.noExiste = editStats.rompeSintaxis = 0;
   editStats.detalle.length = 0;
 }
 const anota = (via, path, extra) => { editStats[via]++; editStats.detalle.push({ via, path, ...extra }); };
@@ -241,19 +241,57 @@ const anota = (via, path, extra) => { editStats[via]++; editStats.detalle.push({
 // ineditable. Se los quitamos, pero solo si TODAS las líneas los llevan: así
 // una flecha suelta dentro del código de verdad no se toca.
 const SIN_NUMEROS = /^[ \t]*\d+→/;
+// Exigir que TODAS las líneas lleven número no valía: un modelo pequeño numera
+// unas sí y otras no, la limpieza no se disparaba y la cita no podía casar. Con
+// mayoría basta, y «\d+→» al principio de línea es lo bastante raro en código
+// real como para no llevarse nada por delante. Se mira search y replace por
+// separado: si los números se colaran en «replace» acabarían ESCRITOS dentro
+// del fichero, que es peor que no editar.
 function quitaNumerosDeLinea(txt) {
   if (txt == null) return txt;
   const lineas = txt.split('\n');
-  const conNumero = lineas.filter(l => l.trim()).every(l => SIN_NUMEROS.test(l));
-  return conNumero ? lineas.map(l => l.replace(SIN_NUMEROS, '')).join('\n') : txt;
+  const conCuerpo = lineas.filter(l => l.trim());
+  if (!conCuerpo.length) return txt;
+  const numeradas = conCuerpo.filter(l => SIN_NUMEROS.test(l)).length;
+  return numeradas / conCuerpo.length >= 0.6 ? lineas.map(l => l.replace(SIN_NUMEROS, '')).join('\n') : txt;
+}
+
+// Una edición que deja el fichero sintácticamente roto es peor que una que no
+// se aplica: el modelo dice «arreglado» y lo que hay es un fichero que ya ni
+// carga. Caso real medido: el modelo sustituyó la línea de la firma por una
+// función entera CON su llave de cierre, dejando huérfano el cuerpo de antes
+// («Illegal return statement»). new Function() solo PARSEA, no ejecuta; para
+// que trague un módulo hay que quitarle import/export, que son sintaxis de
+// módulo. Solo se rechaza si el fichero estaba BIEN antes: si ya venía roto,
+// la edición es justamente lo que viene a arreglarlo.
+const ES_JS = /\.(js|mjs|cjs|jsx)$/i;
+function seParsea(codigo) {
+  const sinModulo = codigo
+    .replace(/^\s*import\s+[^;]*;?\s*$/gm, '')
+    .replace(/^\s*export\s+default\s+/gm, 'void ')
+    .replace(/^\s*export\s*\{[^}]*\}\s*;?\s*$/gm, '')
+    .replace(/^(\s*)export\s+/gm, '$1');
+  try { new Function(sinModulo); return true; } catch (e) { return e instanceof SyntaxError ? String(e.message) : true; }
+}
+function revisaSintaxis(path, antes, despues) {
+  if (!ES_JS.test(path)) return;
+  if (seParsea(antes) !== true) return;          // ya estaba roto: no estorbar
+  const mal = seParsea(despues);
+  if (mal !== true) {
+    anota('rompeSintaxis', path, { error: String(mal).slice(0, 80) });
+    throw new Error(`Esa edición dejaría ${path} sin poder cargarse (${mal}). ` +
+      `Suele pasar por cerrar una llave de más: revisa que «replace» encaje con lo que rodea a «search», ` +
+      `o incluye en «search» el bloque completo que vas a sustituir.`);
+  }
 }
 
 export async function edit({ path, search, replace } = {}) {
   editStats.total++;
   if (!path) throw new Error('Falta path');
   if (search == null || replace == null) throw new Error('Faltan search y replace');
-  // Si el modelo citó desde una lectura paginada, los dos vienen numerados.
-  if (SIN_NUMEROS.test(search)) { search = quitaNumerosDeLinea(search); replace = quitaNumerosDeLinea(replace); }
+  // Cada uno por su cuenta: el modelo puede numerar solo uno de los dos.
+  search = quitaNumerosDeLinea(search);
+  replace = quitaNumerosDeLinea(replace);
   // Contenido COMPLETO, sin el tope de MAX_READ. edit reescribe el fichero
   // entero, así que leer la vista recortada de read() truncaría todo lo que
   // hubiese más allá de MAX_READ (bug histórico: editar un fichero >60KB lo
@@ -282,6 +320,7 @@ export async function edit({ path, search, replace } = {}) {
       anota('sinCambio', path, { fase: 'exacta' });
       throw new Error(`La edición en ${path} no cambió nada: «search» y «replace» son iguales. Escribe en «replace» el código YA corregido.`);
     }
+    revisaSintaxis(path, current, siguiente);
     anota('exacta', path, {});
     return write({ path, content: siguiente });
   }
@@ -329,7 +368,7 @@ export async function edit({ path, search, replace } = {}) {
   {
     const at = locate(seaLines.map(norm));
     if (at.length > 1) { anota('ambigua', path, { fase: 'bloque' }); throw ambiguous(); }
-    if (at.length === 1) start = at[0];
+    if (at.length === 1) { start = at[0]; anota('bloque', path, {}); }
   }
 
   // 2) si no aparece entero, puede ser que el fichero tenga líneas que el modelo
@@ -392,6 +431,7 @@ export async function edit({ path, search, replace } = {}) {
     anota('sinCambio', path, {});
     throw new Error(`La edición en ${path} no cambió nada — revisa «replace».`);
   }
+  revisaSintaxis(path, current, nextContent);
   return write({ path, content: nextContent });
 }
 
