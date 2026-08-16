@@ -226,10 +226,10 @@ export async function write({ path, content = '' } = {}) {
 // Telemetría de edición: por qué vía se resolvió cada intento. Sin esto,
 // «la edición falla» no es accionable — no sabes si el modelo cita mal, si
 // cita ambiguo o si no encuentra el sitio.
-export const editStats = { total: 0, exacta: 0, bloque: 0, nucleo: 0, difusa: 0, ambigua: 0, noEncontrado: 0, sinCambio: 0, noExiste: 0, rompeSintaxis: 0, detalle: [] };
+export const editStats = { total: 0, exacta: 0, bloque: 0, nucleo: 0, difusa: 0, ambigua: 0, noEncontrado: 0, sinCambio: 0, noExiste: 0, rompeSintaxis: 0, yaAplicado: 0, detalle: [] };
 export function resetEditStats() {
   editStats.total = editStats.exacta = editStats.bloque = editStats.nucleo = editStats.difusa = 0;
-  editStats.ambigua = editStats.noEncontrado = editStats.sinCambio = editStats.noExiste = editStats.rompeSintaxis = 0;
+  editStats.ambigua = editStats.noEncontrado = editStats.sinCambio = editStats.noExiste = editStats.rompeSintaxis = editStats.yaAplicado = 0;
   editStats.detalle.length = 0;
 }
 const anota = (via, path, extra) => { editStats[via]++; editStats.detalle.push({ via, path, ...extra }); };
@@ -306,11 +306,27 @@ export async function edit({ path, search, replace } = {}) {
     throw new Error(`no existe «${path}»`);
   }
 
+  // Reintentar sobre algo YA hecho era un error igual que no encontrarlo, así
+  // que el modelo volvía a intentarlo en bucle. Si el resultado ya está y la
+  // cita ya no, la edición sobra: decirlo como estado y seguir. Se exige el
+  // «replace» COMPLETO presente y el «search» ausente, para no dar por buena
+  // una edición que no ocurrió.
+  if (replace.trim().length >= 8 && current.includes(replace) && !current.includes(search)) {
+    anota('yaAplicado', path, {});
+    return `Ese cambio ya está en ${path} — no hace falta editar. Sigue con lo siguiente.`;
+  }
+
   const first = current.indexOf(search);
   if (first !== -1) {
     if (current.indexOf(search, first + 1) !== -1) {
       anota('ambigua', path, { fase: 'exacta' });
-      throw new Error(`«search» aparece más de una vez en ${path} — añade más líneas de contexto alrededor para que sea inequívoco.`);
+      // decir DÓNDE está, igual que en las vías difusas: pedir «más contexto»
+      // a secas hace que un modelo pequeño cite más largo y peor.
+      const lineas = [];
+      for (let i = current.indexOf(search); i !== -1 && lineas.length < 8; i = current.indexOf(search, i + 1))
+        lineas.push(current.slice(0, i).split('\n').length);
+      throw new Error(`«search» aparece ${lineas.length} veces en ${path} (líneas ${lineas.join(', ')}). ` +
+        `Cita un bloque que incluya alguna línea que solo exista en el sitio que quieres cambiar.`);
     }
     const siguiente = current.slice(0, first) + replace + current.slice(first + search.length);
     // La vía difusa ya comprobaba esto abajo; la exacta no. Un search idéntico
@@ -360,14 +376,19 @@ export async function edit({ path, search, replace } = {}) {
     }
     return at;
   };
-  const ambiguous = () => new Error(`«search» coincide (ignorando espacios) en más de un sitio de ${path} — añade líneas de contexto para que sea inequívoco.`);
+  // Pedir «más contexto» a un modelo pequeño produce citas más largas y peores.
+  // Decirle en qué líneas está le deja elegir con un bloque MÁS corto y único.
+  const ambiguous = (donde = []) => new Error(
+    `«search» encaja en ${donde.length || 'varios'} sitios de ${path}` +
+    (donde.length ? ` (líneas ${donde.map(i => i + 1).join(', ')})` : '') +
+    `. Cita un bloque que incluya alguna línea que solo exista en el sitio que quieres cambiar.`);
 
   let start = -1, k = seaLines.length;
 
   // 1) el bloque ENTERO, idéntico salvo espacios → tiene que ser ÚNICO
   {
     const at = locate(seaLines.map(norm));
-    if (at.length > 1) { anota('ambigua', path, { fase: 'bloque' }); throw ambiguous(); }
+    if (at.length > 1) { anota('ambigua', path, { fase: 'bloque' }); throw ambiguous(at); }
     if (at.length === 1) { start = at[0]; anota('bloque', path, {}); }
   }
 
@@ -396,13 +417,14 @@ export async function edit({ path, search, replace } = {}) {
         const scored = at.map(i => ({ i, s: near(i) })).sort((a, b) => b.s - a.s);
         if (ctx.length && scored[0].s > scored[1].s) at = [scored[0].i];
       }
-      if (at.length > 1) { anota('ambigua', path, { fase: 'nucleo' }); throw ambiguous(); }
+      if (at.length > 1) { anota('ambigua', path, { fase: 'nucleo' }); throw ambiguous(at); }
       if (at.length === 1) { start = at[0]; k = core.length; repLines = repLines.slice(pre, repLines.length - suf); anota('nucleo', path, { pre, suf }); }
     }
   }
 
   // 3) por parecido: la ventana con más líneas coincidentes, exigiendo ≥70% y
   // que gane con claridad a la segunda mejor (sin ambigüedad)
+  let mejorVentana = null;
   if (start === -1) {
     const nSea = seaLines.map(norm);
     let best = -1, bestScore = 0, second = 0;
@@ -415,10 +437,19 @@ export async function edit({ path, search, replace } = {}) {
     }
     if (bestScore >= 0.7 && bestScore - second >= 0.2) { start = best; anota('difusa', path, { parecido: +bestScore.toFixed(2) }); }
     else if (bestScore > 0) anota('noEncontrado', path, { mejorParecido: +bestScore.toFixed(2), segundo: +second.toFixed(2) });
+    // Pedirle que RELEA le cuesta un turno entero y a un modelo pequeño le sale
+    // una cita más larga y peor. Como ya sabemos dónde está lo más parecido,
+    // se lo damos literal y numerado: puede copiar de ahí en el mismo turno.
+    if (best >= 0 && bestScore > 0) {
+      const desde = Math.max(0, best - 2), hasta = Math.min(curLines.length, best + k + 2);
+      mejorVentana = curLines.slice(desde, hasta)
+        .map((l, i) => `${desde + i + 1}→${l}`).slice(0, 12).join('\n');
+    }
   }
   if (start === -1)
-    throw new Error(`No encontré con suficiente confianza el punto exacto a editar en ${path} (ni exacto ni aproximado). ` +
-      `Vuelve a leerlo (code.read) y copia «search» literal de esas líneas, más corto si hace falta.`);
+    throw new Error(`No encontré en ${path} el bloque que citas. ` +
+      (mejorVentana ? `Lo más parecido que hay es esto (copia «search» LITERAL de aquí, sin los números):\n${mejorVentana}`
+                    : `Léelo con code.read y copia «search» literal de esas líneas.`));
 
   // Corte exacto del bloque [start, start+k): desde el inicio de su primera
   // línea hasta el inicio de la siguiente (es decir, salto de línea incluido).

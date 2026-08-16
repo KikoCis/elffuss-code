@@ -27,6 +27,16 @@ const CASOS = [
   { id: 'numeros-en-replace', desc: 'los números NO pueden acabar escritos dentro del fichero',
     f: 'a.js', txt: 'const a = 1;\nconst b = 2;\n', s: 'const b = 2;', r: '2→const b = 7;', noContiene: '→' },
 
+  { id: 'ya-aplicado', desc: 'el cambio ya está hecho → estado, no error (si no, reintenta en bucle)',
+    f: 'a.js', txt: 'function f() {\n  return 2;\n}\n', s: '  return 1;', r: '  return 2;', sinError: true },
+
+  { id: 'error-ensena', desc: 'si no encuentra la cita, el error trae las líneas reales',
+    f: 'a.js', txt: 'function calcula(a, b) {\n  const t = a * b;\n  return t;\n}\n',
+    s: 'function calcula(x, y) {\n  const total = x * y;\n  return total;\n}', r: 'lo que sea', debeFallar: true, errorTrae: 'const t = a * b' },
+
+  { id: 'ambigua-dice-donde', desc: 'la ambigüedad dice EN QUÉ LÍNEAS está, no «añade contexto»',
+    f: 'a.js', txt: 'function f() {\n  return 1;\n}\nfunction g() {\n  return 1;\n}\n', s: '  return 1;', r: '  return 9;', debeFallar: true, errorTrae: 'líneas 2, 5' },
+
   { id: 'linea-extra-dentro', desc: 'el fichero tiene un comentario que el modelo no vio',
     f: 'a.js', txt: 'function f() {\n  // añadido luego\n  return 1;\n}\n', s: 'function f() {\n  return 1;\n}', r: 'function f() {\n  return 5;\n}', esperado: 'return 5;', conserva: 'añadido luego' },
 
@@ -99,9 +109,9 @@ const res = await p.evaluate(async (CASOS) => {
     let error = null, despues = c.txt;
     const antes = { ...code.editStats };
     try { await code.edit({ path: c.f, search: c.s, replace: c.r }); }
-    catch (e) { error = e.message.slice(0, 90); }
+    catch (e) { error = e.message; }
     try { despues = await (await (await raiz.getFileHandle(c.f)).getFile()).text(); } catch {}
-    const via = ['exacta','bloque','nucleo','difusa','ambigua','noEncontrado','sinCambio','noExiste','rompeSintaxis']
+    const via = ['exacta','bloque','nucleo','difusa','ambigua','noEncontrado','sinCambio','noExiste','rompeSintaxis','yaAplicado']
       .find(k => code.editStats[k] > (antes[k] || 0)) || '—';
     out.push({ id: c.id, error, via, cambio: despues !== c.txt,
       texto: despues, lineas: despues.split('\n').length,
@@ -115,14 +125,18 @@ let ok = 0;
 for (const c of CASOS) {
   const r = res.find(x => x.id === c.id);
   let bien, nota = '';
-  if (c.debeFallar) { bien = !!r.error && !r.cambio; nota = bien ? 'se negó, como debe' : '⚠ EDITÓ CUANDO NO DEBÍA'; }
+  if (c.debeFallar) {
+    bien = !!r.error && !r.cambio; nota = bien ? 'se negó, como debe' : '⚠ EDITÓ CUANDO NO DEBÍA';
+    if (bien && c.errorTrae && !r.error.includes(c.errorTrae)) { bien = false; nota = `el error no trae «${c.errorTrae}»: ${r.error.replace(/\s+/g,' ').slice(0,110)}`; }
+  }
+  else if (c.sinError) { bien = !r.error && !r.cambio; nota = bien ? 'lo dio por hecho' : (r.error ? 'dio error: ' + r.error.slice(0,70) : 'editó cuando no debía'); }
   else {
     bien = !r.error && r.texto.includes(c.esperado ?? '');
     if (bien && c.conserva && !r.texto.includes(c.conserva)) { bien = false; nota = `se comió «${c.conserva}»`; }
     if (bien && c.noContiene && r.texto.includes(c.noContiene)) { bien = false; nota = 'no borró'; }
     if (bien && c.sinMezcla && r.mezclaEOL) { bien = false; nota = 'mezcló CRLF y LF'; }
     if (bien && c.intactas && r.lineas !== c.intactas + 1) { bien = false; nota = `el fichero pasó de ${c.intactas} a ${r.lineas-1} líneas`; }
-    if (!bien && !nota) nota = r.error || 'no aplicó el cambio';
+    if (!bien && !nota) nota = (r.error || 'no aplicó el cambio').replace(/\s+/g,' ').slice(0,110);
   }
   if (bien) ok++;
   console.log(` ${bien ? '✓' : '✗'} ${c.id.padEnd(19)} ${String(r.via).padEnd(13)} ${c.desc}`);
