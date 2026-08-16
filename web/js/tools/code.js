@@ -539,3 +539,78 @@ export async function search({ query, ext = '' } = {}) {
     return `Sin resultados para «${query}»` + (tail || '');
   return results.join('\n') + tail;
 }
+
+// ── code.run: ejecutar el código y ver qué hace de verdad ───────────────────
+//
+// Medido con Gemma E4B: arregló un bug DOS veces (cambió la constante Y el
+// operador) y dejó un fichero perfectamente válido pero incorrecto, rematando
+// con «aplicado correctamente». Ninguna guarda sintáctica puede ver eso: la
+// única forma de saberlo es ejecutarlo.
+//
+// Corre en un Worker de módulo: sin DOM, sin acceso a la página, y se le corta
+// el paso por tiempo si se cuelga en un bucle. Los imports relativos se
+// resuelven a mano contra el proyecto — sin build, un blob no sabe resolver
+// «./otro.js» por su cuenta, y sin esto solo servirían los ficheros sueltos.
+const RUN_MS = 4000, RUN_MAX_MODULOS = 40;
+
+async function moduloComoBlob(path, hechos = new Map(), profundidad = 0) {
+  const clave = normalize(path).join('/');
+  if (hechos.has(clave)) return hechos.get(clave);
+  if (hechos.size >= RUN_MAX_MODULOS || profundidad > 12)
+    throw new Error(`demasiados ficheros encadenados desde ${path}`);
+  hechos.set(clave, null);                       // marca de ciclo
+  const { dir, name } = await dirOf(clave);
+  let txt = await (await (await dir.getFileHandle(name)).getFile()).text();
+
+  // reescribir cada import/export relativo al blob del fichero al que apunta
+  const relativos = [...txt.matchAll(/(from\s*|import\s*\(\s*)(['"])(\.[^'"]+)\2/g)];
+  for (const m of relativos) {
+    const destino = normalize(clave.split('/').slice(0, -1).join('/') + '/' + m[3]).join('/');
+    let url;
+    try { url = await moduloComoBlob(destino, hechos, profundidad + 1); }
+    catch { continue; }                          // que falle al importar, no aquí
+    if (url) txt = txt.split(m[0]).join(`${m[1]}${m[2]}${url}${m[2]}`);
+  }
+  const url = URL.createObjectURL(new Blob([txt], { type: 'text/javascript' }));
+  hechos.set(clave, url);
+  return url;
+}
+
+export async function run({ path, expr } = {}) {
+  if (!path) throw new Error('Falta path');
+  if (!expr) throw new Error('Falta expr: qué quieres evaluar, p.ej. "m.max([])"');
+  if (!ES_JS.test(path)) throw new Error(`code.run solo ejecuta JavaScript, y ${path} no lo es`);
+  const hechos = new Map();
+  let url;
+  try { url = await moduloComoBlob(path, hechos); }
+  catch (e) { throw new Error(`no pude preparar ${path} para ejecutarlo: ${e.message}`); }
+
+  const guion = `
+    self.onmessage = async ({ data }) => {
+      try {
+        const m = await import(data.url);
+        const valor = await (new Function('m', 'return (' + data.expr + ')'))(m);
+        let texto;
+        try { texto = JSON.stringify(valor); } catch { texto = String(valor); }
+        if (texto === undefined) texto = String(valor);
+        self.postMessage({ ok: true, tipo: typeof valor, texto });
+      } catch (e) { self.postMessage({ ok: false, error: e.message }); }
+    };`;
+  const wUrl = URL.createObjectURL(new Blob([guion], { type: 'text/javascript' }));
+  const worker = new Worker(wUrl, { type: 'module' });
+  try {
+    const r = await new Promise((resolve) => {
+      // Un bucle infinito en el código del usuario no puede colgar el IDE.
+      const reloj = setTimeout(() => resolve({ ok: false, error: `no terminó en ${RUN_MS} ms (¿bucle infinito?)` }), RUN_MS);
+      worker.onmessage = e => { clearTimeout(reloj); resolve(e.data); };
+      worker.onerror = e => { clearTimeout(reloj); resolve({ ok: false, error: e.message || 'error al cargar el módulo' }); };
+      worker.postMessage({ url, expr });
+    });
+    return r.ok ? `${expr} → ${r.texto}  (${r.tipo})`
+                : `${expr} lanzó: ${r.error}`;
+  } finally {
+    worker.terminate();
+    URL.revokeObjectURL(wUrl);
+    for (const u of hechos.values()) if (u) URL.revokeObjectURL(u);
+  }
+}
