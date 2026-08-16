@@ -580,21 +580,37 @@ export async function run({ path, expr } = {}) {
   if (!path) throw new Error('Falta path');
   if (!expr) throw new Error('Falta expr: qué quieres evaluar, p.ej. "m.max([])"');
   if (!ES_JS.test(path)) throw new Error(`code.run solo ejecuta JavaScript, y ${path} no lo es`);
+  if (/^\s*import[\s{]/.test(expr) || /\brequire\s*\(/.test(expr))
+    throw new Error(`«expr» es solo una EXPRESIÓN, no un programa: el módulo ya está importado. ` +
+      `Escribe directamente la llamada, p.ej. «miFuncion(1, 2)» o «m.miFuncion(1, 2)».`);
   const hechos = new Map();
   let url;
   try { url = await moduloComoBlob(path, hechos); }
   catch (e) { throw new Error(`no pude preparar ${path} para ejecutarlo: ${e.message}`); }
 
+  // Los nombres exportados se ATAN como variables sueltas, además de en «m».
+  // Medido: el modelo escribe «slugify(...)» de forma natural, le saltaba un
+  // «slugify is not defined», y de ahí concluía que su arreglo estaba mal y se
+  // ponía a destrozar código que YA funcionaba — le quitó el export y rompió el
+  // módulo. La herramienta de comprobar le enseñó que lo correcto era incorrecto.
+  // Y si aun así nombra algo que no existe, el error DICE qué hay exportado, en
+  // vez de dejarle deducir que el fichero está roto.
   const guion = `
     self.onmessage = async ({ data }) => {
       try {
         const m = await import(data.url);
-        const valor = await (new Function('m', 'return (' + data.expr + ')'))(m);
+        const nombres = Object.keys(m).filter(n => /^[A-Za-z_$][\\w$]*$/.test(n));
+        const fn = new Function('m', ...nombres, 'return (' + data.expr + ')');
+        const valor = await fn(m, ...nombres.map(n => m[n]));
         let texto;
         try { texto = JSON.stringify(valor); } catch { texto = String(valor); }
         if (texto === undefined) texto = String(valor);
         self.postMessage({ ok: true, tipo: typeof valor, texto });
-      } catch (e) { self.postMessage({ ok: false, error: e.message }); }
+      } catch (e) {
+        let exporta = [];
+        try { exporta = Object.keys(await import(data.url)); } catch { /* ni carga */ }
+        self.postMessage({ ok: false, error: e.message, exporta });
+      }
     };`;
   const wUrl = URL.createObjectURL(new Blob([guion], { type: 'text/javascript' }));
   const worker = new Worker(wUrl, { type: 'module' });
@@ -606,8 +622,14 @@ export async function run({ path, expr } = {}) {
       worker.onerror = e => { clearTimeout(reloj); resolve({ ok: false, error: e.message || 'error al cargar el módulo' }); };
       worker.postMessage({ url, expr });
     });
-    return r.ok ? `${expr} → ${r.texto}  (${r.tipo})`
-                : `${expr} lanzó: ${r.error}`;
+    if (r.ok) return `${expr} → ${r.texto}  (${r.tipo})`;
+    // Un «X is not defined» sin más lleva al modelo a «el fichero está mal».
+    // Decirle qué exporta de verdad corta esa deducción en seco.
+    const noDefinido = /(\w+) is not defined/.exec(r.error || '');
+    const pista = noDefinido && r.exporta?.length
+      ? ` — «${noDefinido[1]}» no está en ${path}, que exporta: ${r.exporta.join(', ')}. Llámalo por su nombre o con m.<nombre>; el fichero NO tiene por qué estar mal.`
+      : (r.exporta?.length ? ` (${path} exporta: ${r.exporta.join(', ')})` : '');
+    return `${expr} lanzó: ${r.error}${pista}`;
   } finally {
     worker.terminate();
     URL.revokeObjectURL(wUrl);

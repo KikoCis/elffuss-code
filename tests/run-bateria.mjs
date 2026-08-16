@@ -37,6 +37,21 @@ const CASOS = [
 
   { id: 'no-js', desc: 'no intenta ejecutar lo que no es JS',
     files: { 'a.md': '# hola\n' }, path: 'a.md', expr: '1', debeFallar: true },
+
+  // La forma en que el modelo lo escribe DE VERDAD (medido): sin «m.», con un
+  // import dentro, o nombrando algo que no existe. Cada una de estas le hizo
+  // concluir que su código estaba mal y ponerse a romperlo.
+  { id: 'sin-prefijo', desc: 'llamar por el nombre a secas, como lo escribe el modelo',
+    files: { 'm.js': 'export const slugify = s => s.toLowerCase();\n' }, path: 'm.js', expr: "slugify('Hola')", trae: 'hola' },
+
+  { id: 'import-en-expr', desc: 'un import dentro de expr se explica, no se ejecuta',
+    files: { 'm.js': 'export const f = () => 1;\n' }, path: 'm.js', expr: "import { f } from './m.js'; f()", debeFallar: true },
+
+  { id: 'nombre-inventado', desc: 'si nombra algo que no existe, el error DICE qué hay',
+    files: { 'm.js': 'export const clamp = v => v;\nexport const otra = () => 2;\n' }, path: 'm.js', expr: 'noExiste(1)', trae: 'exporta: clamp, otra' },
+
+  { id: 'no-culpa-al-fichero', desc: 'y deja claro que el fichero no tiene por qué estar mal',
+    files: { 'm.js': 'export const clamp = v => v;\n' }, path: 'm.js', expr: 'clampp(1)', trae: 'NO tiene por qué estar mal' },
 ];
 
 const b = await chromium.launch({ channel: 'chrome', headless: true });
