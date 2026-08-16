@@ -223,9 +223,37 @@ export async function write({ path, content = '' } = {}) {
 // más parecido dentro del fichero real. Si ni así hay confianza suficiente,
 // falla con un mensaje claro para que el agente reintente con más contexto
 // — nunca escribe una coincidencia dudosa.
+// Telemetría de edición: por qué vía se resolvió cada intento. Sin esto,
+// «la edición falla» no es accionable — no sabes si el modelo cita mal, si
+// cita ambiguo o si no encuentra el sitio.
+export const editStats = { total: 0, exacta: 0, nucleo: 0, difusa: 0, ambigua: 0, noEncontrado: 0, sinCambio: 0, noExiste: 0, detalle: [] };
+export function resetEditStats() {
+  editStats.total = editStats.exacta = editStats.nucleo = editStats.difusa = 0;
+  editStats.ambigua = editStats.noEncontrado = editStats.sinCambio = editStats.noExiste = 0;
+  editStats.detalle.length = 0;
+}
+const anota = (via, path, extra) => { editStats[via]++; editStats.detalle.push({ via, path, ...extra }); };
+
+// read() paginado devuelve «12→código» para que el modelo pueda pedir un
+// offset; el efecto secundario es que el modelo copia ESE texto como «search»,
+// con el número pegado delante. Entonces la cita no existe en el fichero y la
+// edición no puede encajar NUNCA — un fichero que pasa de una página se vuelve
+// ineditable. Se los quitamos, pero solo si TODAS las líneas los llevan: así
+// una flecha suelta dentro del código de verdad no se toca.
+const SIN_NUMEROS = /^[ \t]*\d+→/;
+function quitaNumerosDeLinea(txt) {
+  if (txt == null) return txt;
+  const lineas = txt.split('\n');
+  const conNumero = lineas.filter(l => l.trim()).every(l => SIN_NUMEROS.test(l));
+  return conNumero ? lineas.map(l => l.replace(SIN_NUMEROS, '')).join('\n') : txt;
+}
+
 export async function edit({ path, search, replace } = {}) {
+  editStats.total++;
   if (!path) throw new Error('Falta path');
   if (search == null || replace == null) throw new Error('Faltan search y replace');
+  // Si el modelo citó desde una lectura paginada, los dos vienen numerados.
+  if (SIN_NUMEROS.test(search)) { search = quitaNumerosDeLinea(search); replace = quitaNumerosDeLinea(replace); }
   // Contenido COMPLETO, sin el tope de MAX_READ. edit reescribe el fichero
   // entero, así que leer la vista recortada de read() truncaría todo lo que
   // hubiese más allá de MAX_READ (bug histórico: editar un fichero >60KB lo
@@ -235,6 +263,7 @@ export async function edit({ path, search, replace } = {}) {
     const { dir, name } = await dirOf(path);
     current = await (await (await dir.getFileHandle(name)).getFile()).text();
   } catch {
+    anota('noExiste', path, {});
     await read({ path });   // relanza el error «que enseña» (sugiere code.tree/search); nunca retorna
     throw new Error(`no existe «${path}»`);
   }
@@ -242,9 +271,19 @@ export async function edit({ path, search, replace } = {}) {
   const first = current.indexOf(search);
   if (first !== -1) {
     if (current.indexOf(search, first + 1) !== -1) {
+      anota('ambigua', path, { fase: 'exacta' });
       throw new Error(`«search» aparece más de una vez en ${path} — añade más líneas de contexto alrededor para que sea inequívoco.`);
     }
-    return write({ path, content: current.slice(0, first) + replace + current.slice(first + search.length) });
+    const siguiente = current.slice(0, first) + replace + current.slice(first + search.length);
+    // La vía difusa ya comprobaba esto abajo; la exacta no. Un search idéntico
+    // al replace escribía el mismo fichero y devolvía ÉXITO, así que el agente
+    // daba la tarea por arreglada sin haber cambiado una coma.
+    if (siguiente === current) {
+      anota('sinCambio', path, { fase: 'exacta' });
+      throw new Error(`La edición en ${path} no cambió nada: «search» y «replace» son iguales. Escribe en «replace» el código YA corregido.`);
+    }
+    anota('exacta', path, {});
+    return write({ path, content: siguiente });
   }
 
   // fallback difuso, LOCAL y por líneas (sin depender de esm.sh en tiempo de
@@ -289,7 +328,7 @@ export async function edit({ path, search, replace } = {}) {
   // 1) el bloque ENTERO, idéntico salvo espacios → tiene que ser ÚNICO
   {
     const at = locate(seaLines.map(norm));
-    if (at.length > 1) throw ambiguous();
+    if (at.length > 1) { anota('ambigua', path, { fase: 'bloque' }); throw ambiguous(); }
     if (at.length === 1) start = at[0];
   }
 
@@ -318,8 +357,8 @@ export async function edit({ path, search, replace } = {}) {
         const scored = at.map(i => ({ i, s: near(i) })).sort((a, b) => b.s - a.s);
         if (ctx.length && scored[0].s > scored[1].s) at = [scored[0].i];
       }
-      if (at.length > 1) throw ambiguous();
-      if (at.length === 1) { start = at[0]; k = core.length; repLines = repLines.slice(pre, repLines.length - suf); }
+      if (at.length > 1) { anota('ambigua', path, { fase: 'nucleo' }); throw ambiguous(); }
+      if (at.length === 1) { start = at[0]; k = core.length; repLines = repLines.slice(pre, repLines.length - suf); anota('nucleo', path, { pre, suf }); }
     }
   }
 
@@ -335,7 +374,8 @@ export async function edit({ path, search, replace } = {}) {
       if (score > bestScore) { second = bestScore; bestScore = score; best = i; }
       else if (score > second) second = score;
     }
-    if (bestScore >= 0.7 && bestScore - second >= 0.2) start = best;
+    if (bestScore >= 0.7 && bestScore - second >= 0.2) { start = best; anota('difusa', path, { parecido: +bestScore.toFixed(2) }); }
+    else if (bestScore > 0) anota('noEncontrado', path, { mejorParecido: +bestScore.toFixed(2), segundo: +second.toFixed(2) });
   }
   if (start === -1)
     throw new Error(`No encontré con suficiente confianza el punto exacto a editar en ${path} (ni exacto ni aproximado). ` +
@@ -348,8 +388,10 @@ export async function edit({ path, search, replace } = {}) {
   const cutTo = hasTrailingNL ? lineStart[start + k] : current.length;
   const block = repLines.join(eol) + (hasTrailingNL ? eol : '');
   const nextContent = current.slice(0, cutFrom) + block + current.slice(cutTo);
-  if (nextContent === current)
+  if (nextContent === current) {
+    anota('sinCambio', path, {});
     throw new Error(`La edición en ${path} no cambió nada — revisa «replace».`);
+  }
   return write({ path, content: nextContent });
 }
 

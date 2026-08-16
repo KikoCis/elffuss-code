@@ -121,11 +121,26 @@ export async function runGoal(conv, goalText, onEvent) {
     const taskPrompt = `${TASK_PREFIX}Tarea ${task.id} del objetivo «${goalText}»: ${task.title}\n${task.description}`;
     let done = false;
     while (!done && task.retries <= MAX_TASK_RETRIES) {
-      let sawError = false, errText = '';
+      let sawError = false, errText = '', usoHerramientas = 0;
       await conv.agent.handle(taskPrompt, ev => {
-        if (ev.type === 'error') { sawError = true; errText = ev.text; }
+        // Un fallo llega de tres formas y antes solo se miraba una: el modelo
+        // reventando ('error'), una herramienta fallando ('tool_error') y
+        // agotar los pasos sin terminar ('exhausted'). Con solo la primera,
+        // una tarea que no tocó nada se daba por hecha y la cascada de fallos
+        // no se activaba nunca.
+        if (ev.type === 'error' || ev.type === 'exhausted') { sawError = true; errText = ev.text; }
+        if (ev.type === 'tool_error') { sawError = true; errText = `${ev.tool}: ${ev.text}`; }
+        if (ev.type === 'tool') usoHerramientas++;
         onEvent(ev);
       });
+      // Una tarea de un PLAN es una acción, no una charla. Si el modelo
+      // contestó sin usar ni una herramienta, no hizo nada: el agente termina
+      // en el primer turno (no agota pasos), así que sin esta comprobación la
+      // tarea se marcaba hecha por el mero hecho de haber respondido.
+      if (!sawError && usoHerramientas === 0) {
+        sawError = true;
+        errText = 'no usó ninguna herramienta: respondió sin tocar el proyecto';
+      }
       if (!sawError) { done = true; }
       else {
         task.retries++;

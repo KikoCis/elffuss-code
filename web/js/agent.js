@@ -67,7 +67,7 @@ Tú:
 Usuario: crea un mini proyecto web que explique esto
 Tú: (SIN pedir permiso ni framework — escribe los ficheros con contenido COMPLETO, varias code.write a la vez)
 \`\`\`tool
-{"tool": "code.write", "args": {"path": "web/index.html", "content": "<!DOCTYPE html>\\n<html>…página completa…</html>"}}
+{"tool": "code.write", "args": {"path": "web/index.html", "content": "<!DOCTYPE html>\\n<html lang=\\"es\\">\\n<head><meta charset=\\"utf-8\\"><title>Notas</title></head>\\n<body><h1>Notas</h1></body>\\n</html>"}}
 \`\`\`
 \`\`\`tool
 {"tool": "code.write", "args": {"path": "web/style.css", "content": "body{font-family:system-ui;margin:0}…"}}
@@ -277,13 +277,17 @@ export class Agent {
         onEvent({ type: 'tool', call });
         let result;
         try { result = await runTool(call.tool, call.args); }
-        catch (e) { result = 'ERROR: ' + e.message; }
+        catch (e) { result = 'ERROR: ' + e.message; onEvent({ type: 'tool_error', tool: call.tool, text: e.message }); }
         const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
         onEvent({ type: 'tool_result', tool: call.tool, result: resultStr });
         results.push(`[resultado ${call.tool}]\n${resultStr}`);
       }
       this.history.push({ role: 'user', content: results.join('\n\n'), ts: Date.now() });
     }
+    // Agotar los pasos es un FALLO y hay que decirlo con un evento propio: el
+    // modo Objetivo marcaba la tarea como hecha porque solo miraba 'error', y
+    // un plan entero podía acabar en verde sin haber tocado un solo fichero.
+    onEvent({ type: 'exhausted', text: '(Me quedé sin pasos: demasiadas herramientas seguidas.)' });
     onEvent({ type: 'text', text: '(Me quedé sin pasos: demasiadas herramientas seguidas.)' });
   }
 }
