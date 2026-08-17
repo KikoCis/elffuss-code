@@ -26,6 +26,27 @@ export function configure(key) {
 
 let engine = null, conversation = null, sentCount = 0, sys = '';
 
+// Muestreo. Por defecto VORAZ, que es como venía: mismo prompt, misma salida.
+// Eso hace que generar N veces cueste N y devuelva una sola respuesta distinta,
+// así que cualquier técnica de «genera varias y quédate con la mejor» era gasto
+// puro. Con temperatura y semilla se puede pedir variedad de verdad.
+const TOP_P = 2;
+let muestreo = null;                       // null = voraz
+export function setSampling(opts) {        // {temperature, seed, p} o null
+  const antes = JSON.stringify(muestreo);
+  // «k» es OBLIGATORIO aunque el tipo sea TOP_P: sin él el wasm aborta en seco
+  // con «Aborted()» y se lleva por delante el motor. Comprobado probando formas.
+  muestreo = opts && opts.temperature > 0
+    ? { type: TOP_P, k: opts.k ?? 40, p: opts.p ?? 0.95, temperature: opts.temperature, seed: opts.seed ?? 0 }
+    : null;
+  // cambiar el muestreo exige rehacer la conversación: la sesión ya está creada
+  // con los parámetros de antes y no los relee.
+  if (JSON.stringify(muestreo) !== antes) { conversation = null; sentCount = 0; }
+  return muestreo;
+}
+export function getSampling() { return muestreo; }
+export function __engine() { return engine; }   // solo para el banco de pruebas
+
 // Contexto: probamos de mayor a menor hasta el máximo que acepten el bundle y
 // la memoria GPU — así el contexto queda al tope permitido de serie.
 const CTX_LADDER = [32768, 16384, 8192, 4096];
@@ -86,9 +107,11 @@ export async function cachedModelBlob(url, onProgress = () => {}) {
     // Progreso SIN tee(): con un modelo de gigabytes, tee() crea dos ramas que
     // se consumen a ritmos distintos y el navegador tiene que bufferizar la
     // diferencia en memoria → el cache.put acababa reventando y el modelo NO se
-    // cacheaba NUNCA (medido con E4B: 2832 MB bajados y cero guardados; el
-    // usuario se los re-bajaba en cada sesión). Con un TransformStream hay un
-    // solo consumidor: contamos al vuelo y el mismo flujo va a la caché.
+    // cacheaba NUNCA (medido con E4B: 2832 MB bajados y cero guardados). Peor
+    // aún: al fallar se devolvía la URL suelta y `Engine.create({model: <URL>})`
+    // monta un motor que CARGA pero no genera («Aborted()»). Con un
+    // TransformStream hay un solo consumidor: contamos al vuelo y el mismo flujo
+    // va a la caché.
     let loaded = 0;
     const counted = net.body.pipeThrough(new TransformStream({
       transform(chunk, ctrl) {
@@ -155,6 +178,7 @@ export async function chat(history, system, onToken = () => {}) {
       // system prompt al crear la conversación → primera respuesta más rápida.
       filterChannelContentFromKvCache: true,
       prefillPrefaceOnInit: true,
+      ...(muestreo ? { sessionConfig: { samplerParams: muestreo } } : {}),
     });
     sentCount = 0;
   }
