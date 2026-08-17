@@ -3,8 +3,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-HOST=ubuntu@SERVIDOR
-KEY=~/.ssh/CLAVE_SSH
+# La IP y el usuario del servidor NO se publican: se leen del entorno.
+# Estuvieron cinco semanas en este fichero dentro de un repo público, que es
+# regalar la superficie de ataque entera a quien escanee GitHub.
+#   export ELFFUSS_HOST=usuario@servidor  ELFFUSS_KEY=~/.ssh/tu_clave
+HOST=${ELFFUSS_HOST:?define ELFFUSS_HOST (usuario@servidor) antes de desplegar}
+KEY=${ELFFUSS_KEY:?define ELFFUSS_KEY (ruta a la clave ssh)}
 DEST=/var/www/elffuss-code.utopiaia.com
 
 rsync -az --delete -e "ssh -i $KEY" web/ "$HOST:$DEST/"
