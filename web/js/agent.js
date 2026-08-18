@@ -289,7 +289,9 @@ export class Agent {
         catch (e) { result = 'ERROR: ' + e.message; onEvent({ type: 'tool_error', tool: call.tool, text: e.message }); }
         const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
         onEvent({ type: 'tool_result', tool: call.tool, result: resultStr });
-        results.push(`[resultado ${call.tool}]\n${resultStr}`);
+        const pista = resultStr.startsWith('ERROR')
+          ? '\n(Reanaliza este error y reintenta con la corrección; no te rindas.)' : '';
+        results.push(`[resultado ${call.tool}]\n${resultStr}${pista}`);
       }
       this.history.push({ role: 'user', content: results.join('\n\n'), ts: Date.now() });
     }
