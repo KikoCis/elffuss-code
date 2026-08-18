@@ -389,7 +389,7 @@ function modelOptions() {
   if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
   if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
   opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) — ligero' });
-  opts.push({ id: 'onnx:qwen3-0.6b', label: 'Qwen3-0.6B · WebGPU (~560 MB)' });
+  opts.push({ id: 'onnx:qwen3.5-0.8b', label: 'Qwen3.5-0.8B · WebGPU (~600 MB)' });
   opts.push({ id: 'rules', label: t('setModelRulesName') });
   return [...opts, ...settings.enabledExternals()];
 }
@@ -562,7 +562,7 @@ function renderSettings() {
     { id: 'litert:gemma-e4b', name: 'Gemma-4 E4B ★', sub: t("setModelE4bSub"), need: 'gpu' },
     { id: 'litert:gemma-e2b', name: 'Gemma-4 E2B', sub: t("setModelE2bSub"), need: 'gpu' },
     { id: 'onnx', name: 'Elffuss LM (healed)', sub: t("setModelOnnxSub") },
-    { id: 'onnx:qwen3-0.6b', name: 'Qwen3-0.6B', sub: 'Qwen en el navegador vía WebGPU · ~560 MB · con «thinking»' },
+    { id: 'onnx:qwen3.5-0.8b', name: 'Qwen3.5-0.8B', sub: 'Qwen en el navegador vía WebGPU · ~600 MB · con «thinking»' },
     { id: 'rules', name: t('setModelRulesName'), sub: t("setModelRulesSub") },
   ];
   const grid = el('div', 'model-grid');
