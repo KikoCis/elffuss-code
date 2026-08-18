@@ -158,7 +158,13 @@ export async function createSkill({ name, description, instructions } = {}) {
 // Bloque para el systemPrompt (síncrono, desde la caché).
 export function skillsPromptBlock() {
   if (!cache.length) return '';
+  const nombres = cache.map(s => `«${s.name}»`).join(', ');
   const parts = cache.map(s =>
     `### Skill «${s.name}»${s.repo ? ` (de ${s.repo})` : ''}\n${s.description || ''}\n${(s.content || '').slice(0, MAX_SKILL)}`);
-  return `\n\nSKILLS ACTIVAS (instrucciones especializadas; síguelas cuando la tarea encaje):\n${parts.join('\n\n')}`;
+  return `\n\nSKILLS INSTALADAS — son capacidades que TIENES AHORA MISMO: ${nombres}.\n` +
+    `REGLAS con las skills:\n` +
+    `- Si la petición encaja con una skill (aunque el usuario la nombre con otras palabras o un nombre parecido, empareja por el TEMA de su descripción), ÚSALA siguiendo sus instrucciones al pie de la letra.\n` +
+    `- NUNCA digas que no tienes esa skill o esa capacidad: la tienes, está aquí abajo.\n` +
+    `- Si la skill incluye una plantilla de app (HTML), créala con la herramienta app.create COPIANDO esa plantilla y adaptando solo lo que la skill indique — no inventes una app genérica distinta.\n\n` +
+    parts.join('\n\n');
 }
