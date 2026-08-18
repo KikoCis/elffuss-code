@@ -158,8 +158,14 @@ export function thinkingBubble() {
       // según va llegando: una frase humana («leyendo app.js…») en su lugar.
       const preview = humanizeStreamPreview(buf);
       gen.classList.toggle('tool-preview', !!preview);
-      gen.textContent = preview ? '⟐ ' + preview : (buf.length > 200 ? '…' : '') + buf.slice(-200);
-      $('chat-log').scrollTop = $('chat-log').scrollHeight;
+      if (preview) { gen.textContent = '⟐ ' + preview; $('chat-log').scrollTop = $('chat-log').scrollHeight; }
+      else {
+        // texto normal: crece y se puede leer (antes solo los últimos 200 y lo
+        // de arriba desaparecía); se respeta tu scroll si subes a leer.
+        const pegado = gen.scrollHeight - gen.scrollTop - gen.clientHeight < 28;
+        gen.textContent = buf;
+        if (pegado) gen.scrollTop = gen.scrollHeight;
+      }
     },
     tool(name) { buf = ''; gen.textContent = ''; label.textContent = t('using', { name }); },
     remove() { div.remove(); },
