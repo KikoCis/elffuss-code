@@ -56,6 +56,20 @@ export function isBusy() {
 }
 
 export function getActive() { return activeId ? convs.get(activeId) : null; }
+
+// Parar la conversación activa mientras trabaja: aborta la generación/bucle del
+// agente (agent.stop() propaga la señal a los proveedores) y vacía la cola para
+// que no arranque el siguiente turno. runGoal comprueba conv.stopped para no
+// seguir con las tareas pendientes del plan.
+export function stopActive() {
+  const c = getActive();
+  if (!c) return false;
+  c.stopped = true;
+  try { c.agent.stop(); } catch { /* */ }
+  c.queue.length = 0;
+  return true;
+}
+
 export function getOpenTabs() { return openTabIds.map(id => convs.get(id)).filter(Boolean); }
 
 async function persistConv(conv) {
@@ -188,6 +202,7 @@ export function startGoal(id, text) {
 async function pump(conv) {
   if (conv.pumping) return;
   conv.pumping = true;
+  conv.stopped = false;
   onChange('pumping', conv.id, true);
   while (conv.queue.length) {
     const item = normalizeItem(conv.queue[0]);
@@ -212,6 +227,7 @@ async function pump(conv) {
     conv.queue.shift();
     conv.updatedAt = Date.now();
     await persistConv(conv);
+    if (conv.stopped) break;
   }
   conv.pumping = false;
   onChange('pumping', conv.id, false);

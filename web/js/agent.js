@@ -244,7 +244,13 @@ export class Agent {
 
   setProvider(p) { this.provider = p; }
 
+  // Parar el agente en marcha: aborta la generación en curso (los proveedores
+  // que reciben la señal la cortan) y hace que el bucle no dé más pasos.
+  stop() { try { this._aborter?.abort(); } catch { /* */ } }
+
   async handle(userText, onEvent) {
+    const aborter = (this._aborter = new AbortController());
+    const signal = aborter.signal;
     // La marca temporal se pone AL AÑADIR, que es el único momento en que se
     // sabe: el gestor de contexto resuelve «ayer» con la fecha del turno en que
     // se dijo, no con la de ahora (ver annotateDates en acer-core.js). Sin esto
@@ -253,15 +259,17 @@ export class Agent {
     for (let step = 0; step < MAX_STEPS; step++) {
       let out;
       try {
+        if (signal.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
         const context = await snapshot().catch(() => '');
         out = await this.provider.chat(this.history, systemPrompt(context),
-          t => onEvent({ type: 'token', text: t }));
+          t => onEvent({ type: 'token', text: t }), signal);
       } catch (e) {
         telemetry.reportError('agent.handle: ' + e.message, { stack: e.stack || '' });
         onEvent({ type: 'error', text: 'El modelo falló: ' + e.message });
         return;
       }
 
+      if (signal.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
       const calls = parseToolCalls(out);
       if (!calls.length) {
         this.history.push({ role: 'assistant', content: out, ts: Date.now() });
@@ -274,6 +282,7 @@ export class Agent {
       this.history.push({ role: 'assistant', content: out, ts: Date.now() });
       const results = [];
       for (const call of calls) {
+        if (signal.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
         onEvent({ type: 'tool', call });
         let result;
         try { result = await runTool(call.tool, call.args); }

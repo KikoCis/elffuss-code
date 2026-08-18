@@ -16,7 +16,7 @@ export async function load() {
     throw new Error('falta la clave de API (config avanzada)');
 }
 
-export async function chat(history, system, onToken = () => {}) {
+export async function chat(history, system, onToken = () => {}, signal = null) {
   return cfg.kind === 'anthropic'
     ? anthropicChat(history, system, onToken)
     : openaiChat(history, system, onToken);
@@ -41,6 +41,7 @@ async function openaiChat(history, system, onToken) {
   if (cfg.thinking != null) body.chat_template_kwargs = { enable_thinking: cfg.thinking };
 
   const res = await fetch(cfg.baseURL.replace(/\/$/, '') + '/chat/completions', {
+    signal,
     method: 'POST', headers, body: JSON.stringify(body),
   });
   if (!res.ok || !res.body) throw new Error('HTTP ' + res.status + ' ' + (await res.text().catch(() => '')).slice(0, 120));

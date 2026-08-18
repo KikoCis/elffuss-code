@@ -112,6 +112,7 @@ export async function runGoal(conv, goalText, onEvent) {
 
   let cascadeFail = false;
   for (const task of plan.tasks) {
+    if (conv.stopped) break;   // parado por el usuario: no seguir con el plan
     if (cascadeFail) { task.status = 'skipped'; plan.updatedAt = Date.now(); onEvent({ type: 'plan_update', plan: clonePlan(plan) }); continue; }
 
     task.status = 'in-progress';

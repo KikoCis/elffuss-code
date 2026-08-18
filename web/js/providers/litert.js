@@ -157,7 +157,7 @@ export async function unload() {
   engine = null; conversation = null; sentCount = 0;
 }
 
-export async function chat(history, system, onToken = () => {}) {
+export async function chat(history, system, onToken = () => {}, signal = null) {
   if (!engine) throw new Error('Modelo no cargado');
   // Comparar solo la parte estática del prompt: el CONTEXTO AHORA va al final
   // y cambia cada turno — recrear la conversación tiraría el KV-cache.
@@ -189,6 +189,7 @@ export async function chat(history, system, onToken = () => {}) {
 
   let out = '';
   for await (const chunk of conversation.sendMessageStreaming(text)) {
+    if (signal?.aborted) break;   // parar: se devuelve lo generado hasta aquí
     for (const item of (chunk.content || []))
       if (item.type === 'text') { out += item.text; onToken(item.text); }
   }

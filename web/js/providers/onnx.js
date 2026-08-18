@@ -52,7 +52,7 @@ export async function unload() {
   generator = null; cargadoKey = null;
 }
 
-export async function chat(history, system, onToken = () => {}) {
+export async function chat(history, system, onToken = () => {}, signal = null) {
   if (!generator) throw new Error('Modelo no cargado');
   // ACE-lite: eviction por relevancia. Presupuesto amplio (LFM2.5 aguanta
   // contexto largo); el tope POR MENSAJE (context.js) evita que un README
@@ -61,7 +61,7 @@ export async function chat(history, system, onToken = () => {}) {
   const streamer = new TextStreamer(generator.tokenizer, {
     skip_prompt: true,
     skip_special_tokens: true,
-    callback_function: onToken,
+    callback_function: t => { if (!signal?.aborted) onToken(t); },
   });
   const out = await generator(messages, {
     max_new_tokens: 1024,

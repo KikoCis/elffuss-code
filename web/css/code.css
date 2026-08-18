@@ -404,6 +404,12 @@ body.hide-tree #sidebar { display: none; }
   border-top-color: #fff; border-radius: 50%; animation: btn-send-spin .7s linear infinite;
 }
 @keyframes btn-send-spin { to { transform: rotate(360deg); } }
+
+/* Botón en modo PARAR (mientras el agente genera): clicable, no un spinner muerto */
+#btn-send.is-stop { background: linear-gradient(135deg, #e5484d, #c0353a); cursor: pointer; }
+#btn-send.is-stop svg { opacity: 1; }
+#btn-send.is-stop::after { display: none; }   /* fuera el spinner de bloqueo */
+
 #composer #prompt { flex: 1; min-width: 0; }
 
 /* menú flotante de +/ */

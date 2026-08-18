@@ -208,8 +208,11 @@ function onConvEvent(kind, id, payload) {
   const active = conv.getActive();
   if (!active || id !== active.id) return;
   if (kind === 'pumping') {
-    $('btn-send').disabled = payload;
+    // NO deshabilitar el botón mientras genera: se convierte en PARAR. Antes se
+    // ponía disabled=payload, y por eso no había forma de cortar un run largo.
+    $('btn-send').disabled = false;
     $('btn-send').classList.toggle('sending', payload);
+    paintSendButton();
     if (payload) { if (!activeThinking) activeThinking = thinkingBubble(); }
     else { activeThinking?.remove(); activeThinking = null; }
     return;
@@ -221,6 +224,7 @@ function onConvEvent(kind, id, payload) {
     if (ev.type === 'tool') { activeThinking?.tool(ev.call.tool); addTool(ev.call.tool, ev.call.args?.path || ev.call.args?.query || ''); }
     if (ev.type === 'tool_result') addToolResult(ev.result);
     if (ev.type === 'error') addMsg('assistant err', ev.text);
+    if (ev.type === 'aborted') addMsg('assistant muted', ev.text);
     // 🎯 Modo Objetivo: la tarjeta de plan se crea con 'plan' y se repinta
     // in-place en cada 'plan_update'/'plan_complete' (mismo nodo, por id).
     if (ev.type === 'plan' || ev.type === 'plan_update' || ev.type === 'plan_complete') renderPlanCard(ev.plan);
@@ -962,12 +966,27 @@ $('prompt').addEventListener('keydown', e => {
 });
 $('composer').addEventListener('submit', e => {
   e.preventDefault();
+  // Mientras el agente trabaja, el mismo botón PARA en vez de enviar.
+  const active = conv.getActive();
+  if (active && active.pumping) { conv.stopActive(); return; }
   const text = $('prompt').value.trim();
   if (!text) return;
   $('prompt').value = '';
   pushPromptHistory(text);
   send(text);
 });
+// Reflejar en el botón si estamos generando (▶ enviar / ■ parar). Se llama desde
+// el onChange de conversaciones cuando cambia «pumping».
+const STOP_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="2" width="10" height="10" rx="2" fill="currentColor"/></svg>';
+function paintSendButton() {
+  const b = document.getElementById('btn-send');
+  if (!b) return;
+  const busy = !!conv.getActive()?.pumping;
+  b.classList.toggle('is-stop', busy);
+  b.innerHTML = busy ? STOP_ICON : UI.send;
+  b.title = busy ? 'Parar' : 'Enviar';
+  b.setAttribute('aria-label', b.title);
+}
 $('model-select').addEventListener('change', e => changeModel(e.target.value));
 // móvil: conmutar chat ↔ editor
 $('code-flip').addEventListener('click', () => {
