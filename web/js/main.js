@@ -323,6 +323,11 @@ async function resolveProvider(id) {
     mod.configure(id.slice(7));
     return mod;
   }
+  if (id.startsWith('onnx:')) {              // ONNX concreto (Elffuss LM, Qwen3…)
+    const mod = await import('./providers/onnx.js');
+    mod.configure(id.slice(5));
+    return mod;
+  }
   if (id.startsWith('ext:')) {
     const cfg = settings.get(id.slice(4));
     const mod = await import('./providers/api.js');
@@ -349,6 +354,30 @@ const realGPUCheck = (async () => {
   try { return (realGPU = !!(await navigator.gpu.requestAdapter())); }
   catch { return (realGPU = false); }
 })();
+// Capacidad real de la GPU: no basta con que exista navigator.gpu, hay que
+// mirar los límites del adaptador — un buffer máximo pequeño no aguanta Gemma.
+async function gpuCapacity() {
+  const mem = navigator.deviceMemory || 8;               // GB (grueso, tope 8 en Chrome)
+  if (!navigator.gpu) return { gpu: false, maxBuf: 0, mem };
+  try {
+    const a = await navigator.gpu.requestAdapter();
+    if (!a) return { gpu: false, maxBuf: 0, mem };
+    return { gpu: true, maxBuf: a.limits?.maxBufferSize || 0, mem };
+  } catch { return { gpu: false, maxBuf: 0, mem }; }
+}
+
+// Auto-selección: el modelo MÁS GRANDE que entre en esta máquina. Gemma por
+// LiteRT si la GPU aguanta sus buffers; si no, un ONNX pequeño (WebGPU o wasm).
+async function pickLocalBrain() {
+  const c = await gpuCapacity();
+  if (c.gpu && !isMobile()) {
+    if (c.maxBuf >= 2 ** 31 && c.mem >= 8) return 'litert:gemma-e4b';   // ~4 GB
+    if (c.maxBuf >= 2 ** 30 && c.mem >= 6) return 'litert:gemma-e2b';   // ~2 GB
+  }
+  if (c.gpu && isMobile()) return 'litert:gemma-e2b';
+  return 'onnx';   // ONNX pequeño: Elffuss LM (1.2B) por defecto; Qwen3 seleccionable
+}
+// heurística vieja como último recurso síncrono
 const defaultBrain = () => !realGPU ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
 
 function modelOptions() {
@@ -356,6 +385,7 @@ function modelOptions() {
   if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
   if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
   opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) — ligero' });
+  opts.push({ id: 'onnx:qwen3-0.6b', label: 'Qwen3-0.6B · WebGPU (~560 MB)' });
   opts.push({ id: 'rules', label: t('setModelRulesName') });
   return [...opts, ...settings.enabledExternals()];
 }
@@ -456,7 +486,7 @@ async function preloadModel() {
   await realGPUCheck; // que defaultBrain()/modelOptions() vean el adaptador real, no solo la API
   const avail = new Set(modelOptions().map(o => o.id));
   const skipGemma = sessionStorage.getItem('elffusscode.skipGemma') === '1';
-  const def = skipGemma ? 'onnx' : defaultBrain();
+  const def = skipGemma ? 'onnx' : await pickLocalBrain();
   const chain = [...new Set([saved, def, 'onnx']
     .filter(id => id && id !== 'rules' && avail.has(id)))];
   for (const id of chain) if (await changeModel(id)) return;
@@ -528,6 +558,7 @@ function renderSettings() {
     { id: 'litert:gemma-e4b', name: 'Gemma-4 E4B ★', sub: t("setModelE4bSub"), need: 'gpu' },
     { id: 'litert:gemma-e2b', name: 'Gemma-4 E2B', sub: t("setModelE2bSub"), need: 'gpu' },
     { id: 'onnx', name: 'Elffuss LM (healed)', sub: t("setModelOnnxSub") },
+    { id: 'onnx:qwen3-0.6b', name: 'Qwen3-0.6B', sub: 'Qwen en el navegador vía WebGPU · ~560 MB · con «thinking»' },
     { id: 'rules', name: t('setModelRulesName'), sub: t("setModelRulesSub") },
   ];
   const grid = el('div', 'model-grid');
