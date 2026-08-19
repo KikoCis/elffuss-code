@@ -11,3 +11,6 @@ tests/_quotaprobe.mjs
 tests/_bigblob.mjs
 tests/_threshold*.mjs
 tests/_*.mjs
+
+# notas internas de dev, no publicar
+CLAUDE.md
