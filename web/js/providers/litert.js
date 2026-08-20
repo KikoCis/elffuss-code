@@ -95,6 +95,15 @@ const MODEL_CACHE = 'elffuss-models-v1';
 // con progreso real y lo cachea (persistente). Ante cualquier fallo, devuelve la
 // URL para que LiteRT lo baje por su cuenta (nunca bloquea la carga del modelo).
 export async function cachedModelBlob(url, onProgress = () => {}) {
+  // Caché COMPARTIDA + OPFS (runtime propio): un modelo bajado en cualquier web
+  // de Elffuss se reutiliza sin re-descargar. Si no está disponible, caemos al
+  // Cache Storage de siempre.
+  try {
+    const { getModelFile } = await import('../runtime/model-store.js');
+    const f = await getModelFile(url, onProgress);
+    if (f) return f;
+  } catch (e) { console.warn('[elffuss] OPFS/broker no disponible, uso Cache Storage:', e); }
+
   if (!self.caches) return url;
   try {
     const cache = await caches.open(MODEL_CACHE);
