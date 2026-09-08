@@ -338,6 +338,14 @@ async function resolveProvider(id) {
     mod.configure(id.slice(5));
     return mod;
   }
+  if (id.startsWith('engine:')) {            // runtime WebGPU propio (GGUF)
+    // El motor no se versiona en este repo: llega a web/js/engine/ por rsync,
+    // igual que en Claw. Si no está, el import falla y se trata como cualquier
+    // otro fallo de carga.
+    const mod = await import('./engine/provider.js');
+    mod.configure(id.slice(7));
+    return mod;
+  }
   if (id.startsWith('ext:')) {
     const cfg = settings.get(id.slice(4));
     const mod = await import('./providers/api.js');
@@ -390,12 +398,32 @@ async function pickLocalBrain() {
 // heurística vieja como último recurso síncrono
 const defaultBrain = () => !realGPU ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
 
+// El runtime propio y su modelo grande se SONDEAN, no se cablean: el motor
+// llega por rsync y el modelo son gigabytes que pueden no estar alojados.
+// Ofrecer algo que no está sería prometer un fallo que llega DESPUÉS de que el
+// usuario haya esperado, que es la peor forma de fallar.
+let ENGINE_READY = false, MODEL27_READY = false;
+const engineCheck = (async () => {
+  try { return (ENGINE_READY = (await fetch('js/engine/provider.js', { method: 'HEAD', cache: 'no-store' })).ok); }
+  catch { return (ENGINE_READY = false); }
+})();
+const modelo27Check = (async () => {
+  try { return (MODEL27_READY = (await fetch('https://models.elffuss.utopiaia.com/qwen38-27b.gguf', { method: 'HEAD', cache: 'no-store' })).ok); }
+  catch { return (MODEL27_READY = false); }
+})();
+
 function modelOptions() {
   const opts = [];
   if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
   if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
   opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) — ligero' });
   opts.push({ id: 'onnx:qwen3.5-0.8b', label: 'Qwen3.5-0.8B · WebGPU (~600 MB)' });
+  if (realGPU && ENGINE_READY) opts.push({ id: 'engine:qwen35-0.8b', label: 'Qwen3.5-0.8B · motor propio (~800 MB)' });
+  // El 27B se guarda tras la primera descarga (repartido en dos servidores y
+  // troceado, porque el navegador corta un fichero suelto sobre 1,94 GB), así
+  // que son «gigas una vez», no «gigas cada vez». Sigue siendo lento: la espera
+  // cae entera antes de la primera palabra.
+  if (realGPU && ENGINE_READY && MODEL27_READY) opts.push({ id: 'engine:qwen38-27b', label: 'Qwen3.8-27B IQ1 · motor propio (~7,6 GB, se guarda: solo se baja la primera vez) — muy lento: para verlo funcionar, no para trabajar', group: '⚠ Avanzado · sin garantía de rendimiento' });
   opts.push({ id: 'rules', label: t('setModelRulesName') });
   return [...opts, ...settings.enabledExternals()];
 }
@@ -403,12 +431,24 @@ function modelOptions() {
 function rebuildSelect() {
   const sel = $('model-select');
   sel.replaceChildren();
+  // Los grupos avisados («⚠ Avanzado») van SIEMPRE al final. Si se crean según
+  // aparecen, basta una opción agrupada en mitad de la lista para que las
+  // siguientes queden colgando bajo el encabezado de aviso — le pasó a «Básico
+  // (sin modelo)» en Claw, que es la opción más segura que hay.
+  const grupos = new Map();
   for (const o of modelOptions()) {
     const opt = document.createElement('option');
     opt.value = o.id;
     opt.textContent = o.label;
-    sel.appendChild(opt);
+    if (o.group) {
+      let g = grupos.get(o.group);
+      if (!g) { g = document.createElement('optgroup'); g.label = o.group; grupos.set(o.group, g); }
+      g.appendChild(opt);
+    } else {
+      sel.appendChild(opt);
+    }
   }
+  for (const g of grupos.values()) sel.appendChild(g);
   sel.value = activeModel;
 }
 
@@ -494,11 +534,28 @@ async function preloadModel() {
   const saved = localStorage.getItem('elffusscode.model');
   if (saved === 'rules') return;
   await realGPUCheck; // que defaultBrain()/modelOptions() vean el adaptador real, no solo la API
+  // Las sondas del motor y del modelo grande resuelven DESPUÉS de que se pinte
+  // el selector, así que hay que repintarlo: sin esto la opción no aparece
+  // hasta que algo más fuerce un refresco, y el usuario no la ve nunca.
+  const [hayMotor, hay27] = await Promise.all([engineCheck, modelo27Check]);
+  if (hayMotor || hay27) rebuildSelect();
   const avail = new Set(modelOptions().map(o => o.id));
   const skipGemma = sessionStorage.getItem('elffusscode.skipGemma') === '1';
   const def = skipGemma ? 'onnx' : await pickLocalBrain();
   const chain = [...new Set([saved, def, 'onnx']
     .filter(id => id && id !== 'rules' && avail.has(id)))];
+  // MÓVIL: no descargar ~1,9 GB sin permiso. defaultBrain() elige gemma-e2b en
+  // móvil, y medido el 2026-09-08 con un iPhone emulado contra producción: al
+  // abrir la página arrancaban OCHO peticiones de pesos sin que el usuario
+  // pidiera nada. Son casi dos gigas de datos de alguien que solo entró a
+  // mirar, y encima el navegador de móvil mata la pestaña bastante antes de
+  // sostener ese modelo, así que se gastaban para nada. Se avisa y se espera.
+  if (isMobile() && localStorage.getItem('elffusscode.movil.ok') !== '1') {
+    avisoMovil('~1,9 GB', () => {
+      (async () => { for (const id of chain) if (await changeModel(id)) return; })();
+    });
+    return;
+  }
   for (const id of chain) if (await changeModel(id)) return;
 }
 
@@ -1672,3 +1729,64 @@ rebuildSelect();
 skills.initSkills();
 boot();
 window.elffussClaw = { conv, get agent() { return conv.getActive()?.agent; }, send, openFile, parseToolCall, skills };
+
+
+// ---------- puerta de móvil y chip de disco ----------
+// Declaradas con `function` para que se icen: preloadModel() las usa y está
+// escrita más arriba en el fichero.
+function avisoMovil(tam, onAccept) {
+  // Se pinta FIJO sobre la pantalla, no dentro del layout: cuando esto corre,
+  // #chat todavía no existe (Code construye su interfaz después), así que caía
+  // al body y el propio layout lo tapaba — presente en el DOM y invisible para
+  // el usuario, que es la peor variante de un aviso.
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:99999;'
+    + 'width:min(92vw,520px);padding:16px;border:1px solid #3a3a4a;border-radius:14px;'
+    + 'background:#15161f;color:#eae8f2;box-shadow:0 18px 50px -18px rgba(0,0,0,.8);'
+    + 'display:flex;flex-direction:column;gap:8px;font:14px/1.5 system-ui,sans-serif';
+  const h = document.createElement('b'); h.textContent = '📱 En el móvil todavía no funciona';
+  const p1 = document.createElement('span'); p1.style.opacity = '.75';
+  p1.textContent = 'Elffuss Code ejecuta el modelo dentro de tu propio navegador. En el móvil eso hoy no sale bien: '
+    + 'habría que descargar ' + tam + ' y el navegador suele cerrar la pestaña antes de terminar. '
+    + 'Así que no te lo descargo sin preguntar.';
+  const p2 = document.createElement('span'); p2.style.opacity = '.75';
+  p2.textContent = 'Ábrelo en un ordenador y sí funciona: ahí es donde vive.';
+  const fila = document.createElement('div');
+  fila.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+  const b = document.createElement('button');
+  b.style.cssText = 'flex:1;padding:9px 12px;border-radius:9px;border:1px solid #4a4a5e;background:#22232f;color:inherit;font:inherit;cursor:pointer';
+  b.textContent = 'Descargarlo igualmente (' + tam + ')';
+  b.onclick = () => { try { localStorage.setItem('elffusscode.movil.ok', '1'); } catch {} box.remove(); onAccept(); };
+  const x = document.createElement('button');
+  x.style.cssText = 'padding:9px 12px;border-radius:9px;border:1px solid #4a4a5e;background:transparent;color:inherit;font:inherit;cursor:pointer';
+  x.textContent = 'Entendido';
+  x.onclick = () => box.remove();
+  fila.append(b, x);
+  box.append(h, p1, p2, fila);
+  document.body.appendChild(box);
+}
+
+function mountDiskChip() {
+  const chip = document.getElementById('disk-chip');
+  if (!chip) return;
+  const gb = n => n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : Math.round(n / 1048576) + ' MB';
+  async function paint() {
+    const { usage, quota } = await cacheEstimate();
+    if (!usage) { chip.hidden = true; return; }
+    chip.hidden = false;
+    chip.textContent = '💾 ' + gb(usage);
+    chip.title = `Modelos guardados en este navegador: ${gb(usage)}`
+      + (quota ? ` de ${gb(quota)} disponibles` : '') + '. Pulsa para vaciarlo.';
+  }
+  chip.addEventListener('click', async () => {
+    const { usage } = await cacheEstimate();
+    if (!confirm(`Vas a borrar ${gb(usage)} de modelos guardados en este navegador.\n\n`
+      + `No se pierde nada tuyo: solo los pesos descargados. La próxima vez habrá que bajarlos otra vez.\n\n¿Seguir?`)) return;
+    chip.textContent = '💾 …';
+    try { await clearModelCache(); } catch (e) { alert('No se pudo vaciar: ' + (e.message || e)); }
+    paint();
+  });
+  paint();
+  setInterval(paint, 20000);
+}
+mountDiskChip();

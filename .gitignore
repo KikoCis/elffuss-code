@@ -14,3 +14,6 @@ tests/_*.mjs
 
 # notas internas de dev, no publicar
 CLAUDE.md
+
+# motor propio: repo privado aparte, se sube por rsync (nunca por git)
+web/js/engine/
