@@ -407,9 +407,17 @@ const engineCheck = (async () => {
   try { return (ENGINE_READY = (await fetch('js/engine/provider.js', { method: 'HEAD', cache: 'no-store' })).ok); }
   catch { return (ENGINE_READY = false); }
 })();
+// Se le pregunta AL MOTOR por sus propios ficheros. Aquí había cableada la URL
+// del 27B de un solo trozo; cuando pasó a dos fragmentos en dos hosts, esta
+// línea siguió sondeando el fichero viejo y dando 200 de milagro, porque aún
+// estaba en el servidor. El día que se borre, la opción desaparece del selector
+// y nadie ata los dos cabos. Se importa el registro (unos kilobytes) y no el
+// proveedor, que arrastra el motor entero.
 const modelo27Check = (async () => {
-  try { return (MODEL27_READY = (await fetch('https://models.elffuss.utopiaia.com/qwen38-27b.gguf', { method: 'HEAD', cache: 'no-store' })).ok); }
-  catch { return (MODEL27_READY = false); }
+  try {
+    const reg = await import('./engine/registro.js');
+    return (MODEL27_READY = await reg.disponible('qwen38-27b'));
+  } catch { return (MODEL27_READY = false); }
 })();
 
 function modelOptions() {
