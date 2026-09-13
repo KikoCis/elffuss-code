@@ -55,7 +55,7 @@ header {
 }
 .brand { display: flex; align-items: center; gap: 8px; }
 .brand img { width: 26px; height: 26px; }
-.proj { color: var(--muted); font-size: .85rem; }
+.proj { color: var(--muted); font-size: .85rem; white-space: nowrap; }
 .controls { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
 select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; }
@@ -468,7 +468,7 @@ header { position: relative; }
 #topmenu .menu-item span { color: var(--muted); font-size: .74rem; }
 
 /* chip de rama git */
-.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg3); border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 3px 10px; font-size: .74rem; cursor: pointer; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--bg3); border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 3px 10px; font-size: .74rem; cursor: pointer; white-space: nowrap; }
 .chip[hidden] { display: none; }
 .chip:hover { color: var(--fg); border-color: var(--accent2); }
 .chip svg { width: 12px; height: 12px; }
