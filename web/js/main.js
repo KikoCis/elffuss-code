@@ -431,7 +431,7 @@ function modelOptions() {
   // troceado, porque el navegador corta un fichero suelto sobre 1,94 GB), así
   // que son «gigas una vez», no «gigas cada vez». Sigue siendo lento: la espera
   // cae entera antes de la primera palabra.
-  if (realGPU && ENGINE_READY && MODEL27_READY) opts.push({ id: 'engine:qwen38-27b', label: 'Qwen3.8-27B IQ1 · motor propio (~7,6 GB, se guarda: solo se baja la primera vez) — muy lento: para verlo funcionar, no para trabajar', group: '⚠ Avanzado · sin garantía de rendimiento' });
+  if (realGPU && ENGINE_READY && MODEL27_READY) opts.push({ id: 'engine:qwen38-27b', label: 'Qwen3.8-27B IQ1 · motor propio (~7,6 GB, se guarda: solo se baja la primera vez) — lento', group: '⚠ Avanzado' });
   opts.push({ id: 'rules', label: t('setModelRulesName') });
   return [...opts, ...settings.enabledExternals()];
 }
