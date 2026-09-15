@@ -30,7 +30,7 @@ for a in "$@"; do
     echo "▲ el motor propio (js/engine/) SE INCLUYE en este despliegue"
     # Se quita el --exclude pero se DEJA el filtro P: aunque lo estemos
     # subiendo, el --delete no debe poder llevárselo. Y un array vacío con
-    # `set -u` revienta en el bash de macOS.
+    # `set -u` revienta en bash 3.2.
     MOTOR=(--filter='P js/engine/**')
   fi
 done
