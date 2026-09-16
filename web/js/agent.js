@@ -15,8 +15,50 @@ export function userLang() {
   return { code: codeL, name: LANGS[codeL.split('-')[0]] || codeL };
 }
 
-export function systemPrompt(context = '') {
+export function systemPrompt(context = '', { compacto = false } = {}) {
   const lang = userLang();
+
+  // Versión corta para modelos LENTOS, que no es lo mismo que modelos pequeños:
+  // al 27B propio le CABRÍA el prompt completo si tuviera más contexto, pero
+  // cada token de prompt se paga en segundos antes de la primera letra.
+  //
+  // Y no era solo lentitud. El prompt completo son 2.217 tokens —contados con el
+  // tokenizador del propio modelo, no estimados por caracteres— contra un techo
+  // duro de 1.952: el contexto de 2048 menos la reserva que el motor guarda para
+  // la respuesta. O sea que el motor lanzaba «las instrucciones ocupan N
+  // tokens…» ANTES de procesar nada. Con el 27B, Code no estaba lento: NO
+  // ARRANCABA, y desde fuera las dos cosas se parecen demasiado.
+  //
+  // Esta versión son 828 tokens, y deja 1.124 para el árbol del IDE y la
+  // conversación, que antes se quedaban en negativo.
+  //
+  // El catálogo de herramientas se conserva ENTERO a propósito. Un Code sin
+  // herramientas carga, responde y no sirve para nada, que es peor que fallar
+  // fuerte: lo que se recorta es prosa y ejemplos, no capacidades.
+  if (compacto) {
+    return `Eres Elffuss Code: asistente de programación en un IDE web. Trabajas SOLO dentro del proyecto abierto. Hablas SIEMPRE en ${lang.name} (${lang.code}); el código, en el estilo del proyecto.
+
+HERRAMIENTAS (las ÚNICAS que existen — no inventes otras):
+${toolHelp()}
+
+REGLAS:
+- LEE antes de opinar (code.read / code.search). Nada de consejos genéricos, y nada de describir el proyecto de memoria aunque reconozcas su nombre: esta copia local puede diferir.
+- Si preguntan qué hace el proyecto y no has leído nada, tu primera respuesta es una tool-call (code.tree o code.read del README), no una descripción.
+- MODIFICAR un fichero que ya existe: code.edit, solo las líneas que cambian. CREAR uno nuevo: code.write con el contenido completo. Nunca touch/echo para crear y rellenar luego.
+- terminal.run recibe la LÍNEA DE COMANDO exacta, nunca lenguaje natural.
+- NO existen MCP servers, skills, hooks, subagentes ni plugins en este IDE. Si te descubres recomendándolos, para.
+- Cita rutas y líneas reales del CONTEXTO o de resultados de herramientas.
+
+Para usar una herramienta responde SOLO con:
+\`\`\`tool
+{"tool": "code.read", "args": {"path": "README.md"}}
+\`\`\`
+Tras un [resultado], responde breve y concreto citando lo que has leído.${skillsPromptBlock()}${context ? `
+
+CONTEXTO AHORA (estado real del IDE, úsalo):
+${context}` : ''}`;
+  }
+
   return `Eres Elffuss Code: un asistente de programación, cálido pero quirúrgico con el código. Vives en un IDE web y trabajas SOLO dentro del proyecto que el usuario ha abierto. Hablas SIEMPRE en el idioma del navegador del usuario: ${lang.name} (${lang.code}); el código y sus comentarios, en el estilo del proyecto.
 
 HERRAMIENTAS (las ÚNICAS que existen — no inventes otras):
@@ -261,7 +303,12 @@ export class Agent {
       try {
         if (signal.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
         const context = await snapshot().catch(() => '');
-        out = await this.provider.chat(this.history, systemPrompt(context),
+        // Se le PREGUNTA al proveedor si quiere prompt corto en vez de deducirlo
+        // por tamaño de contexto: al 27B le cabría y aun así no debe recibirlo.
+        // Quien no declare `prefiereCompacto` —todos los demás— recibe
+        // exactamente el mismo prompt que antes; para ellos esto es inerte.
+        const compacto = this.provider.prefiereCompacto?.();
+        out = await this.provider.chat(this.history, systemPrompt(context, { compacto }),
           t => onEvent({ type: 'token', text: t }), signal);
       } catch (e) {
         telemetry.reportError('agent.handle: ' + e.message, { stack: e.stack || '' });
