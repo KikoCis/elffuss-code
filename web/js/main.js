@@ -403,6 +403,8 @@ const defaultBrain = () => !realGPU ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' 
 // Ofrecer algo que no está sería prometer un fallo que llega DESPUÉS de que el
 // usuario haya esperado, que es la peor forma de fallar.
 let ENGINE_READY = false, MODEL27_READY = false;
+let MODEL27_LABEL = 'Modelo grande';
+let MODEL27_GB = 0;
 const engineCheck = (async () => {
   try { return (ENGINE_READY = (await fetch('js/engine/provider.js', { method: 'HEAD', cache: 'no-store' })).ok); }
   catch { return (ENGINE_READY = false); }
@@ -416,6 +418,12 @@ const engineCheck = (async () => {
 const modelo27Check = (async () => {
   try {
     const reg = await import('./engine/registro.js');
+    // El NOMBRE y el TAMAÑO salen del registro del motor, no de un literal aquí.
+    // Estaban a mano y al cambiar de modelo mintieron en tres cosas a la vez:
+    // decían «Qwen3.8-27B IQ1» y «~7,6 GB» cuando lo que se sirve es el ternario
+    // de Prism y son 7,2 GB. Un nombre duplicado es un nombre que se queda viejo.
+    const m27 = reg.MODELS && reg.MODELS['qwen38-27b'];
+    if (m27) { MODEL27_LABEL = m27.label || MODEL27_LABEL; MODEL27_GB = (m27.bytes || 0) / 1e9; }
     return (MODEL27_READY = await reg.disponible('qwen38-27b'));
   } catch { return (MODEL27_READY = false); }
 })();
@@ -426,12 +434,12 @@ function modelOptions() {
   if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
   opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) — ligero' });
   opts.push({ id: 'onnx:qwen3.5-0.8b', label: 'Qwen3.5-0.8B · WebGPU (~600 MB)' });
-  if (realGPU && ENGINE_READY) opts.push({ id: 'engine:qwen35-0.8b', label: 'Qwen3.5-0.8B · motor propio (~800 MB)' });
+  if (realGPU && ENGINE_READY) opts.push({ id: 'engine:qwen35-0.8b', label: 'Qwen3.5-0.8B · Elffuss Engine (~800 MB)' });
   // El 27B se guarda tras la primera descarga (repartido en dos servidores y
   // troceado, porque el navegador corta un fichero suelto sobre 1,94 GB), así
   // que son «gigas una vez», no «gigas cada vez». Sigue siendo lento: la espera
   // cae entera antes de la primera palabra.
-  if (realGPU && ENGINE_READY && MODEL27_READY) opts.push({ id: 'engine:qwen38-27b', label: 'Qwen3.8-27B IQ1 · motor propio (~7,6 GB, se guarda: solo se baja la primera vez) — lento', group: '⚠ Avanzado' });
+  if (realGPU && ENGINE_READY && MODEL27_READY) opts.push({ id: 'engine:qwen38-27b', label: `${MODEL27_LABEL} · Elffuss Engine (${MODEL27_GB.toFixed(1)} GB, se guarda: solo se baja la primera vez) — lento`, group: '⚠ Avanzado' });
   opts.push({ id: 'rules', label: t('setModelRulesName') });
   return [...opts, ...settings.enabledExternals()];
 }
