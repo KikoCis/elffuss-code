@@ -5,11 +5,11 @@
 // usuarios españoles — con inglés de fallback. Sustitución simple {var}.
 const L = {
   es: {
-    ph: 'Pídele código a Elffuss…',
+    ph: 'Escribe aquí… (@ adjunta un archivo)',
     thinking: 'Elffuss está pensando', writing: 'Elffuss escribe · {n} car.', using: 'Elffuss usa {name}',
     modelLoading: 'Descargando el modelo IA · {pct}% · {loaded}/{total} MB',
-    modelReady: 'Modelo IA listo', modelReadyBadge: 'Modelo IA listo · готово ✳',
-    welcome: 'Привіт 👋 Proyecto «{name}» abierto. Pregúntame por el código, pídeme cambios o dime «árbol». Todo se queda en tu máquina.',
+    modelReady: 'Modelo IA listo', modelReadyBadge: 'Modelo IA listo ✳',
+    welcome: '👋 Proyecto «{name}» abierto. Pregúntame por el código, pídeme cambios o dime «árbol». Todo se queda en tu máquina.',
     mindTitle: 'MENTE DE ELFFUSS', avatarTitle: 'Mente de Elffuss — cerebro autónomo',
     // landing (estático) + tooltips de la barra/toolbar
     tagline: 'Abre tu carpeta de código y programa con una elfa al lado.',
@@ -23,6 +23,7 @@ const L = {
     tTermClose: 'cerrar (Ctrl+`)', tTermResize: 'arrastra para redimensionar',
     tCtx: 'contexto acumulado en la conversación', tPlus: 'Adjuntar archivo del proyecto (@)',
     tAutoedit: 'Editar archivos automáticamente',
+    tHardwork: 'Hard Work: lee tu proyecto entero por partes — audita, resume o busca en código que no cabe en el modelo',
     tGoal: 'Modo Objetivo: descompone el mensaje en tareas y las ejecuta una a una (planificador + ejecutor)',
     tFlip: 'cambiar entre chat y editor', tSlash: 'Comandos',
     // pass-3: chrome profundo del IDE (paleta, menús, historial, ajustes, notifs)
@@ -118,11 +119,11 @@ const L = {
     setModelRulesName: "Básico (sin modelo)",
 },
   en: {
-    ph: 'Ask Elffuss for code…',
+    ph: 'Type here… (@ attaches a file)',
     thinking: 'Elffuss is thinking', writing: 'Elffuss writes · {n} chars', using: 'Elffuss uses {name}',
     modelLoading: 'Downloading AI model · {pct}% · {loaded}/{total} MB',
-    modelReady: 'AI model ready', modelReadyBadge: 'AI model ready · готово ✳',
-    welcome: 'Привіт 👋 Project “{name}” open. Ask me about the code, request changes, or say “tree”. Everything stays on your machine.',
+    modelReady: 'AI model ready', modelReadyBadge: 'AI model ready ✳',
+    welcome: '👋 Project “{name}” open. Ask me about the code, request changes, or say “tree”. Everything stays on your machine.',
     mindTitle: 'ELFFUSS MIND', avatarTitle: 'Elffuss Mind — autonomous brain',
     tagline: 'Open your code folder and program with an elf by your side.',
     tagline2: 'VS Code–style editor + agent <b>in your browser</b>. Nothing leaves your machine. 😉',
@@ -135,6 +136,7 @@ const L = {
     tTermClose: 'close (Ctrl+`)', tTermResize: 'drag to resize',
     tCtx: 'context accumulated in the conversation', tPlus: 'Attach a project file (@)',
     tAutoedit: 'Edit files automatically',
+    tHardwork: 'Hard Work: reads your whole project in chunks — audits, summarises or searches code that does not fit in the model',
     tGoal: 'Goal mode: breaks the message into tasks and runs them one by one (planner + executor)',
     tFlip: 'switch between chat and editor', tSlash: 'Commands',
     tabClose: 'Close tab (doesn’t delete the conversation)', newConv: 'New conversation',
@@ -262,6 +264,7 @@ export function applyI18n() {
     '#git-branch': 'tGitBranch', '#btn-history': 'tHistory', '#btn-settings': 'tTopSettings',
     '#term-close': 'tTermClose', '#term-resize': 'tTermResize', '#ctx-meter': 'tCtx',
     '#btn-plus': 'tPlus', '#btn-autoedit': 'tAutoedit', '#btn-goal': 'tGoal',
+    '#btn-hardwork': 'tHardwork',
     '#code-flip': 'tFlip', '#btn-slash': 'tSlash',
   };
   for (const [sel, key] of Object.entries(titles)) set(sel, 'title', key);

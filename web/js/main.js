@@ -428,7 +428,13 @@ const modelo27Check = (async () => {
   } catch { return (MODEL27_READY = false); }
 })();
 
-function modelOptions() {
+// Los modelos LOCALES, en un solo sitio. Los usan el desplegable y las tarjetas
+// de los ajustes: hasta ahora eran dos listas escritas a mano y la de ajustes se
+// quedó vieja — no ofrecía NI el motor propio ni el 27B, así que desde ahí era
+// imposible elegir Bonsai por mucho que el motor lo sirviera. Es justo el modo
+// de fallo que avisa el comentario de `modelo27Check`: un nombre duplicado es un
+// nombre que se queda viejo.
+function modelOptionsLocales() {
   const opts = [];
   if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
   if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
@@ -441,7 +447,11 @@ function modelOptions() {
   // cae entera antes de la primera palabra.
   if (realGPU && ENGINE_READY && MODEL27_READY) opts.push({ id: 'engine:qwen38-27b', label: `${MODEL27_LABEL} · Elffuss Engine (${MODEL27_GB.toFixed(1)} GB, se guarda: solo se baja la primera vez) — lento`, group: '⚠ Avanzado' });
   opts.push({ id: 'rules', label: t('setModelRulesName') });
-  return [...opts, ...settings.enabledExternals()];
+  return opts;
+}
+
+function modelOptions() {
+  return [...modelOptionsLocales(), ...settings.enabledExternals()];
 }
 
 function rebuildSelect() {
@@ -507,6 +517,11 @@ async function changeModel(id) {
       }
     });
     conv.setProvider(mod);
+    // El medidor de contexto pasa a hablar del modelo QUE ESTÁ CARGADO. Quien no
+    // sepa decir su contexto deja el valor de reserva, así que esto no puede
+    // romper a un proveedor que no lo implemente.
+    try { if (typeof mod.contextTokens === 'function') setCtxBudget(mod.contextTokens()); }
+    catch { /* el medidor no vale un fallo de carga */ }
     activeModel = id;
     localStorage.setItem('elffusscode.model', id);
     $('model-dot').className = 'dot on';
@@ -637,13 +652,24 @@ function renderSettings() {
 
   // --- Cerebro (modelo) ---
   box.append(el('div', 'sk-h', t("setBrainTitle")));
-  const LOCAL = [
-    { id: 'litert:gemma-e4b', name: 'Gemma-4 E4B ★', sub: t("setModelE4bSub"), need: 'gpu' },
-    { id: 'litert:gemma-e2b', name: 'Gemma-4 E2B', sub: t("setModelE2bSub"), need: 'gpu' },
-    { id: 'onnx', name: 'Elffuss LM (healed)', sub: t("setModelOnnxSub") },
-    { id: 'onnx:qwen3.5-0.8b', name: 'Qwen3.5-0.8B', sub: 'Qwen en el navegador vía WebGPU · ~600 MB · con «thinking»' },
-    { id: 'rules', name: t('setModelRulesName'), sub: t("setModelRulesSub") },
-  ];
+  // De `modelOptionsLocales()`, no de una copia: así lo que se puede elegir aquí
+  // es exactamente lo que se puede elegir en el desplegable, hoy y cuando se
+  // añada el siguiente modelo. El texto de debajo sigue siendo a medida cuando
+  // lo hay; si no, se saca de la propia etiqueta.
+  const SUBS = {
+    'litert:gemma-e4b': t("setModelE4bSub"),
+    'litert:gemma-e2b': t("setModelE2bSub"),
+    'onnx': t("setModelOnnxSub"),
+    'rules': t("setModelRulesSub"),
+  };
+  const LOCAL = modelOptionsLocales().map((o) => {
+    const partes = String(o.label).split(' · ');
+    return {
+      id: o.id,
+      name: partes[0].trim(),
+      sub: SUBS[o.id] || partes.slice(1).join(' · ').trim(),
+    };
+  });
   const grid = el('div', 'model-grid');
   for (const m of LOCAL) {
     if (m.need === 'gpu' && !realGPU) continue;
@@ -1335,11 +1361,24 @@ document.addEventListener('pointerdown', e => {
 // ---------- composer estilo plugin: +, /, medidor de contexto, Auto ----------
 
 // medidor de contexto: chars del historial / presupuesto (~4 chars/token)
-// Al máximo del modelo de serie: LFM2.5-1.2B soporta 32K nativo; reservamos
-// ~2K de sistema + 2K de generación → 28K para historial.
-const CTX_BUDGET_TOK = 28000;
+//
+// El presupuesto se le PREGUNTA al proveedor cargado, no se escribe aquí. Era un
+// 28.000 fijo, calculado para el LFM2.5 de serie, y enseñaba «ctx 0 / 28k» con
+// cualquier modelo: con el motor propio a 65.536 mentía por más del doble, y al
+// revés con uno pequeño habría dicho que cabe lo que no cabe. Un número escrito
+// a mano en la interfaz es un número que se queda viejo — el mismo fallo que la
+// lista de modelos de los ajustes.
+const CTX_BUDGET_FALLBACK = 28000;   // solo si el proveedor no sabe decirlo
+let ctxBudgetTok = CTX_BUDGET_FALLBACK;
+export function setCtxBudget(tokens) {
+  // Se reserva sitio para el prompt de sistema y para la respuesta: el techo del
+  // modelo NO es lo que cabe de conversación.
+  const RESERVA = 4000;
+  if (Number.isFinite(tokens) && tokens > RESERVA) ctxBudgetTok = tokens - RESERVA;
+}
 function updateCtxMeter() {
   if (!$('ctx-text')) return; // aún en la landing
+  const CTX_BUDGET_TOK = ctxBudgetTok;
   const chars = (conv.getActive()?.agent.history || []).reduce((s, m) => s + (m.content || '').length, 0);
   const tok = Math.round(chars / 4);
   const pct = Math.min(100, Math.round(tok / CTX_BUDGET_TOK * 100));
@@ -1383,7 +1422,10 @@ $('btn-slash').addEventListener('click', () => openMenu([
 ]));
 
 // [+] adjuntar archivo del proyecto como @ruta
-$('btn-plus').addEventListener('click', async () => {
+// El menú de ficheros, en una función: lo abren el botón `+` Y escribir `@` en
+// la conversación, que es lo natural y lo que ya prometía el título del botón
+// («Adjuntar archivo del proyecto (@)») sin que nada lo implementara.
+async function abreMenuFicheros() {
   let tree = '';
   try { tree = await codeTools.tree({ depth: 3 }); } catch { /* sin proyecto */ }
   const files = tree.split('\n').filter(l => l.trim() && !l.includes('📁')).map(l => l.trim()).slice(0, 40);
@@ -1393,7 +1435,21 @@ $('btn-plus').addEventListener('click', async () => {
   for (const f of files.filter(f => f !== currentFile).slice(0, 20))
     items.push({ label: '@' + f, run: () => attach(f) });
   openMenu(items.length > 1 ? items : [{ sep: t('openProjFirst') }]);
+}
+$('btn-plus').addEventListener('click', abreMenuFicheros);
+
+// Escribir `@` abre la lista de ficheros. Se mira el carácter ANTERIOR al
+// cursor: así `correo@dominio` no dispara el menú a media palabra, y `@` al
+// principio o tras un espacio sí. La condición es sobre lo que el usuario
+// acaba de teclear, no sobre el valor entero, para no reabrirlo cada vez que
+// toca una tecla con un `@` ya escrito antes.
+$('prompt').addEventListener('input', (e) => {
+  if (e.inputType !== 'insertText' || e.data !== '@') return;
+  const v = e.target.value, i = e.target.selectionStart - 1;
+  const previo = i > 0 ? v[i - 1] : '';
+  if (previo === '' || /\s/.test(previo)) abreMenuFicheros();
 });
+
 function attach(path) {
   const p = $('prompt');
   p.value = (p.value + ' @' + path).trim() + ' ';
@@ -1806,3 +1862,105 @@ function mountDiskChip() {
   setInterval(paint, 20000);
 }
 mountDiskChip();
+
+// ── Compositor: menú de modos, ancho del chat y caja que crece ──────────────
+// Los tres botones de modo siguen siendo los mismos elementos con los mismos
+// ids: lo único que cambia es que viven dentro de un desplegable. Así el JS que
+// ya los escuchaba no se entera de nada.
+{
+  const modos = $('btn-modos'), menu = $('modos-menu');
+  if (modos && menu) {
+    // Cada modo lleva DEBAJO lo que hace. El texto sale del `title` que ya
+    // tenía el botón: estaba escrito y bien, pero solo lo veía quien dejara el
+    // ratón quieto encima — o sea casi nadie, y en móvil nadie. «Auto», «Goal»
+    // y «Hard Work» sueltos no dicen nada a quien llega nuevo.
+    for (const b of menu.querySelectorAll('.cbtn')) {
+      const que = b.getAttribute('title');
+      if (!que || b.querySelector('.modo-que')) continue;
+      const span = document.createElement('span');
+      span.className = 'modo-que';
+      // Cortar por el primer paréntesis dejaba «Hard Work (RLM): lee tu
+      // proyecto…» en «Hard Work», o sea una explicación que repite el nombre
+      // del botón y no explica nada. Lo que sobra es el PREFIJO —«Nombre
+      // (SIGLAS):»— no lo que viene detrás, que es justo la frase útil.
+      span.textContent = que
+        .replace(/^[^:]{0,40}:\s*/, '')      // fuera «Hard Work (RLM): »
+        .split('.')[0]                        // la primera frase
+        .replace(/\s*\([^)]*\)\s*/g, ' ')   // sin incisos entre paréntesis
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 120);
+      b.appendChild(span);
+      // Ya está a la vista: dejar el title duplicaría el texto en un tooltip.
+      b.removeAttribute('title');
+    }
+    modos.addEventListener('click', (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
+    // Cerrar al elegir y al pulsar fuera. Sin lo segundo, el menú se queda
+    // abierto tapando la conversación y hay que adivinar cómo cerrarlo.
+    menu.addEventListener('click', () => { menu.hidden = true; });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#modos')) menu.hidden = true;
+    });
+  }
+
+  // El chat a toda la ventana. Al editor se le da cero de ancho en vez de
+  // quitarlo: volver es instantáneo y no se pierde lo que hubiera abierto.
+  const ancho = $('btn-ancho');
+  if (ancho) {
+    const pinta = () => {
+      const full = document.body.classList.contains('chat-full');
+      ancho.textContent = full ? '⇥' : '⇔';
+      ancho.title = full ? 'Recuperar el editor' : 'Ensanchar el chat a toda la ventana';
+    };
+    try { if (localStorage.getItem('elffusscode.chatfull') === '1') document.body.classList.add('chat-full'); }
+    catch { /* sin localStorage se queda como está */ }
+    pinta();
+    ancho.addEventListener('click', () => {
+      document.body.classList.toggle('chat-full');
+      try { localStorage.setItem('elffusscode.chatfull', document.body.classList.contains('chat-full') ? '1' : '0'); }
+      catch { /* — */ }
+      pinta();
+    });
+  }
+
+  // La caja crece con el texto hasta el tope que pone el CSS. Se recalcula
+  // desde cero (`auto`) antes de medir: si no, una vez crecida ya no encoge al
+  // borrar, y acaba ocupando media pantalla vacía.
+  const caja = $('prompt');
+  if (caja && caja.tagName === 'TEXTAREA') {
+    const crece = () => {
+      caja.style.height = 'auto';
+      caja.style.height = Math.min(caja.scrollHeight, window.innerHeight * 0.4) + 'px';
+    };
+    caja.addEventListener('input', crece);
+    // Al enviar, el valor se vacía desde fuera y no salta `input`: sin esto la
+    // caja se queda alta y vacía después de cada mensaje.
+    new MutationObserver(crece).observe(caja, { attributes: true, attributeFilter: ['value'] });
+    $('composer')?.addEventListener('submit', () => setTimeout(crece, 0));
+  }
+}
+
+// ── Instalable: es lo único que consigue almacenamiento persistente ─────────
+// Medido en este proyecto: `navigator.storage.persist()` devuelve false en un
+// perfil normal, así que Chrome puede desalojar los gigas del modelo cuando le
+// falte disco — y lo hizo. Chrome concede la persistencia a los sitios
+// instalados, y solo ofrece instalar si hay manifiesto Y un service worker con
+// manejador de `fetch`. De ahí `sw.js`, que no cachea nada a propósito.
+//
+// El registro va tras `load` para no competir con la carga del modelo, que es
+// lo que el usuario está esperando de verdad.
+if ('serviceWorker' in navigator) {
+  addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(async () => {
+      // Se vuelve a pedir la persistencia DESPUÉS de registrar: si el usuario ya
+      // tenía el sitio instalado de una visita anterior, aquí es donde se
+      // concede, y sin pedirla otra vez nadie se enteraría.
+      try {
+        if (navigator.storage?.persist && !(await navigator.storage.persisted())) {
+          const ok = await navigator.storage.persist();
+          console.log('[elffuss] almacenamiento persistente: ' + (ok ? 'concedido' : 'denegado — instala la app para que el navegador no borre el modelo'));
+        }
+      } catch { /* el diagnóstico no vale un error */ }
+    }).catch(e => console.warn('[elffuss] service worker no registrado: ' + e.message));
+  });
+}

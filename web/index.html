@@ -18,7 +18,10 @@
 <meta name="twitter:image" content="https://code.elffuss.utopiaia.com/og.png">
 <meta name="description" content="Open a local folder and code with Elffuss: a web IDE plus an AI agent that runs on your own GPU (WebGPU). Nothing leaves your machine.">
 <link rel="icon" href="img/elffuss-code.svg">
-<link rel="stylesheet" href="css/code.css">
+<link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0e0c18">
+  <link rel="apple-touch-icon" href="img/icon-192.png">
+  <link rel="stylesheet" href="css/code.css">
 <!-- import map: la ciudad 3D (VibeCodeViewer vendorizado en js/vcc) usa import 'three' -->
 <script type="importmap">
 { "imports": {
@@ -115,6 +118,7 @@
       <div id="statusbar"></div>
     </section>
     <section id="chat">
+      <button type="button" id="btn-ancho" title="Ensanchar el chat a toda la ventana (vuelve a pulsar para recuperar el editor)">⇔</button>
       <div id="conv-tabs"></div>
       <div id="history-panel" hidden></div>
       <div id="chat-log"></div>
@@ -127,10 +131,15 @@
         <form id="composer">
           <button type="button" id="btn-plus" class="cbtn" title="Adjuntar archivo del proyecto (@)"></button>
           <button type="button" id="btn-slash" class="cbtn" title="Comandos"></button>
-          <input id="prompt" autocomplete="off" placeholder="Pídele código a Elffuss…">
+          <textarea id="prompt" rows="3" autocomplete="off" placeholder="Escribe aquí lo que quieres. Enter envía · Mayús+Enter salta de línea · @ para adjuntar un archivo"></textarea>
+          <div id="modos">
+            <button type="button" id="btn-modos" class="cbtn" title="Modos de trabajo">⚙︎ Modos ▾</button>
+            <div id="modos-menu" hidden>
           <button type="button" id="btn-autoedit" class="cbtn autoedit on" title="Editar archivos automáticamente"><span class="ae-ico">&lt;/&gt;</span> <span class="ae-txt">Auto</span></button>
           <button type="button" id="btn-goal" class="cbtn goal" title="Modo Objetivo: descompone el mensaje en tareas y las ejecuta una a una (planificador + ejecutor)">🎯 <span class="goal-txt">Goal</span></button>
           <button type="button" id="btn-hardwork" class="cbtn hardwork" title="Hard Work (RLM): lee tu proyecto ENTERO por partes — audita, resume o busca en código que no cabe en el modelo. Tarda, pero lo abarca todo.">⛏ <span class="hw-txt">Hard Work</span></button>
+            </div>
+          </div>
           <button type="submit" id="btn-send" title="Enviar"></button>
         </form>
       </div>

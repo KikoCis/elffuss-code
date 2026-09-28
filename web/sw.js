@@ -41,3 +41,16 @@ self.addEventListener('notificationclick', event => {
     }
   })());
 });
+
+// ── Manejador de `fetch`, añadido para poder INSTALAR el sitio ──────────────
+// Chrome solo ofrece instalar si hay manifiesto Y un service worker con
+// manejador de `fetch`. Y la instalación no es cosmética: es lo único que
+// consigue que conceda almacenamiento PERSISTENTE —medido: sin ella
+// `navigator.storage.persist()` devuelve false— y sin persistencia el navegador
+// desaloja los gigas del modelo cuando le falta disco, que es lo que pasó.
+//
+// NO intercepta: no llama a `respondWith`, así que cada petición sigue su curso
+// normal por la red. Eso importa aquí más que en otros sitios — la cabecera de
+// este fichero cuenta que un SW que SÍ interceptaba rompió la carga del ONNX,
+// y no se trata de repetirlo por querer un botón de instalar.
+self.addEventListener('fetch', () => { /* a la red, sin tocar nada */ });

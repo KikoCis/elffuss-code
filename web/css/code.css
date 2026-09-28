@@ -525,3 +525,106 @@ button.wide { width: 100%; padding: 9px; border-radius: 8px; }
 .view-hint { color: var(--muted); font-size: .72rem; margin-left: 8px; }
 .view-loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: .9rem; }
 #city-canvas { width: 100%; height: 100%; display: block; }
+
+/* ── Compositor: la caja de escribir es lo más grande de la barra ──────────
+   Antes era un <input> de una línea compartiendo fila con seis botones de
+   colores: acababa siendo una píldora estrecha con el texto recortado («Ask
+   Elffu»), indistinguible de sus vecinas. En un chat, el sitio donde se
+   escribe tiene que ser lo primero que se ve. */
+#composer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+#composer #prompt {
+  /* Dos ids a propósito: más arriba hay un `#composer #prompt { flex: 1 }` que
+     gana por especificidad a un `#prompt` suelto. Se iguala en vez de usar
+     !important, que solo traslada la pelea al siguiente que llegue. */
+  flex: 1 0 100%;
+  min-width: 100%;
+  order: -1;                 /* fila propia y la primera, pase lo que pase */
+  min-height: 84px;
+  max-height: 40vh;          /* crece con el texto, pero no se come el chat */
+  resize: vertical;
+  overflow-y: auto;
+  padding: 14px 16px;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--fg);
+  background: var(--bg3);
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+#prompt::placeholder { color: var(--fg3, #8b8b9e); opacity: 1; }
+#prompt:focus {
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent2) 22%, transparent);
+}
+
+/* ── Modos: un desplegable EXPLICADO ──────────────────────────────────────
+   «Auto», «Goal» y «Hard Work» sueltos en la barra no dicen qué hacen. Los
+   mismos botones siguen existiendo con los mismos ids —el JS no se entera—
+   pero dentro de un menú donde cada uno lleva su explicación. */
+#modos { position: relative; }
+#modos-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 300px;
+  padding: 8px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .55);
+}
+#modos-menu[hidden] { display: none; }
+/* Sin degradado. `#composer button` lo pone a todos, y en una fila de seis son
+   seis manchas de color compitiendo entre ellas y con el texto — y dentro de un
+   menú, donde lo que importa es LEER qué hace cada modo, el degradado solo
+   estorba. Se deja el color para el estado activo, que es cuando dice algo. */
+#modos-menu .cbtn {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid transparent;
+  display: block;
+  width: 100%;
+  /* `.cbtn` trae `height: 32px` fija, pensada para la barra. Dentro del menú
+     cada opción lleva su explicación debajo y tiene que CRECER: con la altura
+     fija el texto se salía del botón y se pisaba con el de abajo. */
+  height: auto;
+  min-height: 0;
+  text-align: left;
+  white-space: normal;
+  padding: 10px 12px;
+  line-height: 1.35;
+}
+#modos-menu .modo-que { display: block; font-size: .78rem; opacity: .68; margin-top: 3px; font-weight: 400; }
+#modos-menu .cbtn:hover { background: var(--bg3); border-color: var(--line); }
+/* El degradado se reserva para el modo ENCENDIDO: ahí el color informa. */
+#modos-menu .cbtn.on {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff;
+  border-color: transparent;
+}
+#modos-menu .cbtn.on .modo-que { opacity: .85; }
+
+/* ── El chat a toda la ventana ────────────────────────────────────────────
+   Mismo patrón que `hide-tree`, que ya existía. El editor no se destruye: se
+   le da cero de ancho, así que volver es instantáneo y no se pierde estado. */
+#btn-ancho {
+  position: absolute; top: 6px; right: 8px; z-index: 30;
+  background: transparent; border: 1px solid var(--line); color: var(--fg2, #aaa);
+  border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: .9rem;
+}
+#btn-ancho:hover { color: var(--fg); border-color: var(--accent2); }
+#chat { position: relative; }
+body.chat-full main { grid-template-columns: 46px 0 0 minmax(0, 1fr); }
+body.chat-full #chat { border-left: none; }
