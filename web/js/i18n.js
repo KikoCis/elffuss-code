@@ -116,6 +116,7 @@ const L = {
     setBridgeDesc: "Un pequeño programa que TÚ ejecutas en tu ordenador — le da a la elfa ejecución real (node, npm, python…) sin salir de tu máquina. Nada se instala en el navegador.",
     setBridgeDownload: "⬇ Descargar para {os}",
     setBridgeOtherOS: "otro sistema operativo",
+    setBridgeOld: "¿Ya tenías un bridge y ahora no conecta? Descárgalo otra vez (versión 1.1.1): los anteriores no aceptan la dirección nueva de Elffuss Code.",
     setModelRulesName: "Básico (sin modelo)",
 },
   en: {
@@ -228,6 +229,7 @@ const L = {
     setBridgeDesc: "A small program that YOU run on your computer — it gives the elf real execution (node, npm, python…) without leaving your machine. Nothing is installed in the browser.",
     setBridgeDownload: "⬇ Download for {os}",
     setBridgeOtherOS: "another operating system",
+    setBridgeOld: "Already had a bridge and now it won't connect? Download it again (version 1.1.1): older ones don't accept Elffuss Code's new address.",
     setModelRulesName: "Basic (no model)",
 },
 };

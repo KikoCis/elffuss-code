@@ -38,7 +38,7 @@ export function connect(token) {
     catch (e) { reject(e); return; }
     const timeout = setTimeout(() => { try { ws.close(); } catch { /* */ } reject(new Error('tiempo agotado — ¿está el bridge arrancado?')); }, 6000);
     ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token }));
-    ws.onerror = () => { clearTimeout(timeout); connected = false; authed = false; onStatus('error'); reject(new Error('no pude conectar — ¿está el bridge arrancado en este puerto?')); };
+    ws.onerror = () => { clearTimeout(timeout); connected = false; authed = false; onStatus('error'); reject(new Error('no pude conectar — ¿está el bridge arrancado en este puerto? Si lo descargaste antes de la versión 1.1.1, descárgalo otra vez: los anteriores no aceptan la dirección nueva de Elffuss Code.')); };
     ws.onclose = () => { connected = false; authed = false; onStatus('disconnected'); };
     ws.onmessage = e => {
       let m; try { m = JSON.parse(e.data); } catch { return; }

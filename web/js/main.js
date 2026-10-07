@@ -764,6 +764,7 @@ function renderSettings() {
   brCard.innerHTML =
     `<div class="prov-head"><span id="br-dot" class="dot off"></span><b>Bridge local</b><span id="br-status" class="muted" style="margin-left:auto;font-size:.72rem">desconectado</span></div>` +
     `<p class="muted" style="font-size:.72rem;margin:6px 0">${t('setBridgeDesc')}</p>` +
+    `<p class="muted" style="font-size:.7rem;margin:0 0 6px">${t('setBridgeOld')}</p>` +
     `<a class="prov-use" style="text-decoration:none;display:inline-block" href="bridge-dl/${primary}" download>${t('setBridgeDownload',{os:OTHER[primary]})}</a>` +
     `<details style="margin-top:6px"><summary class="muted" style="font-size:.7rem;cursor:pointer">${t('setBridgeOtherOS')}</summary>` +
     Object.entries(OTHER).filter(([f]) => f !== primary).map(([f, label]) => `<div><a href="bridge-dl/${f}" download style="color:var(--accent2);font-size:.72rem">${label}</a></div>`).join('') +
