@@ -1,11 +1,13 @@
 // Elffuss Runtime · SDK de la caché compartida de modelos.
 // ─────────────────────────────────────────────────────────────────────────────
 // Embebe un iframe oculto al BROKER (origen compartido de Elffuss) y le pide los
-// modelos por postMessage. Como el broker vive en un subdominio de utopiaia.com
+// modelos por postMessage. Como el broker vive en un subdominio de elffuss.com
 // —igual que todas las webs de Elffuss (mismo «site»)—, comparte UNA sola OPFS:
 // el modelo se descarga UNA vez y se reutiliza en claw/translator/copilot/code…
 // Si el broker no está disponible, el llamador cae a su OPFS local (model-store).
-export const BROKER_URL = 'https://models.elffuss.utopiaia.com/';
+// Lo guardado bajo los nombres viejos (*.elffuss.utopiaia.com) es de otro «site»
+// y no se ve desde aquí: tras el cambio de dominio el modelo se baja otra vez.
+export const BROKER_URL = 'https://models.elffuss.com/';
 
 let _iframe = null, _ready = null, _seq = 0, _url = BROKER_URL;
 

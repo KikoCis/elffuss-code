@@ -17,7 +17,7 @@ ROOT = os.environ.get('ELFFUSSCODE_ROOT') or str(Path(__file__).resolve().parent
 MAX_PROXY_BYTES = 2_000_000
 # En desarrollo, /v1 (modelo) se reenvía a producción; en producción lo
 # resuelve nginx directamente contra llama-server, no este forward.
-LM_UPSTREAM = os.environ.get('ELFFUSS_LM') or 'https://elffuss.utopiaia.com'
+LM_UPSTREAM = os.environ.get('ELFFUSS_LM') or 'https://elffuss.com'
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):

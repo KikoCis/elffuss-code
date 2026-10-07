@@ -10,7 +10,7 @@ import { mkdirSync, readdirSync } from 'node:fs';
 const OUT = (process.env.SCRATCH || '/tmp/elffuss-test') + '/appbuild';
 const FRAMES = OUT + '/frames';
 mkdirSync(FRAMES, { recursive: true });
-const BASE = process.env.BASE || 'https://elffuss-code.utopiaia.com';
+const BASE = process.env.BASE || 'https://code.elffuss.com';
 const INTERVAL_MS = 3000;
 
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };

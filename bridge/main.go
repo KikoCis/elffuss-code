@@ -1,7 +1,8 @@
 // Elffuss Bridge — puente local para que Elffuss Code (el navegador) pueda
 // ejecutar comandos REALES en tu máquina (node, npm, python…), sin salir de
 // tu ordenador. Escucha SOLO en 127.0.0.1 y exige:
-//   1) Origin permitido (elffuss-code.utopiaia.com o localhost de desarrollo)
+//   1) Origin permitido (code.elffuss.com, sus nombres anteriores o localhost
+//      de desarrollo)
 //   2) cabecera Host de loopback (defensa extra contra DNS-rebinding)
 //   3) un TOKEN de un solo arranque, que se imprime aquí y se pega en la web
 // Sin las tres cosas, ninguna página puede conectarse ni ejecutar nada.
@@ -35,13 +36,21 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const version = "1.1.0"
+const version = "1.1.1"
 
 // Tope de salida por comando: evita que un proceso que escupe sin fin inunde el
 // WebSocket (DoS de memoria). Al superarlo se corta y se avisa.
 const maxOutputBytes = 8 << 20 // 8 MiB
 
+// Orígenes EXACTOS, sin comodines: un sufijo como «*.utopiaia.com» dejaría
+// conectarse a cualquier web de ese dominio, y esto ejecuta shell real.
+// code.elffuss.com es el nombre actual. code.elffuss.utopiaia.com es el
+// anterior y se sigue aceptando mientras dure el cambio de dominio; antes
+// faltaba aquí, así que desde él la web cargaba pero el bridge la rechazaba.
+// elffuss-code.utopiaia.com es el alias más antiguo, por compatibilidad.
 var allowedOrigins = map[string]bool{
+	"https://code.elffuss.com":          true,
+	"https://code.elffuss.utopiaia.com": true,
 	"https://elffuss-code.utopiaia.com": true,
 	"http://localhost:8799":             true,
 	"http://127.0.0.1:8799":             true,

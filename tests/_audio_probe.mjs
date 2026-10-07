@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-const BASE = process.env.BASE || 'https://elffuss-code.utopiaia.com';
+const BASE = process.env.BASE || 'https://code.elffuss.com';
 const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
 const ctx = await b.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });

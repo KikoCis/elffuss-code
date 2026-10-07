@@ -2,10 +2,10 @@
 // Usa el gancho ?test-opfs (proyecto en OPFS del navegador, sin picker nativo)
 // y el modo básico determinista. Ejercita árbol, Monaco, herramientas y chrome.
 //
-//   BASE=https://elffuss-code.utopiaia.com node e2e.mjs
+//   BASE=https://code.elffuss.com node e2e.mjs
 import { chromium } from 'playwright';
 
-const BASE = process.env.BASE || 'https://elffuss-code.utopiaia.com';
+const BASE = process.env.BASE || 'https://code.elffuss.com';
 let fails = 0;
 const ok = (name, cond, extra = '') => { console.log((cond ? '✅' : '❌') + ' ' + name + (extra ? '  — ' + extra : '')); if (!cond) fails++; };
 

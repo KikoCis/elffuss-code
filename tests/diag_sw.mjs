@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-const BASE = process.env.BASE || 'https://elffuss-code.utopiaia.com';
+const BASE = process.env.BASE || 'https://code.elffuss.com';
 const MODEL = process.env.M || 'litert:gemma-e2b';
 const b = await chromium.launch({ args: ['--enable-unsafe-webgpu','--use-angle=metal'] });
 const ctx = await b.newContext();

@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 const b = await chromium.launch({ channel: 'chrome', headless: true });
 const p = await (await b.newContext()).newPage();
 const errs = []; p.on('pageerror', e => errs.push(e.message.slice(0, 80)));
-await p.goto('https://code.elffuss.utopiaia.com/', { waitUntil: 'domcontentloaded' });
+await p.goto('https://code.elffuss.com/', { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1500);
 
 const r = await p.evaluate(async () => {

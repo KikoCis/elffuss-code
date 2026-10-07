@@ -5,7 +5,7 @@
 # arreglar una suite y no correr las demás.
 #
 #   ./run-tools.sh                       # contra el dev local (8790)
-#   BASE=https://elffuss-code.utopiaia.com ./run-tools.sh    # contra producción
+#   BASE=https://code.elffuss.com ./run-tools.sh    # contra producción
 set -uo pipefail
 cd "$(dirname "$0")"
 export BASE="${BASE:-http://localhost:8790}"

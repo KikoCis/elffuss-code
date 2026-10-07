@@ -1,9 +1,9 @@
 // Test INTEGRAL: valida TODAS las herramientas de la elfa de Code, cada una vía
 // runTool (deterministicо, sin depender del modelo), + el flujo del agente que
 // ejecuta varias tool-calls de un mensaje. web.search/web.fetch usan internet
-// real (proxy del servidor) → correr con BASE=https://elffuss-code.utopiaia.com.
+// real (proxy del servidor) → correr con BASE=https://code.elffuss.com.
 import { chromium } from 'playwright';
-const BASE = process.env.BASE || 'https://elffuss-code.utopiaia.com';
+const BASE = process.env.BASE || 'https://code.elffuss.com';
 let fails = 0;
 const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + String(e).replace(/\n/g, ' ').slice(0, 90) : '')); if (!c) fails++; };
 

@@ -4,13 +4,13 @@
 editor), a file tree, tabs — with an AI agent that reads, searches and edits your project
 for real. Everything runs in your browser: your code never leaves your machine.**
 
-**[▶️ Live demo](https://elffuss-code.utopiaia.com)** ·
+**[▶️ Live demo](https://code.elffuss.com)** ·
 **[✳️ Elffuss Claw (sibling project)](https://github.com/KikoCis/elffuss-claw)** ·
 **[🧬 Shared core](https://github.com/KikoCis/elffuss)** ·
 **License: Apache-2.0**
 
 <p align="center">
-  <a href="https://elffuss-code.utopiaia.com">
+  <a href="https://code.elffuss.com">
     <img src="https://utopiaia.com/demos/elffuss/elffuss-code-demo.gif" alt="Elffuss Code — the agent reads calc.py, finds a real bug and fixes it, all locally" width="820">
   </a>
 </p>

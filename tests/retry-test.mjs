@@ -4,7 +4,7 @@
 import { chromium } from 'playwright';
 const b = await chromium.launch({ channel: 'chrome', headless: true });
 const p = await (await b.newContext()).newPage();
-await p.goto('https://code.elffuss.utopiaia.com/', { waitUntil: 'domcontentloaded' });
+await p.goto('https://code.elffuss.com/', { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1200);
 const r = await p.evaluate(async () => {
   const { Agent } = await import('/js/agent.js?v=' + Date.now());
