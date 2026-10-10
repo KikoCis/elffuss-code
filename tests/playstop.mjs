@@ -6,15 +6,20 @@ const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
 const b = await chromium.launch();
-const ctx = await b.newContext(); await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
+const ctx = await b.newContext({ locale: 'es-ES' }); await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage();
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1500);
 
-// clic en la elfa activa el cerebro (comportamiento ya existente)
+// Abrir la Mente NO enciende el cerebro (antes el primer clic en la elfa lo
+// activaba en silencio): el botón ofrece activarlo y hay que pulsarlo.
 await p.locator('#activity img').click(); await p.waitForTimeout(1000);
-ok('al entrar por primera vez, el botón dice "pausar" (el cerebro quedó activo)', /pausar/.test(await p.locator('#mind-playstop').innerText()));
+ok('al entrar por primera vez, el cerebro sigue apagado y el botón ofrece activarlo', /activar/.test(await p.locator('#mind-playstop').innerText()));
+const en0 = await p.evaluate(async () => (await import('/js/ceo.js')).isEnabled());
+ok('ceo.isEnabled() es false tras el primer clic en la elfa', !en0);
+await p.click('#mind-playstop'); await p.waitForTimeout(200);
+ok('activado a propósito, el botón dice "pausar"', /pausar/.test(await p.locator('#mind-playstop').innerText()));
 const en1 = await p.evaluate(async () => (await import('/js/ceo.js')).isEnabled());
-ok('ceo.isEnabled() es true tras el primer clic en la elfa', en1);
+ok('ceo.isEnabled() es true tras activarlo desde la Mente', en1);
 
 // pausar desde la Mente
 await p.click('#mind-playstop'); await p.waitForTimeout(200);

@@ -1420,7 +1420,10 @@ ceo.init({
   workspace: ceoWorkspace,
   defaultProfiles: CEO_DEFAULT_PROFILES,
   defaultMission: 'Revisar el proyecto y proponer mejoras concretas y accionables (código, procesos, datos o docs).',
-  provider: () => conv.getProvider(),
+  // Sin modelo de verdad no hay cerebro: con el motor de reglas (modo Básico)
+  // el CEO «pensaba» con el texto de ayuda, escribía .elffuss/soul/*.md dentro
+  // del proyecto y anunciaba «4 mejoras» que no eran nada.
+  provider: () => { const p = conv.getProvider(); return p && p !== rules ? p : null; },
   // el usuario tiene PRIORIDAD: si CUALQUIER conversación está en cola o procesándose, el cerebro espera
   isBusy: () => conv.isBusy(),
   onEvent: (ch, ev) => {
@@ -1506,17 +1509,16 @@ if ('serviceWorker' in navigator) {
 const noteAct = e => { if (!e.target.closest?.('#mind-overlay')) ceo.noteActivity(); };
 document.addEventListener('pointerdown', noteAct, true);
 document.addEventListener('keydown', noteAct, true);
-const elfAvatar = document.querySelector('#activity img');
+// La elfa de la barra es un BOTÓN que abre la Mente, y nada más. Antes el
+// primer clic encendía en silencio el cerebro autónomo (que empezaba a trabajar
+// sobre tu proyecto) y pedía permiso de notificaciones sin explicar para qué.
+// Ahora el cerebro se enciende DENTRO de la Mente, con un botón que dice lo que
+// hace, y las notificaciones se piden solo desde ⚙ cerebro.
+const elfAvatar = $('act-mind');
 if (elfAvatar) {
-  elfAvatar.style.cursor = 'pointer';
   elfAvatar.title = t('avatarTitle');
-  elfAvatar.addEventListener('click', () => {
-    // auto-activa SOLO la primera vez (nunca decidiste play/stop); si lo
-    // pausaste a propósito, abrir la Mente NO debe reactivarlo por sorpresa.
-    if (!ceo.isEnabled() && !ceo.hasDecided()) ceo.enable();
-    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* */ }
-    mind.openMind();
-  });
+  elfAvatar.setAttribute('aria-label', t('avatarLabel'));
+  elfAvatar.addEventListener('click', () => mind.openMind());
 }
 // restaura tu última elección (play o stop) tal cual la dejaste
 if (ceo.wasEnabledLastSession()) ceo.enable();

@@ -6,7 +6,7 @@ const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
 const b = await chromium.launch();
-const ctx = await b.newContext();
+const ctx = await b.newContext({ locale: 'es-ES' });
 await ctx.addInitScript(() => {
   try { localStorage.setItem('elffusscode.model', 'rules'); } catch {}
   window.__notifs = []; window.__askedPermission = 0;

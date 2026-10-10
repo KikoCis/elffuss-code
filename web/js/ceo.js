@@ -160,6 +160,19 @@ export function disable() {
 
 function schedule() { if (timer) clearTimeout(timer); timer = setTimeout(tick, TICK_MS); }
 
+// ¿Puede pensar AHORA? Para que la UI lo diga antes de prometer un ciclo:
+// devuelve '' si sí, o el motivo ('leader' | 'running' | 'workspace' |
+// 'provider'). Sin modelo de verdad (el anfitrión devuelve null en modo
+// básico) no hay ciclo: con el motor de reglas solo salían propuestas basura
+// escritas dentro del proyecto.
+export async function whyNotThink() {
+  if (!isLeader) return 'leader';
+  if (running) return 'running';
+  if (!(await ws?.isReady())) return 'workspace';
+  if (!getProvider()) return 'provider';
+  return '';
+}
+
 // «Pensar ahora» — salta la espera de ociosidad. Sigue respetando el
 // semáforo: si otra pestaña es la líder, no compite por la GPU.
 export async function forceCycle() {

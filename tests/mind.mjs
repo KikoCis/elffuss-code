@@ -6,7 +6,7 @@ const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n,c,e='')=>{console.log((c?'✅':'❌')+' '+n+(e?'  — '+e:''));if(!c)fails++};
 const b = await chromium.launch({ args:['--enable-unsafe-webgpu',...CHROME_ARGS,'--autoplay-policy=no-user-gesture-required'] });
-const ctx = await b.newContext(); await ctx.addInitScript(()=>{try{localStorage.setItem('elffusscode.model','rules')}catch{}});
+const ctx = await b.newContext({ locale: 'es-ES' }); await ctx.addInitScript(()=>{try{localStorage.setItem('elffusscode.model','rules')}catch{}});
 const p = await ctx.newPage({ viewport:{width:1500,height:900} });
 p.on('console', m=>{ if(m.type()==='error' && !/allow-same-origin|soundcloud|widget|encrypted-media|permissions policy/i.test(m.text())) console.log('   err:', m.text().slice(0,140)); });
 await p.goto(BASE+'/',{waitUntil:'domcontentloaded'});
@@ -16,7 +16,8 @@ await p.goto(BASE+'/?test-opfs',{waitUntil:'domcontentloaded'}); await p.waitFor
 await p.locator('#activity img').click(); await p.waitForTimeout(1000);
 ok('overlay + mundo WebGL', await p.locator('#mind-overlay').count()>0 && await p.evaluate(()=>{const c=document.getElementById('mind-canvas');const gl=c&&(c.getContext('webgl2')||c.getContext('webgl'));return !!gl&&!gl.isContextLost();}));
 ok('sin subtítulo (solo título)', await p.evaluate(()=>{const t=document.getElementById('mind-title');return t && !t.querySelector('span') && /MENTE DE ELFFUSS/.test(t.textContent);}));
-ok('música (SoundCloud)', await p.locator('.mind-music iframe').count()>0);
+// La música ya no se carga sola: hay que pedirla (era una petición a un tercero sin preguntar).
+ok('música solo a petición (botón, sin reproductor cargado)', await p.locator('.mind-music iframe').count()===0 && await p.locator('.mind-music-btn').count()===1);
 ok('botón de config del cerebro', await p.locator('#mind-config').count()>0);
 
 // inyectar pensamientos + una mejora forjada

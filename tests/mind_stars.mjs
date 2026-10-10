@@ -7,7 +7,7 @@ const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
 const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS, '--autoplay-policy=no-user-gesture-required'] });
-const ctx = await b.newContext();
+const ctx = await b.newContext({ locale: 'es-ES' });
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); localStorage.removeItem('elffusscode.ceoProfiles'); } catch {} });
 const p = await ctx.newPage({ viewport: { width: 1500, height: 900 } });
 p.on('console', m => { if (m.type() === 'error' && !/allow-same-origin|soundcloud|widget|encrypted-media|permissions policy/i.test(m.text())) console.log('   err:', m.text().slice(0, 160)); });
