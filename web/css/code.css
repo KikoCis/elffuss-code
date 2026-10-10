@@ -421,6 +421,8 @@ body.hide-tree #sidebar { display: none; }
    apagado y sin el spinner (en un botón más ancho saldría ovalado). */
 #btn-send.is-stopping { background: #7a2a2d; color: #f3d6d7; cursor: progress; font-size: .78rem; white-space: nowrap; }
 #btn-send.is-stopping::after { display: none; }
+/* Solo para lectores de pantalla (la región viva del envío). */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 #composer #prompt { flex: 1; min-width: 0; }
 

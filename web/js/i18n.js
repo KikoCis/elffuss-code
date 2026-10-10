@@ -111,6 +111,9 @@ const L = {
     planFailed: "con fallos",
     planStopped: "parado",
     stopping: "Parando…",
+    stopped: "Parado.",
+    send: "Enviar",
+    stop: "Parar",
     stModelLoadingAI: "Cargando el modelo IA…",
     termCapsBridge: "🔌 Bridge local: node/npm/python reales",
     termCapsNoBridge: "shell del proyecto · node/npm/python → Bridge local (⚙ Ajustes)",
@@ -226,6 +229,9 @@ const L = {
     planFailed: "with failures",
     planStopped: "stopped",
     stopping: "Stopping…",
+    stopped: "Stopped.",
+    send: "Send",
+    stop: "Stop",
     stModelLoadingAI: "Loading the AI model…",
     termCapsBridge: "🔌 Local bridge: real node/npm/python",
     termCapsNoBridge: "project shell · node/npm/python → Local bridge (⚙ Settings)",
@@ -271,7 +277,7 @@ export function applyI18n() {
     '#term-close': 'tTermClose', '#term-resize': 'tTermResize', '#ctx-meter': 'tCtx',
     '#btn-plus': 'tPlus', '#btn-autoedit': 'tAutoedit', '#btn-goal': 'tGoal',
     '#btn-hardwork': 'tHardwork',
-    '#code-flip': 'tFlip', '#btn-slash': 'tSlash',
+    '#code-flip': 'tFlip', '#btn-slash': 'tSlash', '#btn-send': 'send',
   };
   for (const [sel, key] of Object.entries(titles)) set(sel, 'title', key);
 }

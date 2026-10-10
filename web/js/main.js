@@ -263,7 +263,7 @@ function onConvEvent(kind, id, payload) {
     else { activeThinking?.remove(); activeThinking = null; }
     return;
   }
-  if (kind === 'stopping') { paintSendButton(); return; }
+  if (kind === 'stopping') { paintSendButton(); anunciarEnvio(payload ? t('stopping') : t('stopped')); return; }
   if (kind === 'event') {
     const ev = payload;
     if (ev.type === 'token') activeThinking?.tick(ev.text);
@@ -1181,8 +1181,11 @@ $('prompt').addEventListener('keydown', e => {
 $('composer').addEventListener('submit', e => {
   e.preventDefault();
   // Mientras el agente trabaja, el mismo botón PARA en vez de enviar. Si ya se
-  // está parando, lo que se escriba va a la cola y sale en cuanto termine.
+  // está parando, lo que se escriba con Enter va a la cola y sale en cuanto
+  // termine; pulsar el propio botón, que dice «Parando…» y está aria-disabled,
+  // no hace nada (requestSubmit() desde el cuadro de texto llega sin submitter).
   const active = conv.getActive();
+  if (active?.parando && e.submitter?.id === 'btn-send') return;
   if (active && active.pumping && !active.parando) { conv.stopActive(); return; }
   const text = $('prompt').value.trim();
   if (!text) return;
@@ -1199,17 +1202,33 @@ function paintSendButton() {
   const active = conv.getActive();
   const busy = !!active?.pumping;
   // «Parando…»: ya se pulsó ■ y el turno aún se está soltando (un modelo lento
-  // tarda en dejar la generación). Deshabilitado y con aria-busy: antes el ■
-  // seguía igual tras el clic y parecía que no había hecho caso.
+  // tarda en dejar la generación). Antes el ■ seguía igual tras el clic y
+  // parecía que no había hecho caso. Se marca con aria-disabled y NO con
+  // disabled: deshabilitar el botón que tiene el foco lo saca del foco, el
+  // teclado caía a <body> y ya no volvía.
   const parando = busy && !!active?.parando;
   b.classList.toggle('sending', busy);
   b.classList.toggle('is-stop', busy && !parando);
   b.classList.toggle('is-stopping', parando);
-  b.disabled = parando;
-  if (parando) b.setAttribute('aria-busy', 'true'); else b.removeAttribute('aria-busy');
+  if (parando) { b.setAttribute('aria-disabled', 'true'); b.setAttribute('aria-busy', 'true'); }
+  else { b.removeAttribute('aria-disabled'); b.removeAttribute('aria-busy'); }
   b.innerHTML = parando ? escapeHtml(t('stopping')) : busy ? STOP_ICON : UI.send;
-  b.title = parando ? t('stopping') : busy ? 'Parar' : 'Enviar';
+  b.title = parando ? t('stopping') : busy ? t('stop') : t('send');
   b.setAttribute('aria-label', b.title);
+}
+// La parada se anuncia en una región viva: el botón solo lo dice en su
+// etiqueta, y parando con Enter el foco está en el cuadro de texto, así que el
+// cambio no se oía; el «(Parado.)» del chat tampoco, porque el chat no es una
+// región viva. Se vacía y se escribe en otro tick para que el mismo texto dos
+// veces seguidas se vuelva a leer, y un anuncio que llega antes de escribirse
+// el anterior lo sustituye.
+let anuncioPendiente = null;
+function anunciarEnvio(texto) {
+  const r = document.getElementById('send-status');
+  if (!r) return;
+  clearTimeout(anuncioPendiente);
+  r.textContent = '';
+  anuncioPendiente = setTimeout(() => { r.textContent = texto; }, 50);
 }
 $('model-select').addEventListener('change', e => changeModel(e.target.value));
 // móvil: conmutar chat ↔ editor

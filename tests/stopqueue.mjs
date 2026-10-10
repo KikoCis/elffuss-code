@@ -169,9 +169,11 @@ await p.evaluate(async () => {
 await p.fill('#prompt', 'trabajo largo en la pestaña 1');
 await p.click('#btn-send');
 await p.waitForFunction(() => document.getElementById('btn-send').classList.contains('is-stop'), null, { timeout: 5000 }).catch(() => {});
-const boton = () => p.evaluate(() => {
+const boton = (pg = p) => pg.evaluate(() => {
   const b = document.getElementById('btn-send');
-  return { stop: b.classList.contains('is-stop'), sending: b.classList.contains('sending'), disabled: b.disabled, title: b.title, aria: b.getAttribute('aria-busy'), texto: b.textContent.trim() };
+  return { stop: b.classList.contains('is-stop'), sending: b.classList.contains('sending'), disabled: b.disabled, title: b.title, aria: b.getAttribute('aria-busy'), texto: b.textContent.trim(),
+    ariaDisabled: b.getAttribute('aria-disabled'), label: b.getAttribute('aria-label'), foco: document.activeElement?.id || document.activeElement?.tagName,
+    anuncio: document.getElementById('send-status')?.textContent ?? null };
 });
 const enTrabajo = await boton();
 // Con tantas pestañas abiertas por los escenarios de arriba, el «+» y las
@@ -198,11 +200,52 @@ await p.fill('#prompt', 'otro trabajo largo');
 await p.click('#btn-send');
 await p.waitForFunction(() => document.getElementById('btn-send').classList.contains('is-stop'), null, { timeout: 5000 }).catch(() => {});
 await p.click('#btn-send');
+await p.waitForTimeout(150);   // la región viva se escribe en otro tick
 const parando = await boton();
-await p.waitForFunction(() => !document.getElementById('btn-send').disabled && !document.getElementById('btn-send').classList.contains('sending'), null, { timeout: 8000 }).catch(() => {});
+// Pulsar «Parando…» otra vez, con texto escrito: no hace nada (ni para ni envía).
+// force: Playwright da por deshabilitado un botón con aria-disabled y, sin
+// esto, esperaría a que se habilitara para pulsarlo; un usuario sí lo pulsa.
+// (El texto se pone y se quita por código para no mover el foco, que es lo
+// que se mide después.)
+await p.evaluate(() => { document.getElementById('prompt').value = 'no debe salir al pulsar Parando'; });
+await p.click('#btn-send', { force: true });
+const trasPulsarParando = await p.evaluate(async () => {
+  const conv = await import('/js/conversations.js');
+  const r = { prompt: document.getElementById('prompt').value, cola: conv.getActive().queue.length };
+  document.getElementById('prompt').value = '';
+  return r;
+});
+await p.waitForFunction(() => !document.getElementById('btn-send').hasAttribute('aria-disabled') && !document.getElementById('btn-send').classList.contains('sending'), null, { timeout: 8000 }).catch(() => {});
+await p.waitForTimeout(150);
 const despues = await boton();
-ok('5 · justo tras el clic: «Parando…», deshabilitado y con aria-busy', parando.texto === 'Parando…' && parando.disabled && parando.aria === 'true', JSON.stringify(parando));
-ok('5 · al soltarse el turno vuelve a «Enviar», habilitado y sin aria-busy', !despues.disabled && despues.title === 'Enviar' && despues.aria === null, JSON.stringify(despues));
+ok('5 · justo tras el clic: «Parando…», aria-disabled y aria-busy, sin disabled', parando.texto === 'Parando…' && parando.ariaDisabled === 'true' && !parando.disabled && parando.aria === 'true', JSON.stringify(parando));
+ok('5 · …el foco sigue en el botón (antes caía a <body>)', parando.foco === 'btn-send', parando.foco);
+ok('5 · …y la región viva dice «Parando…»', parando.anuncio === 'Parando…', JSON.stringify(parando.anuncio));
+ok('5 · pulsar «Parando…» no hace nada: el texto sigue escrito y no entra en la cola', trasPulsarParando.prompt === 'no debe salir al pulsar Parando' && trasPulsarParando.cola === 0, JSON.stringify(trasPulsarParando));
+ok('5 · al soltarse el turno vuelve a «Enviar», sin aria-disabled ni aria-busy', !despues.disabled && despues.ariaDisabled === null && despues.title === 'Enviar' && despues.aria === null, JSON.stringify(despues));
+ok('5 · …con el foco todavía en el botón', despues.foco === 'btn-send', despues.foco);
+ok('5 · …y la región viva dice «Parado.»', despues.anuncio === 'Parado.', JSON.stringify(despues.anuncio));
+
+// 5b. Lo mismo con el teclado: Espacio sobre el botón para, y el foco se queda.
+await p.evaluate(async () => {
+  const conv = await import('/js/conversations.js');
+  window.__prov5b = window.__lento({ pasos: 400, paso: 25, tardaEnParar: 800 });
+  conv.setProvider(window.__prov5b);
+});
+await p.fill('#prompt', 'trabajo para parar con el teclado');
+await p.press('#prompt', 'Enter');
+// Que el modelo ya esté generando: parado antes, el turno no tendría nada que
+// soltar y no pasaría por «Parando…».
+await p.waitForFunction(() => window.__prov5b.llamadas.length >= 1, null, { timeout: 5000 }).catch(() => {});
+await p.focus('#btn-send');
+await p.keyboard.press('Space');
+await p.waitForTimeout(150);
+const teclaParando = await boton();
+await p.waitForFunction(() => !document.getElementById('btn-send').classList.contains('sending'), null, { timeout: 8000 }).catch(() => {});
+await p.waitForTimeout(150);
+const teclaDespues = await boton();
+ok('5b · Espacio sobre ■: «Parando…» con el foco en el botón', teclaParando.texto === 'Parando…' && teclaParando.foco === 'btn-send', JSON.stringify(teclaParando));
+ok('5b · …y al soltarse, «Enviar» con el foco en el botón', teclaDespues.title === 'Enviar' && teclaDespues.foco === 'btn-send', JSON.stringify(teclaDespues));
 
 // 6. Objetivo parado desde la UI: la tarjeta dice «parado» y la tarea ⏹️
 await p.evaluate(async () => {
@@ -228,6 +271,118 @@ const tarjeta = await p.evaluate(() => {
 await modoObjetivo();   // dejar el modo como estaba
 ok('6 · la tarjeta del objetivo parado dice «parado»', tarjeta.estado === 'parado', JSON.stringify(tarjeta));
 ok('6 · tarea en curso ⏹️ parada y la siguiente saltada', tarjeta.parada === 1 && tarjeta.saltada === 1 && tarjeta.icono === '⏹️', JSON.stringify(tarjeta));
+
+// 6b. Objetivo parado y recarga ANTES de que se suelte: lo guardado ya dice
+// «parado» (tarea en curso parada, la pendiente saltada), y tras recargar la
+// tarjeta no se queda en «ejecutando…» sin que nada se ejecute.
+await p.evaluate(async () => {
+  const conv = await import('/js/conversations.js');
+  window.__prov6b = window.__lento({ pasos: 400, paso: 25, tardaEnParar: 8000, plan: JSON.stringify({ plan: 'dos pasos', tasks: [
+    { title: 'Uno', description: 'mira el árbol' }, { title: 'Dos', description: 'resume' }] }) });
+  conv.setProvider(window.__prov6b);
+  conv.create();
+});
+await modoObjetivo();
+await p.fill('#prompt', 'objetivo que se para y se recarga');
+await p.click('#btn-send');
+await p.waitForFunction(() => document.querySelector('.plan-card li.task-in-progress'), null, { timeout: 8000 }).catch(() => {});
+await modoObjetivo();
+const r6b = await p.evaluate(async () => {
+  const conv = await import('/js/conversations.js');
+  const db = await import('/js/db.js');
+  const c = conv.getActive();
+  conv.stopActive();
+  await window.__dormir(300);
+  const g = (await db.get('kv', 'conversations')).find(x => x.id === c.id);
+  return { id: c.id, sigue: c.pumping, plan: g?.plan ? { status: g.plan.status, tasks: g.plan.tasks.map(t => t.status) } : null };
+});
+ok('6b · justo tras parar (el objetivo aún se suelta), el plan guardado ya está parado',
+  r6b.sigue && r6b.plan?.status === 'stopped' && JSON.stringify(r6b.plan.tasks) === '["stopped","skipped"]', JSON.stringify(r6b));
+// Con trabajo vivo la página pide confirmar antes de irse (beforeunload): se
+// acepta, como haría quien recarga a propósito.
+p.once('dialog', d => d.accept().catch(() => {}));
+await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
+await p.waitForTimeout(2500);
+await ayudantes();
+const tarjeta6b = await p.evaluate(() => {
+  const c = [...document.querySelectorAll('.plan-card')].at(-1);
+  return { estado: c?.querySelector('.plan-status')?.textContent, enCurso: c?.querySelectorAll('li.task-in-progress').length };
+});
+ok('6b · tras recargar, la tarjeta dice «parado» y no hay tarea en curso', tarjeta6b.estado === 'parado' && tarjeta6b.enCurso === 0, JSON.stringify(tarjeta6b));
+
+// 7. Parar un mensaje que solo ESPERA turno (otra conversación genera): no hay
+// nada que soltar, así que ni «Parando…» durante el turno ajeno: vuelve a
+// «Enviar» enseguida, con su «(Parado.)» en el chat y anunciado.
+await p.evaluate(async () => {
+  const conv = await import('/js/conversations.js');
+  window.__prov7 = window.__lento({ pasos: 160, paso: 25 });
+  conv.setProvider(window.__prov7);
+  const A = conv.create();
+  window.__A7 = A;
+  conv.send(A.id, 'A7 genera un buen rato');
+  await window.__hasta(() => window.__prov7.llamadas.length >= 1);
+  conv.create();                               // B, la activa, en la UI
+});
+await p.fill('#prompt', 'B7 espera turno');
+await p.click('#btn-send');
+await p.waitForFunction(() => document.getElementById('btn-send').classList.contains('is-stop'), null, { timeout: 5000 }).catch(() => {});
+await p.click('#btn-send');
+await p.waitForTimeout(400);
+const r7 = await p.evaluate(async () => {
+  const conv = await import('/js/conversations.js');
+  const B = conv.getActive();
+  const notas = [...document.querySelectorAll('#chat-log .msg.muted')].map(d => d.textContent);
+  return { aSigue: window.__A7.pumping, bTrabaja: B.pumping, bParando: !!B.parando, cola: B.queue.length, notas,
+    llamadas: window.__prov7.llamadas };
+});
+const boton7 = await boton();
+ok('7 · A sigue generando mientras tanto', r7.aSigue, JSON.stringify(r7));
+ok('7 · B ya no trabaja ni está «Parando…», y su cola está vacía', !r7.bTrabaja && !r7.bParando && r7.cola === 0, JSON.stringify(r7));
+ok('7 · el botón de B vuelve a «Enviar» sin esperar a A', boton7.title === 'Enviar' && !boton7.sending && boton7.ariaDisabled === null, JSON.stringify(boton7));
+ok('7 · el chat de B dice «(Parado.)» y la región viva «Parado.»', r7.notas.includes('(Parado.)') && boton7.anuncio === 'Parado.', JSON.stringify({ notas: r7.notas, anuncio: boton7.anuncio }));
+ok('7 · el modelo nunca recibió el mensaje de B', !r7.llamadas.some(t => t.includes('B7')), JSON.stringify(r7.llamadas));
+const r7b = await p.evaluate(async () => {
+  await window.__hasta(() => !window.__A7.pumping, 800);
+  return { respondio: window.__A7.agent.history.at(-1)?.role === 'assistant', llamadas: window.__prov7.llamadas.length };
+});
+ok('7 · A termina con su respuesta, y nadie más llamó al modelo', r7b.respondio && r7b.llamadas === 1, JSON.stringify(r7b));
+
+// 8. En inglés el botón no mezcla idiomas: Send / Stop / Stopping…
+{
+  const ctxEn = await b.newContext({ locale: 'en-US' });
+  await ctxEn.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
+  const pe = await ctxEn.newPage({ viewport: { width: 1300, height: 900 } });
+  pe.on('pageerror', e => errs.push(e.message.slice(0, 160)));
+  await pe.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
+  await pe.waitForTimeout(1500);
+  const inicial = await boton(pe);
+  await pe.evaluate(async () => {
+    window.__dormir = ms => new Promise(r => setTimeout(r, ms));
+    const conv = await import('/js/conversations.js');
+    conv.setProvider({ name: 'lento-en', chat: async (h, s, cb, signal) => {
+      for (let i = 0; i < 400; i++) {
+        if (signal?.aborted) { await window.__dormir(600); throw new DOMException('Stopped', 'AbortError'); }
+        cb('·'); await window.__dormir(25);
+      }
+      return 'done';
+    } });
+  });
+  await pe.fill('#prompt', 'long job');
+  await pe.click('#btn-send');
+  await pe.waitForFunction(() => document.getElementById('btn-send').classList.contains('is-stop'), null, { timeout: 5000 }).catch(() => {});
+  const trabajando = await boton(pe);
+  await pe.click('#btn-send');
+  await pe.waitForTimeout(150);
+  const parandoEn = await boton(pe);
+  await pe.waitForFunction(() => !document.getElementById('btn-send').classList.contains('sending'), null, { timeout: 8000 }).catch(() => {});
+  await pe.waitForTimeout(150);
+  const finEn = await boton(pe);
+  ok('8 · en inglés: Send → Stop → Stopping… → Send',
+    inicial.title === 'Send' && trabajando.label === 'Stop' && parandoEn.label === 'Stopping…' && finEn.label === 'Send',
+    JSON.stringify([inicial.title, trabajando.label, parandoEn.label, finEn.label]));
+  ok('8 · …y la región viva anuncia en inglés', parandoEn.anuncio === 'Stopping…' && finEn.anuncio === 'Stopped.', JSON.stringify([parandoEn.anuncio, finEn.anuncio]));
+  await ctxEn.close();
+}
 
 console.log('\n  errores JS:', errs[0] || 'ninguno');
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ PARAR DESDE LA CONVERSACIÓN OK — cola, cerrojo, recarga y botón');

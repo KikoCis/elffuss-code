@@ -65,17 +65,18 @@ export function getActive() { return activeId ? convs.get(activeId) : null; }
 //
 // `parando` cubre el rato entre el clic y el final real del turno (un modelo
 // lento tarda en soltar la generación): la UI lo enseña como «Parando…» en vez
-// de dejar un ■ que parece no hacer caso.
+// de dejar un ■ que parece no hacer caso. Sin turno en marcha no hay nada que
+// soltar, y se dice ya que está parado.
 export function stopActive() {
   const c = getActive();
   if (!c || (!c.pumping && !c.queue.length)) return false;
   c.stopped = true;
-  c.parando = true;
+  c.parando = c.pumping;
   try { c.aborter?.abort(); } catch { /* */ }
   try { c.agent.stop(); } catch { /* */ }
   c.queue.length = 0;
   persistConv(c).catch(e => console.warn('[elffuss] no se pudo guardar la cola vaciada', e));
-  onChange('stopping', c.id, true);
+  onChange('stopping', c.id, c.parando);
   return true;
 }
 
@@ -115,10 +116,26 @@ async function persistConvYa(conv) {
   const i = all.findIndex(c => c.id === conv.id);
   const rec = {
     id: conv.id, title: titleFor(conv), history: conv.agent.history.slice(-HIST_CAP),
-    queue: conv.queue, plan: conv.plan || null, createdAt: conv.createdAt, updatedAt: conv.updatedAt,
+    queue: conv.queue, plan: planParaGuardar(conv), createdAt: conv.createdAt, updatedAt: conv.updatedAt,
   };
   if (i >= 0) all[i] = rec; else all.push(rec);
   await db.set('kv', 'conversations', all).catch(() => {});
+}
+// El plan de un objetivo PARADO que aún se está soltando se guarda ya como
+// parado: stopActive() guarda en el acto (para que recargar no repita nada), y
+// en ese momento el plan en memoria todavía dice «ejecutando», con su tarea en
+// curso. Recargando antes de que el objetivo terminase de soltarse, la tarjeta
+// decía «ejecutando…» para siempre sin que nada se ejecutara. Es lo mismo que
+// runGoal deja al terminar: la tarea en curso parada y las pendientes saltadas.
+function planParaGuardar(conv) {
+  const plan = conv.plan || null;
+  if (!plan || !conv.stopped || (plan.status !== 'planning' && plan.status !== 'running')) return plan;
+  return {
+    ...plan, status: 'stopped',
+    tasks: (plan.tasks || []).map(t => ({
+      ...t, status: t.status === 'in-progress' ? 'stopped' : t.status === 'pending' ? 'skipped' : t.status,
+    })),
+  };
 }
 function persistMeta() {
   try { localStorage.setItem(TABS_KEY, JSON.stringify(openTabIds)); } catch { /* lleno */ }
@@ -267,6 +284,16 @@ export function startGoal(id, text) {
   pump(conv);
 }
 
+// true cuando le toca el turno; false si la parada llega antes.
+function turnoOParada(turno, signal) {
+  if (signal.aborted) return Promise.resolve(false);
+  return new Promise(resolve => {
+    const alParar = () => resolve(false);
+    signal.addEventListener('abort', alParar, { once: true });
+    turno.then(() => { signal.removeEventListener('abort', alParar); resolve(true); });
+  });
+}
+
 // Cada turno lleva su propia parada (conv.aborter), creada ANTES de esperar el
 // cerrojo: parar mientras espera turno lo cancela sin llegar a llamar al
 // modelo. Antes la parada solo alcanzaba al turno que ya estaba generando, así
@@ -301,10 +328,21 @@ async function pump(conv) {
     const myTurn = inferenceLock;
     let release;
     inferenceLock = new Promise(r => { release = r; });
-    await myTurn; // espera su turno de inferencia (un solo modelo cargado, no admite 2 generate() a la vez)
+    // Espera su turno de inferencia (un solo modelo cargado, no admite 2
+    // generate() a la vez)… o la parada, lo que llegue antes. Parar un mensaje
+    // que solo espera turno no tiene nada que soltar: antes el botón se quedaba
+    // en «Parando…» todo lo que durase el turno de OTRA conversación. Su hueco
+    // en el cerrojo se suelta igualmente en orden, cuando lo suelte el de
+    // delante, para que nadie se cuele por detrás mientras aquel sigue.
+    const tengoTurno = await turnoOParada(myTurn, signal);
+    if (!tengoTurno) myTurn.then(release);
     try {
-      // Parado (o quitado de la cola) mientras esperaba: ni se llama al modelo.
-      if (!signal.aborted && conv.queue[0] === item) {
+      // Parado (o quitado de la cola) mientras esperaba: ni se llama al modelo,
+      // y se dice en el chat como cualquier otro turno parado.
+      if (signal.aborted && !tengoTurno) {
+        try { onChange('event', conv.id, { type: 'aborted', text: '(Parado.)' }); } catch (e) { console.error('[elffuss] fallo pintando un evento de chat', e); }
+      }
+      if (tengoTurno && !signal.aborted && conv.queue[0] === item) {
         // un fallo aquí (del modelo, de una tool, o del propio repintado en
         // main.js) NUNCA debe dejar la conversación "pumping" para siempre —
         // eso bloquearía sus futuros mensajes Y al cerebro CEO (isBusy()).
@@ -340,7 +378,7 @@ async function pump(conv) {
       console.error('[elffuss] fallo procesando el turno', e);
       telemetry.reportError('pump: ' + (e?.message || e), { stack: e?.stack || '' });
       try { onChange('event', conv.id, { type: 'error', text: 'Error interno: ' + (e?.message || e) }); } catch { /* ya está registrado arriba */ }
-    } finally { release(); }
+    } finally { if (tengoTurno) release(); }
     if (conv.aborter === aborter) conv.aborter = null;
     if (conv.queue[0] === item) conv.queue.shift();
     conv.updatedAt = Date.now();
