@@ -13,7 +13,13 @@ const oyentes = new Set();
 const onStatus = (s) => { for (const f of oyentes) { try { f(s); } catch { /* */ } } };
 // «Desconectar» a propósito: la autodetección no vuelve a conectar sola hasta
 // que se pulse «Conectar» otra vez (antes reconectaba a los pocos segundos).
+// Se GUARDA: solo en memoria, al recargar tryAutoConnect() volvía a conectar con
+// el token guardado, y el aviso decía «no se volverá a conectar solo hasta que
+// pulses Conectar».
+const CLAVE_PAUSA = 'elffusscode.bridgePaused';
 let pausado = false;
+try { pausado = localStorage.getItem(CLAVE_PAUSA) === '1'; } catch { /* */ }
+const guardaPausa = v => { try { if (v) localStorage.setItem(CLAVE_PAUSA, '1'); else localStorage.removeItem(CLAVE_PAUSA); } catch { /* */ } };
 let savedFolder = '';
 try { savedFolder = localStorage.getItem('elffusscode.bridgeFolder') || ''; } catch { /* */ }
 let savedToken = '';
@@ -40,7 +46,7 @@ export async function probe() {
 }
 
 export function connect(token) {
-  pausado = false;
+  pausado = false; guardaPausa(false);
   return new Promise((resolve, reject) => {
     let sock;
     try { sock = ws = new WebSocket('ws://' + HOST + '/ws'); }
@@ -79,7 +85,7 @@ export function connect(token) {
 }
 
 export function disconnect() {
-  pausado = true;
+  pausado = true; guardaPausa(true);
   try { ws?.close(); } catch { /* */ }
   connected = false; authed = false;
   onStatus('disconnected');
