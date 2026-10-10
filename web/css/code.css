@@ -303,6 +303,8 @@ body.hide-tree #sidebar { display: none; }
 .msg.tool-result.err summary { color: #e5a53a; }
 .msg.user.queued { opacity: .55; }
 .msg.user.queued::after { content: ' ⏳'; }
+/* encolado y descartado al pulsar ■ (parar vacía la cola) */
+.msg.user.cancelled { opacity: .45; text-decoration: line-through; }
 .msg.thinking { background: var(--bg3); border: 1px dashed var(--line); color: var(--muted); font-size: .8rem; }
 .msg.thinking .gen { font-family: ui-monospace, monospace; font-size: .7rem; color: #5f6880; max-height: 168px; overflow-y: auto; white-space: pre-wrap; }
 .msg.thinking .gen.tool-preview { font-family: inherit; font-size: .78rem; color: var(--accent2); font-style: italic; }

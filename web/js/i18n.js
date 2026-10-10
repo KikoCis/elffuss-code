@@ -123,6 +123,9 @@ const L = {
     setBridgeOtherOS: "otro sistema operativo",
     setBridgeOld: "¿Ya tenías un bridge y ahora no conecta? Descárgalo otra vez (versión 1.1.1): los anteriores no aceptan la dirección nueva de Elffuss Code.",
     setModelRulesName: "Básico (sin modelo)",
+    // ronda UX 2026-10: cola, guardar, avisos honestos
+    queuedTitle: "En cola: sale en cuanto termine lo de ahora",
+    queuedCancelled: "Descartado: pulsaste ■ antes de que le tocara",
 },
   en: {
     ph: 'Type here… (@ attaches a file)',
@@ -241,6 +244,9 @@ const L = {
     setBridgeOtherOS: "another operating system",
     setBridgeOld: "Already had a bridge and now it won't connect? Download it again (version 1.1.1): older ones don't accept Elffuss Code's new address.",
     setModelRulesName: "Basic (no model)",
+    // UX round 2026-10: queue, save, honest notices
+    queuedTitle: "Queued: it goes out as soon as the current work ends",
+    queuedCancelled: "Dropped: you pressed ■ before its turn",
 },
 };
 

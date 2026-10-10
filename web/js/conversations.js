@@ -364,6 +364,9 @@ async function pump(conv) {
         try { onChange('event', conv.id, { type: 'aborted', text: '(Parado.)' }); } catch (e) { console.error('[elffuss] fallo pintando un evento de chat', e); }
       }
       if (tengoTurno && !signal.aborted && conv.queue[0] === item) {
+        // Empieza DE VERDAD este mensaje: la UI deja de pintarlo «en cola».
+        conv.turno = item;
+        try { onChange('turn', conv.id, item); } catch (e) { console.error('[elffuss] fallo pintando el inicio de un turno', e); }
         // un fallo aquí (del modelo, de una tool, o del propio repintado en
         // main.js) NUNCA debe dejar la conversación "pumping" para siempre —
         // eso bloquearía sus futuros mensajes Y al cerebro CEO (isBusy()).
@@ -400,6 +403,7 @@ async function pump(conv) {
       telemetry.reportError('pump: ' + (e?.message || e), { stack: e?.stack || '' });
       try { onChange('event', conv.id, { type: 'error', text: 'Error interno: ' + (e?.message || e) }); } catch { /* ya está registrado arriba */ }
     } finally { if (tengoTurno) release(); }
+    if (conv.turno === item) conv.turno = null;
     if (conv.aborter === aborter) conv.aborter = null;
     if (conv.queue[0] === item) conv.queue.shift();
     conv.updatedAt = Date.now();

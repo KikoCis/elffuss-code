@@ -98,6 +98,18 @@ function linkifyFilePaths(root) {
   });
 }
 
+// Todo lo que pinta el chat entra por aquí. Lo que se escribió mientras la elfa
+// trabajaba espera AL FINAL, marcado «en cola» (⏳): lo que va llegando del turno
+// en curso se coloca ANTES de esos mensajes, para que una respuesta no se lea
+// como si contestara a un mensaje que todavía no ha empezado.
+function appendLog(node) {
+  const log = $('chat-log');
+  // Los descartados al parar también hacen de tope mientras el turno parado se
+  // suelta: su «(Parado.)» va encima de ellos, no debajo.
+  const enCola = node.classList.contains('queued') ? null : log.querySelector(':scope > .msg.user.queued, :scope > .msg.user[data-parada]');
+  if (enCola) log.insertBefore(node, enCola); else log.appendChild(node);
+}
+
 function addMsg(cls, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + cls;
@@ -111,7 +123,7 @@ function addMsg(cls, text) {
   } else {
     div.textContent = text;
   }
-  $('chat-log').appendChild(div);
+  appendLog(div);
   $('chat-log').scrollTop = $('chat-log').scrollHeight;
   return div;
 }
@@ -131,7 +143,7 @@ function addTool(tool, arg) {
     a.textContent = String(arg).slice(0, 60);
     div.appendChild(a);
   }
-  $('chat-log').appendChild(div);
+  appendLog(div);
   $('chat-log').scrollTop = $('chat-log').scrollHeight;
   return div;
 }
@@ -145,7 +157,7 @@ function addToolResult(result) {
   const pre = document.createElement('pre');
   pre.textContent = result.slice(0, 1500);
   det.append(sum, pre);
-  $('chat-log').appendChild(det);
+  appendLog(det);
   $('chat-log').scrollTop = $('chat-log').scrollHeight;
   return det;
 }
@@ -165,7 +177,7 @@ function renderPlanCard(plan) {
     div = document.createElement('div');
     div.id = domId;
     div.className = 'msg plan-card';
-    $('chat-log').appendChild(div);
+    appendLog(div);
   }
   div.innerHTML =
     `<span class="plan-status">${escapeHtml(PLAN_STATUS_LABEL[plan.status] || plan.status)}</span>` +
@@ -240,6 +252,9 @@ function renderActiveLog() {
     }
   }
   if (active.pumping) activeThinking = thinkingBubble();
+  // Lo que espera en la cola todavía no está en el historial: sin esto, al
+  // volver a la pestaña los mensajes encolados desaparecían de la vista.
+  for (const it of active.queue) if (it !== active.turno) addMsg('user queued', typeof it === 'string' ? it : it.text).title = t('queuedTitle');
 }
 
 // evento del módulo de conversaciones: 'switch' (cambiaste de pestaña o se
@@ -248,6 +263,19 @@ function renderActiveLog() {
 // Las conversaciones EN SEGUNDO PLANO nunca tocan el DOM visible — solo se
 // refleja su punto de «ocupada» en la barra de pestañas.
 function onConvEvent(kind, id, payload) {
+  if (kind === 'turn') {
+    // Un mensaje encolado empieza: deja de estar «en cola» y la burbuja de
+    // «pensando» pasa debajo de él (era la del turno anterior, más arriba).
+    const active = conv.getActive();
+    if (!active || id !== active.id) return;
+    const enCola = $('chat-log').querySelector(':scope > .msg.user.queued');
+    if (enCola) {
+      enCola.classList.remove('queued');
+      enCola.removeAttribute('title');
+      if (activeThinking) { activeThinking.remove(); activeThinking = thinkingBubble(); }
+    }
+    return;
+  }
   if (kind !== 'event') renderTabsBar();
   // El botón es de la conversación ACTIVA: al cambiar de pestaña se repinta.
   // Antes se quedaba como lo dejó la anterior — un ■ sobre una conversación
@@ -263,7 +291,18 @@ function onConvEvent(kind, id, payload) {
     else { activeThinking?.remove(); activeThinking = null; }
     return;
   }
-  if (kind === 'stopping') { paintSendButton(); anunciarEnvio(payload ? t('stopping') : t('stopped')); return; }
+  if (kind === 'stopping') {
+    // Parar vacía la cola: lo que esperaba ya no se va a mandar, y se dice.
+    if (payload) for (const m of $('chat-log').querySelectorAll(':scope > .msg.user.queued')) {
+      m.classList.replace('queued', 'cancelled');
+      m.title = t('queuedCancelled');
+      m.dataset.parada = '1';
+    }
+    else for (const m of $('chat-log').querySelectorAll(':scope > .msg.user[data-parada]')) delete m.dataset.parada;
+    paintSendButton();
+    anunciarEnvio(payload ? t('stopping') : t('stopped'));
+    return;
+  }
   if (kind === 'event') {
     const ev = payload;
     if (ev.type === 'token') activeThinking?.tick(ev.text);
@@ -281,7 +320,9 @@ function onConvEvent(kind, id, payload) {
 function send(text) {
   const active = conv.getActive();
   if (!active) return;
-  addMsg('user', text);
+  // Si la elfa ya está con algo, el mensaje espera su turno y se ve así (⏳).
+  const burbuja = addMsg(active.pumping || active.queue.length ? 'user queued' : 'user', text);
+  if (burbuja.classList.contains('queued')) burbuja.title = t('queuedTitle');
   if (goalMode) conv.startGoal(active.id, text);
   else conv.send(active.id, text);
 }
@@ -1180,13 +1221,17 @@ $('prompt').addEventListener('keydown', e => {
 });
 $('composer').addEventListener('submit', e => {
   e.preventDefault();
-  // Mientras el agente trabaja, el mismo botón PARA en vez de enviar. Si ya se
-  // está parando, lo que se escriba con Enter va a la cola y sale en cuanto
-  // termine; pulsar el propio botón, que dice «Parando…» y está aria-disabled,
-  // no hace nada (requestSubmit() desde el cuadro de texto llega sin submitter).
+  // Mientras el agente trabaja, el BOTÓN para en vez de enviar. Enter no: con
+  // texto lo ENCOLA (cada conversación acepta y encola mensajes) y sale en
+  // cuanto termine lo de ahora. Antes Enter también paraba, y el texto se
+  // quedaba sin enviar en la caja. `submitter` es el botón solo en un clic (o
+  // Enter/Espacio con el foco en él); con Enter en el cuadro de texto
+  // (requestSubmit sin argumento) es null. Si ya se está parando, pulsar el
+  // propio botón, que dice «Parando…» y está aria-disabled, no hace nada.
   const active = conv.getActive();
-  if (active?.parando && e.submitter?.id === 'btn-send') return;
-  if (active && active.pumping && !active.parando) { conv.stopActive(); return; }
+  const desdeBoton = e.submitter?.id === 'btn-send';
+  if (desdeBoton && active?.parando) return;
+  if (desdeBoton && active && active.pumping && !active.parando) { conv.stopActive(); return; }
   const text = $('prompt').value.trim();
   if (!text) return;
   $('prompt').value = '';
