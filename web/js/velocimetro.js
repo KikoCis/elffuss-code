@@ -21,6 +21,10 @@ const MAX = 60;                  // turnos guardados: suficiente para ver forma
 let hist = [];                   // [{ p: prefillTokS, g: genTokS, t: ttftMs }]
 let tareas = [];                 // [{ ok: bool, ms: number }]
 let chip = null, panel = null, prov = null, cancelar = null;
+// Los oyentes del chip y del documento se ponen UNA vez. montar() se llama en
+// cada carga del motor, y antes cada llamada añadía otro par: con dos cargas
+// un clic abría y cerraba el panel a la vez y ya no se abría nunca.
+let cableado = false;
 
 const leer = () => {
   try {
@@ -134,15 +138,54 @@ export function tarea({ ok, ms: dur }) {
   if (panel && !panel.hidden) pintarPanel();
 }
 
-/** Engancha el velocímetro. `provider` es el módulo del motor, o null si no hay. */
+function abrirPanel(abrir) {
+  if (!panel || !chip) return;
+  panel.hidden = !abrir;
+  chip.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+  if (abrir) pintarPanel();
+}
+
+function cablear() {
+  if (cableado || !chip) return;
+  cableado = true;
+  chip.setAttribute('aria-haspopup', 'dialog');
+  chip.setAttribute('aria-controls', panel?.id || '');
+  chip.setAttribute('aria-expanded', 'false');
+  if (panel) { panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Velocidad de esta máquina'); }
+  chip.addEventListener('click', () => abrirPanel(!!panel && panel.hidden));
+  // Cerrar al pulsar fuera, como el resto de los desplegables de la cabecera.
+  document.addEventListener('click', e => {
+    if (!panel || panel.hidden) return;
+    if (e.target === chip || chip.contains(e.target) || panel.contains(e.target)) return;
+    abrirPanel(false);
+  });
+  // …y con Escape, devolviendo el foco al chip.
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !panel || panel.hidden || e.defaultPrevented) return;
+    e.preventDefault();
+    abrirPanel(false);
+    chip.focus();
+  });
+}
+
+/** Engancha el velocímetro. `provider` es el módulo del motor, o null si no
+ *  hay: con null (o un proveedor que no mide) el chip y el panel se ocultan y
+ *  se deja de escuchar al anterior. Antes, al pasar del motor a ONNX o a un
+ *  proveedor externo, el chip seguía enseñando las cifras del motor. */
 export function montar(provider, chipId = 'speed-chip', panelId = 'speed-panel') {
   prov = provider || null;
   chip = document.getElementById(chipId);
   panel = document.getElementById(panelId);
   leer();
-  if (!chip || !prov?.alMedir) { if (chip) chip.hidden = true; return; }
-
   cancelar?.();
+  cancelar = null;
+  if (!chip || !prov?.alMedir) {
+    if (chip) { chip.hidden = true; chip.setAttribute('aria-expanded', 'false'); }
+    if (panel) panel.hidden = true;
+    return;
+  }
+  cablear();
+
   cancelar = prov.alMedir(m => {
     pintarChip(m);
     // El historial se apunta UNA vez por turno, al cerrarse: apuntando en cada
@@ -155,17 +198,6 @@ export function montar(provider, chipId = 'speed-chip', panelId = 'speed-panel')
     if (panel && !panel.hidden) pintarPanel();
   });
 
-  chip.addEventListener('click', () => {
-    if (!panel) return;
-    panel.hidden = !panel.hidden;
-    if (!panel.hidden) pintarPanel();
-  });
-  // Cerrar al pulsar fuera, como el resto de los desplegables de la cabecera.
-  document.addEventListener('click', e => {
-    if (!panel || panel.hidden) return;
-    if (e.target === chip || panel.contains(e.target)) return;
-    panel.hidden = true;
-  });
   const m = prov.ultimaMedida?.();
   if (m) pintarChip(m); else chip.hidden = true;
 }

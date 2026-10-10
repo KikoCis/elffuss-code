@@ -772,9 +772,14 @@ function errorHumano(e) {
 let loadingId = null;
 // Lo pone renderSettings: repinta las tarjetas de modelo del panel abierto.
 let repintaTarjetasModelo = () => {};
+// Solo el motor propio mide tok/s: con cualquier otro cerebro el chip ⚡ se
+// oculta (montar(null)) en vez de seguir enseñando las cifras del motor.
+const apagaVelocimetro = () => import('./velocimetro.js').then(v => v.montar(null)).catch(() => {});
+
 async function changeModel(id) {
   if (id === 'rules') {
     conv.setProvider(rules);
+    apagaVelocimetro();
     activeModel = 'rules';
     guardaPref('elffusscode.model', 'rules');
     pintaDot('off', 'rules');
@@ -794,6 +799,7 @@ async function changeModel(id) {
       }
     });
     conv.setProvider(mod);
+    if (!id.startsWith('engine:')) apagaVelocimetro();
     // AHORA sí se reanuda lo que quedó a medias. Al refrescar durante un turno,
     // el mensaje sigue en la cola —se guarda al enviarlo— pero reanudarlo antes
     // de este punto lo habría procesado con el cerebro básico. Aquí ya hay
@@ -834,6 +840,7 @@ async function changeModel(id) {
       if (okc) return true;
     }
     conv.setProvider(rules);
+    apagaVelocimetro();
     activeModel = 'rules';
     pintaDot('error', id);
     // En palabras de persona («sin conexión», «sin GPU», «sin espacio»…), con
