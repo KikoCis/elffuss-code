@@ -72,6 +72,8 @@ export function triggerEditor(actionId) {
   editor?.getAction(actionId)?.run();
 }
 export function hasEditor() { return !!editor; }
+// Llevar el foco al editor (p. ej. tras «Abrir en el editor» desde la Mente).
+export function focusEditor() { try { editor?.focus(); } catch { /* sin editor */ } }
 // La ruta del fichero activo (o null): el menú la usa para no lanzar acciones
 // del editor que no hacen nada sin un fichero abierto.
 export function activeFile() { return active; }

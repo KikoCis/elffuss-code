@@ -18,12 +18,18 @@ import * as ceo from './ceo.js';
 import * as db from './db.js';
 import { renderMarkdown } from './md.js';
 import { t } from './i18n.js';
+import { abrirModal } from './modal.js';
 
 const SOUNDCLOUD = 'https://soundcloud.com/dekel-official/dekel-baoba-festival-2023';
 const CEO_COLOR = '#ff4d8d';
 
 let open = false, built = false, raf = null;
 let overlay, S, widget, onOpenFile = () => {}, onExecute = () => {};
+// La Mente es MODAL (role=dialog, aria-modal): mientras está abierta el IDE de
+// detrás queda inerte, el foco entra en ella y al cerrarla vuelve a quien la
+// abrió. Antes solo lo declaraba: Tab seguía detrás de la capa —el árbol, la
+// pestaña, Monaco— y cada Tab más sangraba el fichero abierto sin verlo.
+let cerrarModal = null;
 // Ciudad de fondo (vista real del workspace) y semilla de pensamientos previos:
 // AMBOS opcionales e inyectados por la app anfitriona — Code tiene un motor
 // VibeCodeViewer sobre su proyecto único; Claw (v1) no lo ofrece y la Mente
@@ -265,9 +271,11 @@ function selectThoughtNode(mesh) { showThoughtPanel(mesh); focusOn(mesh.position
 // Abrir un fichero DESDE la Mente: primero se cierra la Mente. Antes la
 // pestaña se abría detrás de esta capa, que lo tapa todo, y parecía que el
 // botón no hacía nada.
+// «Abrir en el editor»: el foco va al editor (lo pone la app anfitriona al
+// abrir el fichero), no de vuelta a la elfa.
 function openInEditor(path) {
   document.getElementById('mind-panel')?.classList.remove('show');
-  closeMind();
+  closeMind({ devolverFoco: false });
   onOpenFile(path);
 }
 // Las rutas `entre comillas invertidas` de una propuesta se pueden abrir.
@@ -537,7 +545,12 @@ function buildScene(canvas, W, H) {
 export async function openMind() {
   if (open) return;
   open = true;
-  if (built) { overlay.style.display = ''; if (musicOn) { try { widget?.play(); } catch {} } paintPlay(); startLoop(); return; }
+  if (built) {
+    overlay.style.display = '';
+    cerrarModal = abrirModal(overlay, { foco: '#mind-close' });
+    if (musicOn) { try { widget?.play(); } catch {} }
+    paintPlay(); startLoop(); return;
+  }
 
   overlay = document.createElement('div');
   overlay.id = 'mind-overlay';
@@ -555,6 +568,7 @@ export async function openMind() {
     '<div id="mind-anchors"></div><div id="mind-panel"></div><div id="mind-cfg"></div>' +
     `<div id="mind-log"><div class="ml-head">${escHtml(t('mindLogTitle'))}<button id="ml-x" aria-label="${escHtml(t('close'))}">✕</button></div><div id="mind-log-body" role="log"></div></div>`;
   document.body.appendChild(overlay);
+  cerrarModal = abrirModal(overlay, { foco: '#mind-close' });
   wireConfig(overlay); wireHistory(overlay); wirePlayStop(overlay);
   mountMusic(overlay);
   anchors.length = 0; thoughtNodes = []; stars = []; lineBuf.clear();
@@ -584,7 +598,7 @@ export async function openMind() {
     S.camera.aspect = w / h; S.camera.updateProjectionMatrix();
   };
   window.addEventListener('resize', onResize); S.onResize = onResize;
-  overlay.querySelector('#mind-close').addEventListener('click', closeMind);
+  overlay.querySelector('#mind-close').addEventListener('click', () => closeMind());
   S.onKey = e => { if (e.key === 'Escape') closeMind(); };
   document.addEventListener('keydown', S.onKey);
   built = true;
@@ -685,12 +699,15 @@ function startLoop() {
   loop(performance.now());
 }
 
-export function closeMind() {
+// `devolverFoco: false` cuando quien cierra lleva el foco a otro sitio (el editor).
+export function closeMind({ devolverFoco = true } = {}) {
   open = false;
   if (raf) { cancelAnimationFrame(raf); raf = null; }
   lastMs = 0;
   try { widget?.pause(); } catch {}
   if (overlay) overlay.style.display = 'none';
+  cerrarModal?.({ devolverFoco: devolverFoco !== false });
+  cerrarModal = null;
 }
 
 // para tests/depuración

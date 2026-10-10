@@ -4,7 +4,7 @@ import * as rules from './providers/rules.js';
 import * as codeTools from './tools/code.js';
 import * as db from './db.js';
 import * as settings from './settings.js';
-import { initEditor, refreshTree, openFile, gotoLine, triggerEditor, hasEditor, saveActive, activeFile } from './ide.js';
+import { initEditor, refreshTree, openFile, gotoLine, triggerEditor, hasEditor, saveActive, activeFile, focusEditor } from './ide.js';
 import { ACTIVITY, UI } from './icons.js';
 import { renderMarkdown } from './md.js';
 import * as skills from './skills.js';
@@ -1677,7 +1677,9 @@ $('view-close').addEventListener('click', () => closeView({ foco: true }));
 // Cuando NO estás pidiendo nada, la elfa trabaja: revisa el proyecto y propone
 // mejoras (en elffuss-mind/, sin tocar tu código). Clic en la elfa → abre la
 // «Mente» (mundo trance + pensamientos paralelos + música) y activa el cerebro.
-mind.setOpenFile(openFile);
+// «Abrir en el editor» de la Mente: abre el fichero y deja el foco en el editor
+// (la Mente cierra sin devolverlo a la elfa).
+mind.setOpenFile(async p => { await openFile(p); focusEditor(); });
 mind.init({ buildCity: buildCityAdapter, loadThoughts: loadThoughtsAdapter });
 // «Ejecutar esta propuesta»: la manda a la MISMA cola/agente del chat normal
 // (mismas herramientas reales, mismo gate de Auto-edit) — no un auto-apply

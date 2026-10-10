@@ -10,6 +10,9 @@
 //   4. «Abrir en el editor» cierra la Mente antes (antes abría DETRÁS) y las
 //      rutas de la propuesta abren su fichero.
 //   5. La música no se carga sola: hay que pedirla, y se puede quitar.
+//   6. Con el teclado es modal: el foco entra, Tab no sale, el IDE de detrás queda
+//      inerte, Escape devuelve el foco a la elfa y «Abrir en el editor» lo deja
+//      en el editor.
 // La red a SoundCloud va bloqueada: el test solo mira si la app la PIDE.
 //
 //   BASE=http://127.0.0.1:8898 node tests/mind-consent.mjs
@@ -115,6 +118,38 @@ const sinMusica = await p.evaluate(() => !document.getElementById('mind-sc'));
 ok('5 · «Poner música» carga el reproductor y «Quitar música» lo elimina', conMusica && sinMusica && sc.length > 0, `${conMusica} ${sinMusica} ${sc.length}`);
 const leyenda = await p.evaluate(() => [...document.querySelectorAll('#mind-legend .ml-item')].every(x => x.tagName === 'BUTTON'));
 ok('3 · la leyenda de perfiles son botones (teclado)', leyenda);
+
+// 6 · con el teclado la Mente es modal de verdad (antes Tab seguía DETRÁS, en el
+//     árbol, la pestaña y Monaco, y cada Tab sangraba el fichero abierto)
+await p.keyboard.press('Escape');
+const textoApp = () => p.evaluate(() => window.monaco.editor.getModels().find(m => /src\/app\.js$/.test(m.uri.path))?.getValue());
+const antes6 = await textoApp();
+await p.focus('#act-mind');
+await p.keyboard.press('Enter');
+await p.waitForFunction(() => getComputedStyle(document.getElementById('mind-overlay')).display !== 'none');
+const r6 = await p.evaluate(() => ({ foco: document.activeElement?.id, ideInerte: document.getElementById('ide').inert }));
+ok('6 · con Enter el foco entra en la Mente (✕ salir) y el IDE de detrás queda inerte', r6.foco === 'mind-close' && r6.ideInerte, JSON.stringify(r6));
+const visitados = [];
+for (let i = 0; i < 10; i++) {
+  await p.keyboard.press('Tab');
+  visitados.push(await p.evaluate(() => {
+    const a = document.activeElement;
+    return a?.closest('#mind-overlay') ? 'mente' : a === document.body || !a ? 'body' : (a.id || a.className || a.tagName);
+  }));
+}
+ok('6 · Tab no sale de la Mente (nunca llega al árbol, las pestañas ni el editor)', visitados.every(v => v === 'mente' || v === 'body'), JSON.stringify(visitados));
+ok('6 · …y el fichero abierto detrás no cambia', await textoApp() === antes6);
+await p.keyboard.press('Escape');
+const r6c = await p.evaluate(() => ({ cerrada: getComputedStyle(document.getElementById('mind-overlay')).display === 'none', foco: document.activeElement?.id, ideInerte: document.getElementById('ide').inert }));
+ok('6 · Escape cierra, el IDE vuelve a estar vivo y el foco vuelve a la elfa', r6c.cerrada && !r6c.ideInerte && r6c.foco === 'act-mind', JSON.stringify(r6c));
+await p.keyboard.press('Enter');
+await p.waitForFunction(() => getComputedStyle(document.getElementById('mind-overlay')).display !== 'none');
+await p.evaluate(() => [...document.querySelectorAll('.mind-node-label')].find(l => l.style.display !== 'none').click());
+await p.waitForSelector('#mind-panel.show');
+await p.click('#mp-open');
+ok('6 · «Abrir en el editor» deja el foco EN el editor', await p.waitForFunction(() =>
+  getComputedStyle(document.getElementById('mind-overlay')).display === 'none' && !!document.activeElement?.closest('.monaco-editor'), null, { timeout: 5000 }).then(() => true, () => false),
+  await p.evaluate(() => document.activeElement?.className || document.activeElement?.tagName));
 
 console.log('\n  errores JS:', errs[0] || 'ninguno');
 ok('sin errores de página', errs.length === 0, errs.join(' | '));
