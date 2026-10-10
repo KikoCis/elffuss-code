@@ -417,6 +417,10 @@ body.hide-tree #sidebar { display: none; }
 #btn-send.is-stop { background: linear-gradient(135deg, #e5484d, #c0353a); cursor: pointer; }
 #btn-send.is-stop svg { opacity: 1; }
 #btn-send.is-stop::after { display: none; }   /* fuera el spinner de bloqueo */
+/* «Parando…»: ya se pulsó ■ y el turno se está soltando. Texto en vez de icono,
+   apagado y sin el spinner (en un botón más ancho saldría ovalado). */
+#btn-send.is-stopping { background: #7a2a2d; color: #f3d6d7; cursor: progress; font-size: .78rem; white-space: nowrap; }
+#btn-send.is-stopping::after { display: none; }
 
 #composer #prompt { flex: 1; min-width: 0; }
 

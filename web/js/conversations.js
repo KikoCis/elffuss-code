@@ -57,16 +57,25 @@ export function isBusy() {
 
 export function getActive() { return activeId ? convs.get(activeId) : null; }
 
-// Parar la conversación activa mientras trabaja: aborta la generación/bucle del
-// agente (agent.stop() propaga la señal a los proveedores) y vacía la cola para
-// que no arranque el siguiente turno. runGoal comprueba conv.stopped para no
-// seguir con las tareas pendientes del plan.
+// Parar la conversación activa mientras trabaja: aborta el turno en curso (su
+// señal llega al agente, al proveedor y a las herramientas), vacía la cola y lo
+// GUARDA YA. Antes la cola vaciada solo vivía en memoria hasta que el turno
+// terminaba: si recargabas justo después de parar, el mensaje parado seguía en
+// IndexedDB y se volvía a ejecutar al abrir.
+//
+// `parando` cubre el rato entre el clic y el final real del turno (un modelo
+// lento tarda en soltar la generación): la UI lo enseña como «Parando…» en vez
+// de dejar un ■ que parece no hacer caso.
 export function stopActive() {
   const c = getActive();
-  if (!c) return false;
+  if (!c || (!c.pumping && !c.queue.length)) return false;
   c.stopped = true;
+  c.parando = true;
+  try { c.aborter?.abort(); } catch { /* */ }
   try { c.agent.stop(); } catch { /* */ }
   c.queue.length = 0;
+  persistConv(c).catch(e => console.warn('[elffuss] no se pudo guardar la cola vaciada', e));
+  onChange('stopping', c.id, true);
   return true;
 }
 
@@ -233,58 +242,87 @@ export function startGoal(id, text) {
   pump(conv);
 }
 
+// Cada turno lleva su propia parada (conv.aborter), creada ANTES de esperar el
+// cerrojo: parar mientras espera turno lo cancela sin llegar a llamar al
+// modelo. Antes la parada solo alcanzaba al turno que ya estaba generando, así
+// que un mensaje parado en la cola se ejecutaba igual en cuanto le tocaba.
+//
+// Y el turno solo se quita de la cola si sigue siendo el primero. Parar vacía
+// la cola, y lo que el usuario mande justo después entra en ella mientras el
+// turno parado termina de soltarse: el `shift()` a ciegas de antes se llevaba
+// ESE mensaje nuevo, y además el `break` por conv.stopped dejaba la cola
+// parada con él dentro. Mandar algo después de parar no obtenía respuesta.
 async function pump(conv) {
   if (conv.pumping) return;
   conv.pumping = true;
-  conv.stopped = false;
   onChange('pumping', conv.id, true);
   while (conv.queue.length) {
     const item = normalizeItem(conv.queue[0]);
+    conv.queue[0] = item;   // misma referencia para saber luego si sigue ahí
+    // Lo que está en la cola llegó DESPUÉS de cualquier parada (parar la vacía),
+    // así que la marca de la parada anterior no le aplica. Tampoco «Parando…»:
+    // una parada que cayó entre dos turnos no tenía turno que soltar.
+    conv.stopped = false;
+    if (conv.parando) { conv.parando = false; onChange('stopping', conv.id, false); }
+    // La parada del turno existe ANTES de la primera espera (guardar el intento
+    // y luego el cerrojo): un ■ que cae en cualquiera de las dos lo cancela.
+    const aborter = (conv.aborter = new AbortController());
+    const signal = aborter.signal;
     // El intento se cuenta y se GUARDA antes de ejecutar: si el turno se lleva
     // la pestaña, esto es lo único que queda para saber que ya se intentó.
     // Guardarlo después no serviría de nada — no habría «después».
     item.intentos = (item.intentos || 0) + 1;
-    conv.queue[0] = item;
     await persistConv(conv);
     const myTurn = inferenceLock;
     let release;
     inferenceLock = new Promise(r => { release = r; });
     await myTurn; // espera su turno de inferencia (un solo modelo cargado, no admite 2 generate() a la vez)
     try {
-      // un fallo aquí (del modelo, de una tool, o del propio repintado en
-      // main.js) NUNCA debe dejar la conversación "pumping" para siempre —
-      // eso bloquearía sus futuros mensajes Y al cerebro CEO (isBusy()).
-      // Tasa de resolución y tiempo por tarea. Se mide aquí, que es donde una
-      // tarea empieza y acaba de verdad: el motor solo ve turnos y no sabe qué
-      // es una tarea. «Resuelta» = ni excepción ni evento de error, porque el
-      // fallo típico no es una excepción sino una respuesta que llega al
-      // usuario como error — contar solo excepciones daría un 100 % perpetuo.
-      const tTarea = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-      let huboError = false;
-      const onEvent = ev => {
-        if (ev && ev.type === 'error') huboError = true;
-        try { onChange('event', conv.id, ev); } catch (e) { console.error('[elffuss] fallo pintando un evento de chat', e); }
-      };
-      try {
-        if (item.kind === 'goal') await runGoal(conv, item.text, onEvent);
-        else await conv.agent.handle(item.text, onEvent);
-      } finally {
+      // Parado (o quitado de la cola) mientras esperaba: ni se llama al modelo.
+      if (!signal.aborted && conv.queue[0] === item) {
+        // un fallo aquí (del modelo, de una tool, o del propio repintado en
+        // main.js) NUNCA debe dejar la conversación "pumping" para siempre —
+        // eso bloquearía sus futuros mensajes Y al cerebro CEO (isBusy()).
+        // Tasa de resolución y tiempo por tarea. Se mide aquí, que es donde una
+        // tarea empieza y acaba de verdad: el motor solo ve turnos y no sabe qué
+        // es una tarea. «Resuelta» = ni excepción ni evento de error, porque el
+        // fallo típico no es una excepción sino una respuesta que llega al
+        // usuario como error — contar solo excepciones daría un 100 % perpetuo.
+        // Una tarea PARADA no cuenta ni como resuelta ni como fallida: la cortó
+        // quien la pidió. Contarla como resuelta inflaría la tasa (parar no
+        // emite 'error'), y como fallida la hundiría por pulsar ■.
+        const tTarea = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        let huboError = false, parada = false;
+        const onEvent = ev => {
+          if (ev && ev.type === 'error') huboError = true;
+          if (ev && ev.type === 'aborted') parada = true;
+          try { onChange('event', conv.id, ev); } catch (e) { console.error('[elffuss] fallo pintando un evento de chat', e); }
+        };
         try {
-          const vm = await import('./velocimetro.js');
-          const fin = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-          vm.tarea({ ok: !huboError, ms: fin - tTarea });
-        } catch { /* sin velocímetro la app funciona igual */ }
+          if (item.kind === 'goal') await runGoal(conv, item.text, onEvent, { signal });
+          else await conv.agent.handle(item.text, onEvent, { signal });
+        } finally {
+          if (!parada && !signal.aborted) {
+            try {
+              const vm = await import('./velocimetro.js');
+              const fin = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+              vm.tarea({ ok: !huboError, ms: fin - tTarea });
+            } catch { /* sin velocímetro la app funciona igual */ }
+          }
+        }
       }
     } catch (e) {
       console.error('[elffuss] fallo procesando el turno', e);
       telemetry.reportError('pump: ' + (e?.message || e), { stack: e?.stack || '' });
       try { onChange('event', conv.id, { type: 'error', text: 'Error interno: ' + (e?.message || e) }); } catch { /* ya está registrado arriba */ }
     } finally { release(); }
-    conv.queue.shift();
+    if (conv.aborter === aborter) conv.aborter = null;
+    if (conv.queue[0] === item) conv.queue.shift();
     conv.updatedAt = Date.now();
+    if (conv.parando) { conv.parando = false; onChange('stopping', conv.id, false); }
     await persistConv(conv);
-    if (conv.stopped) break;
   }
+  conv.parando = false;   // una parada que llegó entre turnos ya no tiene nada que esperar
   conv.pumping = false;
   onChange('pumping', conv.id, false);
 }

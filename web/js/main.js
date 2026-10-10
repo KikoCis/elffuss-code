@@ -156,8 +156,8 @@ const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
 // ejecutor). Un solo nodo por plan (mismo id), repintado in-place según
 // llegan los eventos 'plan'/'plan_update'/'plan_complete' — así se ve la
 // lista evolucionar en vivo en vez de reconstruirse entera cada vez.
-const PLAN_ICO = { pending: '⏳', 'in-progress': '🔄', done: '✅', failed: '❌', skipped: '⏭️' };
-const PLAN_STATUS_LABEL = { planning: t("planPlanning"), running: t("planRunning"), done: t("planDone"), failed: t("planFailed") };
+const PLAN_ICO = { pending: '⏳', 'in-progress': '🔄', done: '✅', failed: '❌', skipped: '⏭️', stopped: '⏹️' };
+const PLAN_STATUS_LABEL = { planning: t("planPlanning"), running: t("planRunning"), done: t("planDone"), failed: t("planFailed"), stopped: t("planStopped") };
 function renderPlanCard(plan) {
   const domId = 'plan-' + plan.id;
   let div = document.getElementById(domId);
@@ -249,19 +249,21 @@ function renderActiveLog() {
 // refleja su punto de «ocupada» en la barra de pestañas.
 function onConvEvent(kind, id, payload) {
   if (kind !== 'event') renderTabsBar();
-  if (kind === 'switch') { renderActiveLog(); return; }
+  // El botón es de la conversación ACTIVA: al cambiar de pestaña se repinta.
+  // Antes se quedaba como lo dejó la anterior — un ■ sobre una conversación
+  // parada, o un ▶ sobre una que seguía trabajando.
+  if (kind === 'switch') { renderActiveLog(); paintSendButton(); return; }
   const active = conv.getActive();
   if (!active || id !== active.id) return;
   if (kind === 'pumping') {
     // NO deshabilitar el botón mientras genera: se convierte en PARAR. Antes se
     // ponía disabled=payload, y por eso no había forma de cortar un run largo.
-    $('btn-send').disabled = false;
-    $('btn-send').classList.toggle('sending', payload);
     paintSendButton();
     if (payload) { if (!activeThinking) activeThinking = thinkingBubble(); }
     else { activeThinking?.remove(); activeThinking = null; }
     return;
   }
+  if (kind === 'stopping') { paintSendButton(); return; }
   if (kind === 'event') {
     const ev = payload;
     if (ev.type === 'token') activeThinking?.tick(ev.text);
@@ -1178,9 +1180,10 @@ $('prompt').addEventListener('keydown', e => {
 });
 $('composer').addEventListener('submit', e => {
   e.preventDefault();
-  // Mientras el agente trabaja, el mismo botón PARA en vez de enviar.
+  // Mientras el agente trabaja, el mismo botón PARA en vez de enviar. Si ya se
+  // está parando, lo que se escriba va a la cola y sale en cuanto termine.
   const active = conv.getActive();
-  if (active && active.pumping) { conv.stopActive(); return; }
+  if (active && active.pumping && !active.parando) { conv.stopActive(); return; }
   const text = $('prompt').value.trim();
   if (!text) return;
   $('prompt').value = '';
@@ -1193,10 +1196,19 @@ const STOP_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="
 function paintSendButton() {
   const b = document.getElementById('btn-send');
   if (!b) return;
-  const busy = !!conv.getActive()?.pumping;
-  b.classList.toggle('is-stop', busy);
-  b.innerHTML = busy ? STOP_ICON : UI.send;
-  b.title = busy ? 'Parar' : 'Enviar';
+  const active = conv.getActive();
+  const busy = !!active?.pumping;
+  // «Parando…»: ya se pulsó ■ y el turno aún se está soltando (un modelo lento
+  // tarda en dejar la generación). Deshabilitado y con aria-busy: antes el ■
+  // seguía igual tras el clic y parecía que no había hecho caso.
+  const parando = busy && !!active?.parando;
+  b.classList.toggle('sending', busy);
+  b.classList.toggle('is-stop', busy && !parando);
+  b.classList.toggle('is-stopping', parando);
+  b.disabled = parando;
+  if (parando) b.setAttribute('aria-busy', 'true'); else b.removeAttribute('aria-busy');
+  b.innerHTML = parando ? escapeHtml(t('stopping')) : busy ? STOP_ICON : UI.send;
+  b.title = parando ? t('stopping') : busy ? 'Parar' : 'Enviar';
   b.setAttribute('aria-label', b.title);
 }
 $('model-select').addEventListener('change', e => changeModel(e.target.value));
