@@ -75,6 +75,14 @@ const r2 = await p.evaluate(async () => {
 ok('2 · …y con el motor de reglas no se escribe ninguna propuesta', r2.forzado === false && r2.nombres.length === 1, JSON.stringify(r2));
 await p.click('#cfg-x');
 
+// 2 · «Reprogramar» no enciende el cerebro: ni en Básico ni si lo pausaste
+await p.click('#mind-playstop');            // pausarlo a propósito
+const pausado = await p.evaluate(async () => (await import('/js/ceo.js')).isEnabled());
+await p.click('#mind-config');
+await p.click('#cfg-save');
+const r2b = await p.evaluate(async () => ({ on: (await import('/js/ceo.js')).isEnabled(), boton: document.getElementById('mind-playstop').textContent }));
+ok('2 · «Reprogramar» no enciende un cerebro pausado (y el botón no cambia)', !pausado && !r2b.on && !/pausar/i.test(r2b.boton), JSON.stringify({ pausado, ...r2b }));
+
 // 3 · etiqueta de propuesta pulsable
 await p.waitForSelector('.mind-node-label', { timeout: 10000 });
 const r3 = await p.evaluate(() => {

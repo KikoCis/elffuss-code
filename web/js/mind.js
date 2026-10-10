@@ -411,9 +411,12 @@ function wireConfig(root) {
       ceo.setMission(cfg.querySelector('#cfg-mission').value);
       ceo.setSoulDir(cfg.querySelector('#cfg-dir').value);
       ceo.setProfiles(rows);
-      if (!ceo.isEnabled()) ceo.enable();
+      // Reprogramar NO enciende el cerebro: solo ▶ lo hace. Antes lo encendía
+      // (y lo dejaba guardado), también en modo Básico y también si lo habías
+      // pausado a propósito, sin que el botón dijera nada de encender.
       paintPlay();
       cfg.classList.remove('show');
+      root.querySelector('#mind-config')?.focus();
     };
     wireRows();
     function wireRows() { cfg.querySelectorAll('.cp-del').forEach(b => { b.onclick = () => b.closest('.cfg-prof').remove(); }); }
