@@ -8,6 +8,7 @@ import * as shell from './shell.js';
 let term = null, fit = null, ready = false;
 let Terminal = null, FitAddon = null;
 let line = '', pos = 0, histIdx = -1, busy = false;
+let enCurso = null;   // AbortController del comando que se está ejecutando
 const XT = '@xterm/xterm@5.5.0', FIT = '@xterm/addon-fit@0.10.0';
 
 // IMPORTANTE: cargamos xterm como ESM, no UMD. Monaco trae un loader AMD
@@ -42,19 +43,27 @@ async function run(raw) {
   const cmd = raw.trim();
   if (!cmd) { writePrompt(); return; }
   busy = true;
+  const ac = (enCurso = new AbortController());
   try {
-    const out = await shell.exec(cmd);
+    const out = await shell.exec(cmd, { signal: ac.signal });
     if (out === '\f') term.clear();
     else if (out) term.write('\r\n' + out.replace(/\n/g, '\r\n'));
   } catch (e) {
     term.write('\r\n\x1b[31m' + String(e && e.message || e).replace(/\n/g, '\r\n') + '\x1b[0m');
   }
+  if (enCurso === ac) enCurso = null;
   busy = false;
   writePrompt();
 }
 
 function onKey(data) {
-  if (busy) return;
+  // Con un comando en marcha solo se atiende Ctrl+C, y PARA el comando. Antes
+  // se ignoraba todo, también Ctrl+C: un `npm run dev` lanzado aquí no había
+  // forma de cortarlo, y ni cerrando el bridge se soltaba el terminal.
+  if (busy) {
+    if (data === '\x03' && enCurso && !enCurso.signal.aborted) { term.write('^C'); enCurso.abort(); }
+    return;
+  }
   switch (data) {
     case '\r':                                     // Enter
       { const cmd = line; line = ''; pos = 0; histIdx = -1; run(cmd); return; }

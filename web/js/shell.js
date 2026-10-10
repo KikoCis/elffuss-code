@@ -289,15 +289,16 @@ const CMDS = {
 const shellQuote = s => `'${String(s).replace(/'/g, "'\\''")}'`;
 // runtimes REALES solo si hay un Bridge local conectado (⚙ Ajustes) — se
 // ejecutan en tu máquina de verdad, en la carpeta configurada del bridge (no
-// en el cwd virtual del proyecto).
+// en el cwd virtual del proyecto). La señal (Ctrl+C en el terminal, parar el
+// agente) mata el proceso en el bridge.
 for (const r of ['node', 'npm', 'npx', 'python', 'python3', 'pip', 'yarn', 'pnpm', 'bun', 'deno', 'cargo', 'go'])
-  CMDS[r] = async (args) => {
+  CMDS[r] = async (args, _stdin, { signal = null } = {}) => {
     if (!bridgeClient.isConnected()) {
       throw new Error(`${r}: runtime real no disponible.\n${DIM('Descarga y arranca el Bridge local (⚙ Ajustes → 🔌 Bridge local) para ejecución real en tu máquina — se conecta solo en cuanto lo detecte. Mientras tanto, la elfa edita ficheros y tú navegas con los comandos de arriba (help).')}`);
     }
     const full = r + (args.length ? ' ' + args.map(shellQuote).join(' ') : '');
     let out = '';
-    const code = await bridgeClient.exec(full, { onOut: t => { out += t; }, onErr: t => { out += RED(t); } });
+    const code = await bridgeClient.exec(full, { onOut: t => { out += t; }, onErr: t => { out += RED(t); }, signal });
     if (code) out += `\n${DIM('(código de salida ' + code + ')')}`;
     return out || DIM('(sin salida)');
   };
@@ -337,17 +338,20 @@ function tokenize(seg) {
 
 // Ejecuta una línea completa (encadenado &&/;, tuberías, redirección).
 // `\f` en el retorno = orden de limpiar pantalla (para la UI).
-export async function exec(line, { record = true } = {}) {
+// `signal`: parar (Ctrl+C, o el agente parado) corta el comando en curso y no
+// lanza lo que quedaba de la cadena ni de la tubería.
+export async function exec(line, { record = true, signal = null } = {}) {
   line = line.trim();
   if (!line) return '';
   if (record) history.push(line);
   const segments = tokenizeChain(line);
-  if (segments.length === 1) return runPipeline(segments[0].cmd);
+  if (segments.length === 1) return runPipeline(segments[0].cmd, signal);
   // encadenado: A && B (B solo si A fue bien) · A ; B (B siempre)
   const outs = []; let ok = true;
   for (const { cmd, op } of segments) {
+    if (signal?.aborted) break;
     if (op === '&&' && !ok) continue;
-    try { outs.push(await runPipeline(cmd)); ok = true; }
+    try { outs.push(await runPipeline(cmd, signal)); ok = true; }
     catch (e) { ok = false; outs.push('\x1b[31m' + (e && e.message || e) + '\x1b[0m'); }
   }
   if (outs.every(o => o === '\f')) return '\f';
@@ -370,10 +374,11 @@ function tokenizeChain(line) {
 }
 
 // Ejecuta un pipeline (una etapa o varias unidas por |, con redirección final).
-async function runPipeline(line) {
+async function runPipeline(line, signal = null) {
   const stages = splitTop(line, '|').map(s => s.trim()).filter(Boolean);
   let data = '';
   for (let i = 0; i < stages.length; i++) {
+    if (signal?.aborted) break;
     let seg = stages[i], redir = null;
     if (i === stages.length - 1) {
       const m = seg.match(/(>>?)\s*(\S+)\s*$/);
@@ -384,7 +389,7 @@ async function runPipeline(line) {
     if (!name) continue;
     const fn = CMDS[name];
     if (!fn) throw new Error(`${name}: comando no encontrado (prueba ${GRN('help')})`);
-    data = (await fn(toks, data)) ?? '';
+    data = (await fn(toks, data, { signal })) ?? '';
     if (redir) {
       const segs = resolve(redir.file);
       const prev = redir.append ? await readText(segs).catch(() => '') : '';
@@ -406,7 +411,8 @@ export async function listDir(dirPart = '') {
 }
 
 // Ejecuta una orden desde la elfa (tool terminal.run): devuelve texto plano.
-export async function runForAgent(command) {
-  const out = await exec(command, { record: true });
+// `signal` es la del turno del agente: pararlo para también el comando.
+export async function runForAgent(command, { signal = null } = {}) {
+  const out = await exec(command, { record: true, signal });
   return out === '\f' ? '(pantalla limpiada)' : (stripAnsi(out) || '(sin salida)');
 }
