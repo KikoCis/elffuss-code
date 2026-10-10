@@ -333,45 +333,116 @@ function send(text, modo) {
   else conv.send(active.id, text);
 }
 
+// Pestañas de conversación con semántica de pestañas: la activa entra con Tab,
+// ←/→ se mueven, Supr cierra, Shift+F10 abre su menú (Renombrar, Cerrar,
+// Cerrar otras). Antes eran <div> sin foco y la × un <b>; el punto de
+// «trabajando» se anuncia también en el nombre accesible.
 function renderTabsBar() {
   const bar = $('conv-tabs');
   if (!bar) return;
+  const teniaFoco = bar.contains(document.activeElement);
   bar.replaceChildren();
+  bar.setAttribute('role', 'tablist');
+  bar.setAttribute('aria-label', t('convTabs'));
   const active = conv.getActive();
-  for (const c of conv.getOpenTabs()) {
+  const abiertas = conv.getOpenTabs();
+  for (const c of abiertas) {
     const el = document.createElement('div');
-    el.className = 'tab' + (active && c.id === active.id ? ' active' : '') + (c.pumping ? ' tab-busy' : '');
+    const on = !!active && c.id === active.id;
+    el.className = 'tab' + (on ? ' active' : '') + (c.pumping ? ' tab-busy' : '');
     el.dataset.id = c.id;
+    el.setAttribute('role', 'tab');
+    el.setAttribute('aria-selected', on ? 'true' : 'false');
+    el.tabIndex = on ? 0 : -1;
     const name = document.createElement('span');
     name.className = 'tab-name';
     const title = conv.titleFor(c);
     name.textContent = title;
     name.title = title;
-    const x = document.createElement('b');
+    el.setAttribute('aria-label', title + (c.pumping ? ' · ' + t('convBusy') : ''));
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'tab-x';
+    x.tabIndex = -1;
     x.textContent = '×';
     x.title = t('tabClose');
+    x.setAttribute('aria-label', t('tabCloseNamed', { title }));
     x.onclick = e => { e.stopPropagation(); conv.closeTab(c.id); };
     el.append(name, x);
     el.onclick = () => conv.switchTo(c.id);
+    el.oncontextmenu = e => { e.preventDefault(); menuConversacion(c, e.clientX, e.clientY, el); };
+    el.onkeydown = e => {
+      const i = abiertas.indexOf(c);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const n = abiertas[(i + (e.key === 'ArrowRight' ? 1 : abiertas.length - 1)) % abiertas.length];
+        conv.switchTo(n.id);
+        $('conv-tabs').querySelector(`.tab[data-id="${n.id}"]`)?.focus();
+      } else if (e.key === 'Delete') { e.preventDefault(); conv.closeTab(c.id); $('conv-tabs').querySelector('.tab.active')?.focus(); }
+      else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); const r = el.getBoundingClientRect(); menuConversacion(c, r.left, r.bottom, el); }
+    };
     bar.appendChild(el);
   }
   const plus = document.createElement('button');
   plus.className = 'tab-add';
   plus.title = t('newConv');
+  plus.setAttribute('aria-label', t('newConv'));
   plus.textContent = '+';
   plus.onclick = () => conv.create();
   bar.appendChild(plus);
+  if (teniaFoco) bar.querySelector('.tab.active')?.focus();
+}
+
+// Menú de una pestaña de conversación (botón derecho / Shift+F10).
+function menuConversacion(c, x, y, volver) {
+  document.getElementById('conv-menu')?.remove();
+  const menu = document.createElement('div');
+  menu.id = 'conv-menu';
+  menu.className = 'conv-menu';
+  menu.setAttribute('role', 'menu');
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:200`;
+  const cerrar = () => { menu.remove(); document.removeEventListener('mousedown', fuera, true); volver?.focus?.(); };
+  const fuera = ev => { if (!menu.contains(ev.target)) cerrar(); };
+  const opciones = [
+    [t('convRename'), async () => {
+      const nuevo = prompt(t('convRenamePrompt'), conv.titleFor(c));
+      if (nuevo != null) await conv.rename(c.id, nuevo);
+    }],
+    [t('tmClose'), () => conv.closeTab(c.id)],
+    [t('tmCloseOthers'), () => { for (const o of conv.getOpenTabs()) if (o.id !== c.id) conv.closeTab(o.id); conv.switchTo(c.id); }],
+  ];
+  for (const [label, fn] of opciones) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'tm-item'; b.setAttribute('role', 'menuitem'); b.textContent = label;
+    b.onclick = () => { cerrar(); fn(); };
+    menu.appendChild(b);
+  }
+  menu.addEventListener('keydown', e => {
+    const l = [...menu.querySelectorAll('[role="menuitem"]')], i = l.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); cerrar(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); l[(i + 1) % l.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); l[(i - 1 + l.length) % l.length].focus(); }
+  });
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('mousedown', fuera, true), 0);
+  menu.querySelector('button')?.focus();
 }
 
 async function renderHistoryPanel() {
   const panel = $('history-panel');
   panel.replaceChildren();
+  // Un diálogo con filas que son botones: antes eran <div> y solo se usaban
+  // con el ratón. La conversación activa se marca (aria-current).
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-labelledby', 'hp-title');
   const head = document.createElement('div');
   head.className = 'hp-head';
-  head.append(document.createTextNode(t('tHistory')));
+  const tit = document.createElement('span'); tit.id = 'hp-title'; tit.textContent = t('tHistory');
+  head.append(tit);
   const xBtn = document.createElement('button');
   xBtn.textContent = '✕';
-  xBtn.onclick = () => { panel.hidden = true; };
+  xBtn.setAttribute('aria-label', t('close'));
+  xBtn.onclick = () => cierraHistorial();
   head.appendChild(xBtn);
   panel.appendChild(head);
   const list = document.createElement('div');
@@ -385,28 +456,37 @@ async function renderHistoryPanel() {
     list.appendChild(empty);
     return;
   }
+  const activa = conv.getActive()?.id;
   for (const c of all) {
     const row = document.createElement('div');
     row.className = 'hp-row';
-    const titEl = document.createElement('div');
+    const abrir = document.createElement('button');
+    abrir.type = 'button';
+    abrir.className = 'hp-open';
+    if (c.id === activa) abrir.setAttribute('aria-current', 'true');
+    const titEl = document.createElement('span');
     titEl.className = 'hp-title';
     titEl.textContent = c.title || t('newConv');
     const d = new Date(c.updatedAt);
-    const date = document.createElement('div');
+    const date = document.createElement('span');
     date.className = 'hp-date';
     date.textContent = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    abrir.append(titEl, date);
+    abrir.onclick = async () => { await conv.open(c.id); cierraHistorial({ foco: false }); $('prompt').focus(); };
     const del = document.createElement('button');
+    del.type = 'button';
     del.className = 'hp-del';
     del.title = t('histDel');
+    del.setAttribute('aria-label', t('histDelNamed', { title: c.title || t('thisConv') }));
     del.textContent = '🗑';
     del.onclick = async e => {
       e.stopPropagation();
       if (!confirm(t('confirmDel', { title: c.title || t('thisConv') }))) return;
       await conv.remove(c.id);
-      renderHistoryPanel();
+      await renderHistoryPanel();
+      ($('history-panel').querySelector('.hp-open') || $('history-panel').querySelector('.hp-head button'))?.focus();
     };
-    row.append(titEl, date, del);
-    row.onclick = async () => { await conv.open(c.id); panel.hidden = true; };
+    row.append(abrir, del);
     list.appendChild(row);
   }
 }
@@ -743,14 +823,32 @@ async function preloadModel() {
 // ---------- panel ⚙️ Ajustes: modelo (cerebro) + API keys ----------
 const el = (t, cls, txt) => { const e = document.createElement(t); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 
+// Ajustes (y el panel de skills, que usa el mismo sitio) es un diálogo: se
+// anuncia como tal, el foco entra en él al abrirse y vuelve a quien lo abrió
+// al cerrarse (también con Escape). Antes el foco se quedaba en el engranaje.
+let volverDeAjustes = null;
 function settingsShell(title) {
   const box = $('settings-panel');
+  const yaAbierto = !box.hidden && box.contains(document.activeElement);
+  if (box.hidden || !volverDeAjustes) volverDeAjustes = document.activeElement;
   box.hidden = false;
   box.replaceChildren();
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-labelledby', 'settings-title');
   const close = el('button', 'panel-close'); close.innerHTML = UI.close; close.title = t("close");
-  close.onclick = () => { box.hidden = true; };
-  box.append(close, el('h3', 'panel-title', title));
+  close.setAttribute('aria-label', t('close'));
+  close.onclick = () => cierraAjustes();
+  const h = el('h3', 'panel-title', title); h.id = 'settings-title'; h.tabIndex = -1;
+  box.append(close, h);
+  if (!yaAbierto) requestAnimationFrame(() => h.focus());
   return box;
+}
+function cierraAjustes() {
+  const box = $('settings-panel');
+  if (box.hidden) return;
+  box.hidden = true;
+  const v = volverDeAjustes; volverDeAjustes = null;
+  if (v && document.body.contains(v)) v.focus();
 }
 
 function showBridgeMsg(card, text, isErr) {
@@ -1335,6 +1433,12 @@ function pushPromptHistory(text) {
 $('prompt').addEventListener('keydown', e => {
   if (!$('menu').hidden) return;                 // el menú «/» ya usa ↑/↓
   const inp = e.target;
+  // En un borrador de varias líneas, ↑/↓ mueven el cursor como siempre: el
+  // historial solo salta desde la primera línea (↑) o la última (↓). Antes ↑
+  // en un texto largo lo sustituía entero por el mensaje anterior.
+  const antes = inp.value.slice(0, inp.selectionStart), despues = inp.value.slice(inp.selectionEnd);
+  if (e.key === 'ArrowUp' && antes.includes('\n')) return;
+  if (e.key === 'ArrowDown' && despues.includes('\n')) return;
   if (e.key === 'ArrowUp') {
     if (!promptHistory.length) return;
     if (promptHistIdx === -1) { promptDraft = inp.value; promptHistIdx = promptHistory.length; }
@@ -1413,7 +1517,7 @@ function anunciarEnvio(texto) {
   anuncioPendiente = setTimeout(() => { r.textContent = texto; }, 50);
 }
 $('model-select').addEventListener('change', e => changeModel(e.target.value));
-$('model-dot').addEventListener('click', () => { $('settings-panel').hidden = false; renderSettings(); $('settings-panel').querySelector('.model-card')?.focus(); });
+$('model-dot').addEventListener('click', () => { renderSettings(); requestAnimationFrame(() => $('settings-panel').querySelector('.model-card.active, .model-card')?.focus()); });
 pintaDot('off', 'rules');
 // móvil: conmutar chat ↔ editor
 $('code-flip').addEventListener('click', () => {
@@ -1445,15 +1549,17 @@ async function openView(kind) {
     else { const m = await import('./city.js'); await m.renderCity(body, p => { closeView(); openFile(p); }); }
   } catch (e) { body.innerHTML = '<div class="view-loading">No pude construir la vista: ' + (e?.message || e) + '</div>'; }
 }
-function closeView() {
+function closeView({ foco = false } = {}) {
+  const abierta = [...document.querySelectorAll('#act-arch.on, #act-city.on')][0];
   $('view-overlay').hidden = true;
   import('./city.js').then(m => m.disposeCity()).catch(() => {});
   import('./arch.js').then(m => m.disposeArch()).catch(() => {});
   document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-files'));
+  if (foco) abierta?.focus();
 }
 $('act-arch').addEventListener('click', () => openView('arch'));
 $('act-city').addEventListener('click', () => openView('city'));
-$('view-close').addEventListener('click', closeView);
+$('view-close').addEventListener('click', () => closeView({ foco: true }));
 
 // ── Cerebro CEO autónomo + Mente de Elffuss ───────────────────────────────
 // Cuando NO estás pidiendo nada, la elfa trabaja: revisa el proyecto y propone
@@ -1635,7 +1741,23 @@ document.addEventListener('keydown', e => {
 (() => {
   const panel = $('terminal-panel'), handle = $('term-resize');
   let sy = 0, sh = 0;
-  const move = e => { const h = Math.max(120, Math.min(window.innerHeight - 160, sh + (sy - e.clientY))); panel.style.height = h + 'px'; terminal.refit(); };
+  // También con el teclado: es un separador con foco, ↑/↓ cambian la altura.
+  const ajusta = h => {
+    h = Math.max(120, Math.min(window.innerHeight - 160, h));
+    panel.style.height = h + 'px';
+    handle.setAttribute('aria-valuenow', String(Math.round(h)));
+    terminal.refit();
+  };
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'horizontal');
+  handle.setAttribute('aria-label', t('termResizeLabel'));
+  handle.setAttribute('aria-valuemin', '120');
+  handle.tabIndex = 0;
+  handle.addEventListener('keydown', e => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); ajusta(panel.offsetHeight + 24); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); ajusta(panel.offsetHeight - 24); }
+  });
+  const move = e => ajusta(sh + (sy - e.clientY));
   const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
   handle.addEventListener('mousedown', e => { sy = e.clientY; sh = panel.offsetHeight; document.addEventListener('mousemove', move); document.addEventListener('mouseup', up); e.preventDefault(); });
 })();
@@ -1658,35 +1780,68 @@ $('act-files').addEventListener('click', () => {
   document.body.classList.toggle('hide-tree');
   $('act-files').classList.toggle('on');
 });
-$('act-search').addEventListener('click', () => {
-  $('prompt').value = 'busca ';
-  $('prompt').focus();
-});
+// Lo que promete su título: buscar ficheros (la paleta, como Cmd/Ctrl+P). Antes
+// escribía «busca » en el chat. Buscar DENTRO del código es «#» en la paleta.
+$('act-search').addEventListener('click', (e) => { e.stopPropagation(); openPalette(''); });
 $('act-settings').addEventListener('click', () => $('btn-settings').click());
 
 $('btn-history').addEventListener('click', () => {
   const panel = $('history-panel');
-  panel.hidden = !panel.hidden;
-  if (!panel.hidden) renderHistoryPanel();
+  if (!panel.hidden) return cierraHistorial();
+  panel.hidden = false;
+  $('btn-history').setAttribute('aria-expanded', 'true');
+  renderHistoryPanel().then(() => (panel.querySelector('.hp-open') || panel.querySelector('.hp-head button'))?.focus());
 });
+function cierraHistorial({ foco = true } = {}) {
+  const panel = $('history-panel');
+  if (panel.hidden) return;
+  panel.hidden = true;
+  $('btn-history').setAttribute('aria-expanded', 'false');
+  if (foco) $('btn-history').focus();
+}
 document.addEventListener('pointerdown', e => {
   const p = $('history-panel');
   if (p.hidden) return;
   if (p.contains(e.target) || e.target.closest('#btn-history')) return;
-  p.hidden = true;
+  cierraHistorial({ foco: false });
 }, true);
 $('btn-settings').addEventListener('click', () => {
   const p = $('settings-panel');
-  p.hidden = !p.hidden;
-  if (!p.hidden) renderSettings();
+  if (!p.hidden) return cierraAjustes();
+  renderSettings();
 });
 // clic fuera del panel (o ir a Archivo/chat) lo cierra — antes solo la X lo hacía
 document.addEventListener('pointerdown', e => {
   const p = $('settings-panel');
   if (p.hidden) return;
-  if (p.contains(e.target) || e.target.closest('#btn-settings, #act-settings')) return;
+  if (p.contains(e.target) || e.target.closest('#btn-settings, #act-settings, #model-dot')) return;
   p.hidden = true;
+  volverDeAjustes = null;
 }, true);
+
+// ── Escape cierra la capa de más arriba ─────────────────────────────────────
+// Una por pulsación, y el foco vuelve a quien la abrió. Antes solo la paleta,
+// la Mente y el menú @ hacían caso: menús de arriba, modos, historial,
+// ajustes y la vista 3D se quedaban abiertos.
+const CAPAS = [
+  { abierta: () => !$('menu').hidden, cerrar: () => { $('menu').hidden = true; $('prompt').focus(); } },
+  { abierta: () => !$('topmenu').hidden, cerrar: () => cierraMenuBarra({ foco: true }) },
+  { abierta: () => !$('modos-menu')?.hidden, cerrar: () => cierraModos({ foco: true }) },
+  { abierta: () => !$('history-panel').hidden, cerrar: () => cierraHistorial() },
+  { abierta: () => !$('settings-panel').hidden, cerrar: () => cierraAjustes() },
+  { abierta: () => !$('view-overlay').hidden, cerrar: () => closeView({ foco: true }) },
+];
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+  if (mind.isOpen() || !$('palette').hidden) return;                 // tienen su propio Escape
+  if (document.querySelector('dialog[open], #tree-menu, #tab-menu, #conv-menu')) return;
+  if (e.target.closest?.('.monaco-editor, #terminal-host')) {
+    // El editor y el terminal usan Escape para lo suyo; solo se cierra una capa
+    // si no hay nada que cerrar dentro de ellos.
+    if (!CAPAS.some(c => c.abierta())) return;
+  }
+  for (const c of CAPAS) if (c.abierta()) { e.preventDefault(); c.cerrar(); return; }
+});
 
 // ---------- composer estilo plugin: +, /, medidor de contexto, Auto ----------
 
@@ -1716,9 +1871,11 @@ function updateCtxMeter() {
   $('ctx-text').textContent = `ctx ${k(tok)} / ${k(CTX_BUDGET_TOK)}`;
   $('ctx-bar').style.width = pct + '%';
   $('ctx-bar').className = pct > 85 ? 'hot' : '';
+  // Decía «usa 🧹 para empezar limpio», y no hay ningún 🧹: lo que empieza
+  // limpio es «+» (nueva conversación) en la barra de pestañas del chat.
   $('ctx-meter').title = pct > 85
-    ? `Contexto casi lleno (${pct}%). Los mensajes viejos se comprimen solos; usa 🧹 para empezar limpio.`
-    : `Contexto: ${tok} de ~${CTX_BUDGET_TOK} tokens (${100 - pct}% libre)`;
+    ? t('ctxFull', { pct })
+    : t('ctxUse', { tok, max: CTX_BUDGET_TOK, free: 100 - pct });
 }
 const _origAdd = addMsg; // refrescar el medidor cuando cambia la conversación
 addMsg = (...a) => { const r = _origAdd(...a); updateCtxMeter(); return r; };
@@ -1777,8 +1934,32 @@ $('btn-slash').addEventListener('click', () => openMenu([
   { label: '/search', hint: t('slSearch'), run: () => { $('prompt').value = t('pSearch'); $('prompt').focus(); } },
   { label: '/skills', hint: t('slSkills'), run: () => openSkillsPanel() },
   { label: '/model', hint: t('slModel'), run: () => $('btn-settings').click() },
-  { label: '/clear', hint: t('slClear'), run: () => conv.create() },
+  // «/clear» abría una conversación NUEVA (no limpiaba la actual): se llama
+  // por lo que hace.
+  { label: '/new', hint: t('slClear'), run: () => conv.create() },
 ]));
+// Abierto con el ratón desde + o /, el foco pasa al menú (antes se quedaba en
+// el botón y las flechas no hacían nada); dentro, ↑/↓ recorren las opciones y
+// Escape vuelve a la caja de texto.
+function enfocaMenuAlAbrir() {
+  let n = 0;
+  const mira = () => {
+    const primero = $('menu').hidden ? null : $('menu').querySelector('.menu-item');
+    if (primero) return primero.focus();
+    if (++n < 60) requestAnimationFrame(mira);
+  };
+  requestAnimationFrame(mira);
+}
+$('btn-slash').addEventListener('click', enfocaMenuAlAbrir);
+$('btn-plus').addEventListener('click', enfocaMenuAlAbrir);
+$('menu').addEventListener('keydown', e => {
+  const l = [...$('menu').querySelectorAll('.menu-item')], i = l.indexOf(document.activeElement);
+  if (i < 0) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); l[(i + 1) % l.length].focus(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); l[(i - 1 + l.length) % l.length].focus(); }
+  else if (e.key === 'Home') { e.preventDefault(); l[0].focus(); }
+  else if (e.key === 'End') { e.preventDefault(); l.at(-1).focus(); }
+});
 
 // [+] adjuntar archivo del proyecto como @ruta
 // El menú de ficheros, en una función: lo abren el botón `+` Y escribir `@` en
@@ -1896,11 +2077,16 @@ function attach(path) {
 
 // </> Auto (Edit automatically): si off, pide confirmación antes de escribir
 let autoEdit = localStorage.getItem('elffusscode.autoedit') !== '0';
+// Los tres modos se declaran juntos y antes de pintar nada: pintaModos() los
+// lee todos y se llama ya al pintar Auto.
+let goalMode = localStorage.getItem('elffusscode.goalmode') === '1';
+let hardMode = false;
 function paintAuto() {
   const b = $('btn-autoedit');
   b.classList.toggle('on', autoEdit);
   b.querySelector('.ae-txt').textContent = autoEdit ? t('autoTxt') : t('reviewTxt');
   b.title = autoEdit ? t('autoOn') : t('autoOff');
+  pintaModos();
 }
 $('btn-autoedit').addEventListener('click', () => {
   autoEdit = !autoEdit;
@@ -1913,13 +2099,38 @@ codeTools.setWriteApprover(async (path, content) => {
   return confirm(`Elffuss quiere escribir en «${path}» (${content.split('\n').length} líneas).\n\n¿Aplicar el cambio?`);
 });
 
+function cierraModos({ foco = false } = {}) {
+  const menu = $('modos-menu');
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  $('btn-modos')?.setAttribute('aria-expanded', 'false');
+  if (foco) $('btn-modos')?.focus();
+}
+// El botón «Modos» lleva los que están encendidos (y el texto del prompt dice
+// qué va a pasar con lo que escribas).
+function pintaModos() {
+  const b = $('btn-modos');
+  if (!b) return;
+  const activos = [];
+  if (!autoEdit) activos.push(['Revisar', t('modeReview')]);
+  if (goalMode) activos.push(['🎯', t('modeGoal')]);
+  if (hardMode) activos.push(['⛏', t('modeHard')]);
+  b.textContent = '⚙︎ ' + t('modesBtn') + (activos.length ? ' · ' + activos.map(a => a[0] === 'Revisar' ? t('reviewTxt') : a[0]).join(' ') : '') + ' ▾';
+  b.setAttribute('aria-label', t('modesBtn') + (activos.length ? ': ' + activos.map(a => a[1]).join(', ') : ': ' + t('modesNone')));
+  b.classList.toggle('on', activos.length > 0);
+  $('btn-autoedit')?.setAttribute('aria-checked', autoEdit ? 'true' : 'false');
+  $('btn-goal')?.setAttribute('aria-checked', goalMode ? 'true' : 'false');
+  $('btn-hardwork')?.setAttribute('aria-checked', hardMode ? 'true' : 'false');
+  $('prompt').placeholder = hardMode ? t('hwPlaceholder') : goalMode ? t('goalPlaceholder') : t('ph');
+}
+
 // 🎯 Goal: el siguiente mensaje que mandes se trata como un OBJETIVO — se
 // planifica en tareas y se ejecutan una a una (goal.js), en vez del turno de
 // chat normal. Mismo patrón (interruptor persistente en localStorage) que
 // </> Auto de arriba.
-let goalMode = localStorage.getItem('elffusscode.goalmode') === '1';
 function paintGoal() {
   $('btn-goal').classList.toggle('on', goalMode);
+  pintaModos();
 }
 $('btn-goal').addEventListener('click', () => {
   goalMode = !goalMode;
@@ -1929,13 +2140,12 @@ $('btn-goal').addEventListener('click', () => {
 paintGoal();
 
 // ── Hard Work (RLM): lee el proyecto ENTERO por partes ──
-let hardMode = false;
 $('btn-hardwork').addEventListener('click', () => {
   hardMode = !hardMode;
   $('btn-hardwork').classList.toggle('on', hardMode);
   // Al apagarlo vuelve el texto de siempre, en el idioma de la interfaz: antes
   // quedaba un «Pídele código a Elffuss…» fijo y en español.
-  $('prompt').placeholder = hardMode ? t("hwPlaceholder") : t('ph');
+  pintaModos();
 });
 
 // Trabaja el proyecto abierto por partes: trocea, pregunta a cada parte y funde.
@@ -2108,7 +2318,7 @@ let palItems = [], palSel = 0;
 const COMMANDS = [
   { label: t('newConv'), run: () => conv.create() },
   { label: t('tHistory'), run: () => $('btn-history').click() },
-  { label: t('pSearchCode'), run: () => { closePalette(); $('prompt').value = t('pSearch'); $('prompt').focus(); } },
+  { label: t('pSearchCode'), run: () => openPalette('#') },
   { label: t('pManageSkills'), run: () => { closePalette(); openSkillsPanel(); } },
   { label: t('tActSettings'), run: () => { closePalette(); renderSettings(); } },
   { label: t('pToggleExplorer'), run: () => $('act-files').click() },
@@ -2121,14 +2331,29 @@ const COMMANDS = [
 // dejar a medias lo que tengas aquí.
 function abrirLab() { window.open('lab.html', '_blank', 'noopener'); }
 
+// La paleta es un combobox con su lista (role=listbox, opción activa en
+// aria-activedescendant), así un lector de pantalla sigue la selección.
+let volverDePaleta = null;
 function openPalette(prefix = '') {
+  if ($('palette').hidden) volverDePaleta = document.activeElement;
   $('palette').hidden = false;
   const inp = $('pal-input');
+  inp.setAttribute('role', 'combobox');
+  inp.setAttribute('aria-controls', 'pal-list');
+  inp.setAttribute('aria-expanded', 'true');
+  inp.setAttribute('aria-autocomplete', 'list');
+  $('pal-list').setAttribute('role', 'listbox');
   inp.value = prefix;
   inp.focus();
   renderPalette();
 }
-function closePalette() { $('palette').hidden = true; }
+function closePalette() {
+  if ($('palette').hidden) return;
+  $('palette').hidden = true;
+  $('pal-input').setAttribute('aria-expanded', 'false');
+  const v = volverDePaleta; volverDePaleta = null;
+  if (v && document.body.contains(v) && document.activeElement === $('pal-input')) v.focus?.();
+}
 
 function fuzzy(q, s) {
   q = q.toLowerCase(); s = s.toLowerCase();
@@ -2140,13 +2365,41 @@ function fuzzy(q, s) {
   return i === q.length ? score + (s.endsWith(q) ? 20 : 0) : -1;
 }
 
+// «#texto»: busca DENTRO de los ficheros (code.search) y lista cada resultado
+// como fichero:línea; Enter lo abre en esa línea. Es lo que hace ahora Edit ›
+// Buscar en el código (antes solo escribía «busca » en el chat).
+let palSeq = 0, palBusca = null;
+async function resultadosBusqueda(q) {
+  const out = await codeTools.search({ query: q }).catch(e => 'ERROR: ' + e.message);
+  const items = [];
+  for (const linea of String(out).split('\n')) {
+    const m = linea.match(/^(.+?):(\d+): (.*)$/);
+    if (m) items.push({ label: m[3] || '·', hint: `${m[1]}:${m[2]}`, run: () => { closePalette(); openFile(m[1]).then(() => gotoLine(+m[2])); } });
+  }
+  const nota = String(out).split('\n').find(l => l.startsWith('…') || l.startsWith('Sin resultados') || l.startsWith('ERROR'));
+  return { items, nota };
+}
+
 async function renderPalette() {
   const raw = $('pal-input').value;
   const list = $('pal-list');
-  list.replaceChildren();
+  const seq = ++palSeq;
   palItems = [];
+  let nota = '';
 
-  if (raw.startsWith('>')) {                       // comandos
+  if (raw.startsWith('#')) {                       // buscar en el código
+    const q = raw.slice(1).trim();
+    if (q.length < 2) nota = t('palSearchHint');
+    else {
+      clearTimeout(palBusca);
+      await new Promise(r => { palBusca = setTimeout(r, 180); });
+      if (seq !== palSeq) return;                  // se siguió escribiendo
+      const r = await resultadosBusqueda(q);
+      if (seq !== palSeq) return;
+      palItems = r.items.slice(0, 60);
+      nota = r.nota || '';
+    }
+  } else if (raw.startsWith('>')) {                       // comandos
     const q = raw.slice(1).trim().toLowerCase();
     // Todo comando cierra la paleta al ejecutarse: «Nueva conversación», por
     // ejemplo, la dejaba abierta encima.
@@ -2164,19 +2417,32 @@ async function renderPalette() {
       run: () => { closePalette(); openFile(f); if (lineQ && +lineQ) setTimeout(() => gotoLine(+lineQ), 300); },
     }));
   }
+  if (seq !== palSeq) return;
+  list.replaceChildren();
   palSel = 0;
   palItems.forEach((it, i) => {
     const row = el('button', 'pal-item' + (i === 0 ? ' sel' : ''));
-    row.innerHTML = `<span class="pi-name">${it.label}</span><span class="pi-hint">${it.hint || ''}</span>`;
+    row.type = 'button';
+    row.id = 'pal-opt-' + i;
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+    row.tabIndex = -1;
+    row.innerHTML = '<span class="pi-name"></span><span class="pi-hint"></span>';
+    row.querySelector('.pi-name').textContent = it.label;
+    row.querySelector('.pi-hint').textContent = it.hint || '';
     row.onmouseenter = () => { palSel = i; paintPalSel(); };
     row.onclick = () => it.run();
     list.appendChild(row);
   });
-  if (!palItems.length) list.appendChild(el('div', 'pal-empty', t('palEmpty')));
+  if (!palItems.length) list.appendChild(el('div', 'pal-empty', nota || t('palEmpty')));
+  else if (nota) list.appendChild(el('div', 'pal-empty', nota));
+  paintPalSel();
 }
 function paintPalSel() {
-  [...$('pal-list').children].forEach((c, i) => c.classList.toggle('sel', i === palSel));
-  $('pal-list').children[palSel]?.scrollIntoView({ block: 'nearest' });
+  [...$('pal-list').querySelectorAll('.pal-item')].forEach((c, i) => { c.classList.toggle('sel', i === palSel); c.setAttribute('aria-selected', i === palSel ? 'true' : 'false'); });
+  const opt = $('pal-list').querySelector('#pal-opt-' + palSel);
+  if (opt) { $('pal-input').setAttribute('aria-activedescendant', opt.id); opt.scrollIntoView({ block: 'nearest' }); }
+  else $('pal-input').removeAttribute('aria-activedescendant');
 }
 $('pal-input').addEventListener('input', renderPalette);
 $('pal-input').addEventListener('keydown', e => {
@@ -2215,7 +2481,7 @@ async function menuFor(which) {
     } },
   ];
   if (which === 'edit') return [
-    { label: t('mSearchCode'), run: () => { $('prompt').value = t('pSearch'); $('prompt').focus(); } },
+    { label: t('mSearchCode'), hint: '#', run: () => openPalette('#') },
     { label: t('mGotoFile'), hint: atajo('P'), run: () => openPalette('') },
     { label: t('mGotoSym'), run: conFichero(() => triggerEditor('editor.action.quickOutline')) },
   ];
@@ -2230,40 +2496,116 @@ async function menuFor(which) {
     { label: t('mAbout'), hint: '↗', run: () => window.open('https://github.com/KikoCis/elffuss-code', '_blank', 'noopener') },
   ];
   if (which === 'git') {
+    // Rama y último commit enlazan al remoto (sin credenciales) cuando lo hay;
+    // si no, se ven como texto desactivado. Antes parecían opciones y no hacían
+    // nada. El commit enseña su SHA corto; el correo del autor, nunca.
     const g = await codeTools.gitInfo();
-    if (!g.isRepo) return [{ label: t('gNotRepo'), hint: '', run: () => {} }];
-    const items = [{ label: t('gBranch', { b: g.branch }), hint: 'git', run: () => {} }];
-    if (g.lastCommit) items.push({ label: t('gLast', { m: g.lastCommit.msg.slice(0, 40) }), hint: g.lastCommit.author, run: () => {} });
+    if (!g.isRepo) return [{ label: t('gNotRepo'), disabled: true }];
+    const abre = url => () => window.open(url, '_blank', 'noopener,noreferrer');
+    const items = [g.web
+      ? { label: t('gBranch', { b: g.branch }), hint: '↗', title: g.web.branch(g.branch), run: abre(g.web.branch(g.branch)) }
+      : { label: t('gBranch', { b: g.branch }), hint: t('gNoRemote'), disabled: true }];
+    if (g.lastCommit) {
+      const corto = g.lastCommit.sha ? g.lastCommit.sha.slice(0, 7) + ' · ' : '';
+      const label = t('gLast', { m: corto + g.lastCommit.msg.slice(0, 40) });
+      items.push(g.web && g.lastCommit.sha
+        ? { label, hint: '↗', title: g.web.commit(g.lastCommit.sha), run: abre(g.web.commit(g.lastCommit.sha)) }
+        : { label, hint: g.lastCommit.author, disabled: true });
+    }
+    // Pide al agente el MENSAJE de commit: commitear de verdad no puede (el git
+    // de aquí es de solo lectura), y la etiqueta vieja lo prometía.
     items.push({ label: t('gCommit'), run: () => { $('prompt').value = t('pCommit'); $('prompt').focus(); } });
     return items;
   }
   return [];
 }
-document.querySelectorAll('#menubar button').forEach(b => {
-  b.addEventListener('click', async () => {
-    document.querySelectorAll('#menubar button').forEach(x => x.classList.toggle('open', x === b));
-    openMenuAt(await menuFor(b.dataset.menu), b);
+// La barra de menús se usa con el teclado como una de verdad (patrón
+// menubar/menu): ↓, Enter o Espacio abren el menú con el foco en su primera
+// opción; ←/→ pasan al menú de al lado; ↑/↓ recorren; Escape cierra y devuelve
+// el foco; Tab sale. Antes ↓ no entraba en el menú y Escape no lo cerraba. Los
+// nombres salen en el idioma de la interfaz.
+const barraMenus = () => [...document.querySelectorAll('#menubar button')];
+let menuBarraAbierto = null;
+{
+  const bar = $('menubar');
+  bar.setAttribute('role', 'menubar');
+  bar.setAttribute('aria-label', t('menubarLabel'));
+  barraMenus().forEach((b, i) => {
+    b.setAttribute('role', 'menuitem');
+    b.setAttribute('aria-haspopup', 'menu');
+    b.setAttribute('aria-expanded', 'false');
+    b.textContent = t('menu_' + b.dataset.menu);
+    b.tabIndex = i === 0 ? 0 : -1;
+    b.addEventListener('click', () => (menuBarraAbierto === b ? cierraMenuBarra({ foco: true }) : abreMenuBarra(b)));
+    b.addEventListener('keydown', e => {
+      const lista = barraMenus(), j = lista.indexOf(b);
+      const mueve = k => { const n = lista[(j + k + lista.length) % lista.length]; lista.forEach(x => { x.tabIndex = x === n ? 0 : -1; }); n.focus(); if (menuBarraAbierto) abreMenuBarra(n, { foco: true }); };
+      if (e.key === 'ArrowRight') { e.preventDefault(); mueve(1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); mueve(-1); }
+      else if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abreMenuBarra(b, { foco: true }); }
+    });
   });
-});
+}
+async function abreMenuBarra(b, { foco = false } = {}) {
+  barraMenus().forEach(x => { x.classList.toggle('open', x === b); x.setAttribute('aria-expanded', x === b ? 'true' : 'false'); });
+  menuBarraAbierto = b;
+  openMenuAt(await menuFor(b.dataset.menu), b);
+  if (menuBarraAbierto !== b) return;      // otro menú se abrió mientras tanto
+  if (foco) $('topmenu').querySelector('[role="menuitem"]:not([aria-disabled="true"])')?.focus();
+}
+function cierraMenuBarra({ foco = false } = {}) {
+  const b = menuBarraAbierto;
+  $('topmenu').hidden = true;
+  barraMenus().forEach(x => { x.classList.remove('open'); x.setAttribute('aria-expanded', 'false'); });
+  menuBarraAbierto = null;
+  if (foco && b) b.focus();
+}
 function openMenuAt(items, anchor) {
   const menu = $('topmenu');
   const r = anchor.getBoundingClientRect();
   menu.style.left = r.left + 'px';
   menu.style.top = (r.bottom + 3) + 'px';
   menu.replaceChildren();
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', anchor.textContent);
   for (const it of items) {
     const row = el('button', 'menu-item');
-    row.innerHTML = `<b>${it.label}</b>${it.hint ? `<span>${it.hint}</span>` : ''}`;
-    row.onclick = () => { menu.hidden = true; it.run(); };
+    row.type = 'button';
+    row.setAttribute('role', 'menuitem');
+    row.tabIndex = -1;
+    row.innerHTML = `<b></b>${it.hint ? '<span></span>' : ''}`;
+    row.querySelector('b').textContent = it.label;
+    if (it.hint) row.querySelector('span').textContent = it.hint;
+    if (it.title) row.title = it.title;
+    if (it.disabled) { row.setAttribute('aria-disabled', 'true'); row.classList.add('disabled'); }
+    // stopPropagation: el clic no debe seguir hasta los «clic fuera» del
+    // documento, que cerraban al instante lo que la opción acababa de abrir
+    // (la paleta con «Ir a archivo…» o «Buscar en el código»).
+    row.onclick = (e) => { e.stopPropagation(); if (it.disabled) return; cierraMenuBarra(); it.run(); };
     menu.appendChild(row);
   }
   menu.hidden = false;
 }
-document.addEventListener('click', e => {
-  if (!e.target.closest('#menubar, #topmenu')) {
-    document.querySelectorAll('#menubar button').forEach(x => x.classList.remove('open'));
-    $('topmenu').hidden = true;
+$('topmenu').addEventListener('keydown', e => {
+  const filas = [...$('topmenu').querySelectorAll('[role="menuitem"]')];
+  const i = filas.indexOf(document.activeElement);
+  const ve = k => { e.preventDefault(); filas[(i + k + filas.length) % filas.length]?.focus(); };
+  if (e.key === 'ArrowDown') ve(1);
+  else if (e.key === 'ArrowUp') ve(-1);
+  else if (e.key === 'Home') { e.preventDefault(); filas[0]?.focus(); }
+  else if (e.key === 'End') { e.preventDefault(); filas.at(-1)?.focus(); }
+  else if (e.key === 'Escape') { e.preventDefault(); cierraMenuBarra({ foco: true }); }
+  else if (e.key === 'Tab') cierraMenuBarra();
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    e.preventDefault();
+    const lista = barraMenus(), j = lista.indexOf(menuBarraAbierto);
+    const n = lista[(j + (e.key === 'ArrowRight' ? 1 : -1) + lista.length) % lista.length];
+    lista.forEach(x => { x.tabIndex = x === n ? 0 : -1; });
+    abreMenuBarra(n, { foco: true });
   }
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('#menubar, #topmenu') && !$('topmenu').hidden) cierraMenuBarra();
 });
 
 // ---------- git en el header ----------
@@ -2395,13 +2737,32 @@ mountDiskChip();
       // Ya está a la vista: dejar el title duplicaría el texto en un tooltip.
       b.removeAttribute('title');
     }
-    modos.addEventListener('click', (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
-    // Cerrar al elegir y al pulsar fuera. Sin lo segundo, el menú se queda
-    // abierto tapando la conversación y hay que adivinar cómo cerrarlo.
-    menu.addEventListener('click', () => { menu.hidden = true; });
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('#modos')) menu.hidden = true;
+    // Menú con casillas: cada modo dice si está encendido (aria-checked) y el
+    // botón «Modos» enseña cuáles lo están, también cerrado. Antes cualquier
+    // clic dentro cerraba el menú y desde fuera no había forma de saber que
+    // Goal o Hard Work seguían activos (y las preguntas normales se volvían
+    // planes sin avisar). Ahora pulsar un modo lo cambia y el menú se queda
+    // abierto para verlo; se cierra al pulsar fuera o con Escape.
+    modos.setAttribute('aria-haspopup', 'menu');
+    modos.setAttribute('aria-expanded', 'false');
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', t('modesLabel'));
+    for (const b of menu.querySelectorAll('.cbtn')) b.setAttribute('role', 'menuitemcheckbox');
+    modos.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (menu.hidden) { menu.hidden = false; modos.setAttribute('aria-expanded', 'true'); menu.querySelector('.cbtn')?.focus(); }
+      else cierraModos({ foco: false });
     });
+    menu.addEventListener('keydown', (e) => {
+      const opciones = [...menu.querySelectorAll('.cbtn')], i = opciones.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); opciones[(i + 1) % opciones.length]?.focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); opciones[(i - 1 + opciones.length) % opciones.length]?.focus(); }
+      else if (e.key === 'Tab') cierraModos({ foco: false });
+    });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#modos') && !menu.hidden) cierraModos({ foco: false });
+    });
+    pintaModos();
   }
 
   // El chat a toda la ventana. Al editor se le da cero de ancho en vez de

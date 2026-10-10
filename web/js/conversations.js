@@ -196,6 +196,16 @@ export async function appendMessage(id, role, content) {
   await persistConv(c);
 }
 
+// Ponerle nombre a una conversación (menú de su pestaña). Vacío vuelve al
+// título automático (el primer mensaje).
+export async function rename(id, title) {
+  const c = convs.get(id);
+  if (!c) return;
+  c.title = cleanTitle(title || '').slice(0, 80) || null;
+  await persistConv(c);
+  onChange('tabs', activeId);
+}
+
 // quita la pestaña de la vista — la conversación sigue viva en la Historial
 //
 // Si la pestaña cerrada era la ACTIVA, se avisa con 'switch' y no con 'tabs':
