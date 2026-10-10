@@ -166,8 +166,12 @@ export async function unload() {
   engine = null; conversation = null; sentCount = 0;
 }
 
-export async function chat(history, system, onToken = () => {}, signal = null) {
+// El 4º argumento es la señal sola o `{ signal, onPrefill }` (ver senalDe). Sin
+// normalizarlo, con el objeto de opciones `signal.aborted` no existía y parar no
+// paraba: la respuesta seguía hasta el final.
+export async function chat(history, system, onToken = () => {}, opciones = null) {
   if (!engine) throw new Error('Modelo no cargado');
+  const signal = senalDe(opciones);
   if (signal?.aborted) return '';   // parado antes de empezar: ni se toca la conversación
   // Comparar solo la parte estática del prompt: el CONTEXTO AHORA va al final
   // y cambia cada turno — recrear la conversación tiraría el KV-cache.
@@ -244,6 +248,18 @@ export async function chat(history, system, onToken = () => {}, signal = null) {
 }
 
 function olvidarConversacion() { conversation = null; sentCount = 0; }
+
+// El 4º argumento de chat() llega de dos formas y las dos valen, igual que en
+// chat() del motor propio: la señal de parar sola, o un objeto de opciones que
+// la lleva dentro (`{ signal, onPrefill }`, el que manda el agente cuando pinta
+// la espera del motor). Lo que este proveedor no usa, como onPrefill, se ignora.
+// La señal se reconoce por la forma y no por la clase, como en el motor: una de
+// otro reino (un iframe, un worker) no es `instanceof` de la de esta página.
+function senalDe(x) {
+  if (!x || typeof x !== 'object') return null;
+  if (typeof x.aborted === 'boolean') return x;
+  return x.signal && typeof x.signal.aborted === 'boolean' ? x.signal : null;
+}
 
 function crearConversacion(system) {
   return engine.createConversation({
