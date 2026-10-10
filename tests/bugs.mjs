@@ -17,7 +17,7 @@ await p.goto(BASE+'/?test-opfs',{waitUntil:'domcontentloaded'}); await p.waitFor
 // ── Bug A ──
 await p.locator('#tree').getByText('README.md').first().click(); await p.waitForTimeout(700);
 ok('al abrir un fichero, sin estado vacío', await p.evaluate(()=>{const e=document.getElementById('editor-empty');return !e||getComputedStyle(e).display==='none';}));
-await p.locator('#tabs-bar .tab b').first().click(); await p.waitForTimeout(500); // cerrar la pestaña
+await p.locator('#tabs-bar .tab .tab-x').first().click(); await p.waitForTimeout(500); // cerrar la pestaña (su ✕ es un botón .tab-x)
 ok('al cerrar la última pestaña → estado vacío visible', await p.evaluate(()=>{const e=document.getElementById('editor-empty');return !!e && getComputedStyle(e).display!=='none';}));
 
 // ── Bug B ── abrir/cerrar/alternar vistas varias veces

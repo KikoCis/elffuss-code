@@ -74,7 +74,7 @@ ok('ninguna pestaña se queda "ocupada" para siempre', await p.locator('#conv-ta
 // ---- cerrar pestaña NO borra: sigue en el Historial ----
 const tabCountBeforeClose = await p.locator('#conv-tabs .tab').count();
 const activeTitleBeforeClose = await p.locator('#conv-tabs .tab.active .tab-name').innerText();
-await p.locator('#conv-tabs .tab.active b').click();
+await p.locator('#conv-tabs .tab.active .tab-x').click();   // su ✕ es un botón .tab-x
 await p.waitForTimeout(200);
 ok('cerrar la pestaña activa la quita de la vista', await p.locator('#conv-tabs .tab').count() === tabCountBeforeClose - 1);
 
