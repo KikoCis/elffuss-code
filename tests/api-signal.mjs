@@ -11,7 +11,12 @@
 //   1. una llamada normal funciona y trae el texto entero;
 //   2. abortar tras el primer token rechaza con AbortError, no entrega ni un
 //      token más, y el servidor VE cerrarse la conexión antes de terminar
-//      (o sea, que fetch se canceló de verdad y no solo se dejó de leer).
+//      (o sea, que fetch se canceló de verdad y no solo se dejó de leer);
+//   3. abortar ANTES de que lleguen las cabeceras (el proveedor aún en cola o
+//      leyendo el prompt): rechaza con AbortError en el acto y el servidor ve
+//      cerrarse la petición antes de contestar. Es el caso en que la señal de
+//      fetch importa: en el 2 basta con que readSSE cancele el lector, y ese
+//      caso pasaba igual con fetch sin señal.
 //
 //   BASE=http://localhost:8799 node tests/api-signal.mjs
 import http from 'node:http';
@@ -20,15 +25,26 @@ const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
 const TOKENS = ['Ho', 'la', ', ', 'soy', ' el', ' proveedor', ' de', ' prueba', '.'];
-const registro = [];   // una entrada por petición: { ruta, enviados, cerradaAntes, terminada }
-const servidor = http.createServer((req, res) => {
+const registro = [];   // una entrada por petición: { ruta, enviados, cerradaAntes, terminada, contestada }
+let retrasarCabeceras = false;   // el caso 3: el servidor tarda en contestar
+const servidor = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'POST' });
     return res.end();
   }
-  const r = { ruta: req.url, enviados: 0, cerradaAntes: false, terminada: false };
+  const r = { ruta: req.url, enviados: 0, cerradaAntes: false, terminada: false, contestada: false };
   registro.push(r);
   req.resume();
+  if (retrasarCabeceras) {
+    // Sin cabeceras durante un buen rato: si la petición se cierra antes, es
+    // que fetch la canceló.
+    const cerrada = await Promise.race([
+      new Promise(ok => res.on('close', () => ok(true))),
+      new Promise(ok => setTimeout(() => ok(false), 4000)),
+    ]);
+    if (cerrada) { r.cerradaAntes = true; return; }
+  }
+  r.contestada = true;
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' });
   const anthropic = req.url.endsWith('/v1/messages');
   let i = 0;
@@ -95,6 +111,29 @@ for (const kind of ['openai', 'anthropic']) {
     !!pAbort && pAbort.cerradaAntes && !pAbort.terminada && pAbort.enviados < TOKENS.length,
     pAbort ? `enviados ${pAbort.enviados} de ${TOKENS.length}` : 'no llegó la petición');
   ok(`${kind} · control: la llamada normal sí llegó al final`, !!pNormal && pNormal.terminada && !pNormal.cerradaAntes);
+
+  // 3. Abortar antes de que lleguen las cabeceras.
+  retrasarCabeceras = true;
+  const antes3 = registro.length;
+  const r3 = await p.evaluate(async () => {
+    const api = await import('/js/providers/api.js');
+    const ac = new AbortController();
+    const t0 = performance.now();
+    let err = null, devuelto;
+    const prom = api.chat([{ role: 'user', content: 'hola' }], 'sistema', () => {}, ac.signal)
+      .then(v => { devuelto = v; }, e => { err = { name: e.name }; });
+    await new Promise(r => setTimeout(r, 500));   // la petición ya salió y espera cabeceras
+    ac.abort();
+    await prom;
+    return { err, devuelto, antesDeContestar: performance.now() - t0 < 3500 };
+  });
+  await new Promise(r => setTimeout(r, 300));
+  retrasarCabeceras = false;
+  const p3 = registro[antes3];
+  ok(`${kind} · abortar antes de las cabeceras: rechaza con AbortError sin esperar a que conteste`, r3.err?.name === 'AbortError' && r3.antesDeContestar,
+    JSON.stringify(r3));
+  ok(`${kind} · …y el servidor ve cerrarse la petición antes de contestar`, !!p3 && p3.cerradaAntes && !p3.contestada,
+    p3 ? JSON.stringify(p3) : 'no llegó la petición');
 }
 ok('ninguna petición intentó salir a una API real', fuera.length === 0, fuera.join(' '));
 
