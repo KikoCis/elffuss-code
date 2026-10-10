@@ -18,7 +18,7 @@ export function joinPath(base, rel) {
   const out = [];
   for (const seg of (base ? base + '/' : '').concat(String(rel)).split('/')) {
     if (!seg || seg === '.') continue;
-    if (seg === '..') { if (!out.length) throw new Error('ruta fuera del paquete: ' + rel); out.pop(); } else out.push(seg);
+    if (seg === '..') { if (!out.length) throw Object.assign(new Error('ruta fuera del paquete: ' + rel), { code: 'outside' }); out.pop(); } else out.push(seg);
   }
   return out.join('/');
 }
@@ -48,7 +48,7 @@ function convertSettings(settings, out) {
 }
 
 async function cargaEn(path, readText, out, prof) {
-  if (prof > 8) throw new Error('demasiados include en el tema');
+  if (prof > 8) throw Object.assign(new Error('demasiados include en el tema'), { code: 'notheme' });
   if (/\.json$/i.test(path)) {
     const j = parseJsonc(await readText(path));
     if (typeof j.include === 'string') await cargaEn(joinPath(dirname(path), j.include), readText, out, prof + 1);
@@ -67,7 +67,7 @@ async function cargaEn(path, readText, out, prof) {
     if (typeof j.type === 'string') out.type = j.type;
   } else {
     const t = parsePlist(await readText(path));
-    if (!Array.isArray(t?.settings)) throw new Error('el .tmTheme no tiene settings');
+    if (!Array.isArray(t?.settings)) throw Object.assign(new Error('el .tmTheme no tiene settings'), { code: 'notheme' });
     convertSettings(t.settings, out);
   }
 }
@@ -235,11 +235,20 @@ export function toMonacoTheme(theme, encodedTokensColors = null) {
 // (el alfa mezclado sobre el fondo): Monaco no admite otra forma en su mapa de
 // colores y los dos mapas tienen que deduplicar igual para que los índices
 // coincidan.
+//
+// El motor guarda los ámbitos del tema en un árbol de objetos normales y
+// pregunta con `hijos.hasOwnProperty(trozo)`: un trozo «hasOwnProperty» tapa
+// ese método y el motor revienta con TODOS los temas siguientes; uno
+// «__proto__» cambia el prototipo del nodo. Esos selectores no pasan.
+const TROZOS_PELIGROSOS = new Set(['__proto__', 'hasOwnProperty']);
+const selectorSeguro = s => !s.split(/[^\w$]+/).some(t => TROZOS_PELIGROSOS.has(t));
 export function toTextMateTheme(theme) {
   const { fg, bg } = defaults(theme);
   const settings = [{ settings: { foreground: fg, background: bg } }];
-  for (const r of theme.tokenColors || []) {
-    if (!r.scope || !r.scope.length) continue;
+  for (const r0 of theme.tokenColors || []) {
+    if (!r0?.settings || !Array.isArray(r0.scope)) continue;
+    const r = { ...r0, scope: r0.scope.filter(s => typeof s === 'string' && selectorSeguro(s)) };
+    if (!r.scope.length) continue;
     const st = {};
     const f = hex6(r.settings.foreground, bg); if (f) st.foreground = f;
     const b = hex6(r.settings.background, bg); if (b) st.background = b;
@@ -327,6 +336,9 @@ export function chromeCss(theme) {
     `#tabs-bar { background: ${tabs};${borde ? ` border-bottom-color: ${borde};` : ''} }`,
     `#tabs-bar .tab { color: ${texto};${borde ? ` border-right-color: ${borde};` : ''} }`,
     `#tabs-bar .tab.active { background: ${activa}; color: ${textoActiva};${acento ? ` box-shadow: inset 0 2px 0 ${acento};` : ''} }`,
+    // el ● de «sin guardar» lleva el color claro del IDE (code.css): con un
+    // tema claro desaparecería, y es el único aviso de cambios sin guardar
+    `#tabs-bar .tab b.dirty { color: inherit; }`,
     `#editor-empty { background: ${bg}; color: ${texto}; }`,
   ].join('\n');
 }

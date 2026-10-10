@@ -11,9 +11,14 @@ La vista «Ciudad 3D» (web/js/city.js) está inspirada en VibeCodeViewer
 (https://github.com/Sendery/VibeCodeViewer, Apache-2.0) — implementación nativa propia.
 
 --- Extensiones de VS Code (crédito) ---
-Las gramáticas TextMate se aplican con vscode-textmate y vscode-oniguruma
-(Microsoft, MIT), que se cargan del CDN jsDelivr solo cuando hacen falta; no se
-incluyen en este repositorio. Los colores TextMate de los temas de serie
+Las gramáticas TextMate se aplican con vscode-textmate 9.3.2 y vscode-oniguruma
+2.0.1 (Microsoft, MIT). Su release/main.js va incluido SIN CAMBIOS en
+web/js/ext/vendor/<paquete>@<versión>/main.js, dentro de un envoltorio de módulo
+ES (la primera línea, la segunda y la última, que dicen el tamaño y la suma
+sha384 del original; tests/ext_unit.mjs la comprueba), con su LICENSE al lado y,
+en vscode-oniguruma, su NOTICES.txt (Oniguruma, K. Kosako, BSD-2-Clause). El
+WebAssembly de Oniguruma (onig.wasm) se baja de jsDelivr solo cuando hace falta
+y con comprobación de integridad (SRI). Los colores TextMate de los temas de serie
 (web/js/ext/themes.js) siguen los temas por defecto de VS Code (Microsoft, MIT).
 Las extensiones se buscan e instalan desde Open VSX (Eclipse Foundation), con la
 licencia que declara cada una.

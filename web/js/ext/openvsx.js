@@ -10,8 +10,9 @@ const ORIGENES_ICONO = new Set(['https://open-vsx.org', 'https://openvsx.eclipse
 export const BIG = 25 * 1024 * 1024;        // por encima, se pregunta antes de bajar
 const MAX = 120 * 1024 * 1024;              // tope duro de un .vsix
 
+// `code` lo traduce el panel; `status` y `mb` son datos para el mensaje.
 class OpenVsxError extends Error {
-  constructor(msg, code) { super(msg); this.code = code; }
+  constructor(msg, code, extra = {}) { super(msg); this.code = code; Object.assign(this, extra); }
 }
 
 async function getJson(url, signal) {
@@ -19,7 +20,7 @@ async function getJson(url, signal) {
   try { res = await fetch(url, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' }); }
   catch (e) { if (e.name === 'AbortError') throw e; throw new OpenVsxError(e.message || 'sin red', 'net'); }
   if (res.status === 429) throw new OpenVsxError('Open VSX está limitando peticiones', 'rate');
-  if (!res.ok) throw new OpenVsxError(`Open VSX respondió ${res.status}`, res.status === 404 ? 'notfound' : 'http');
+  if (!res.ok) throw new OpenVsxError(`Open VSX respondió ${res.status}`, res.status === 404 ? 'notfound' : 'http', { status: res.status });
   return res.json();
 }
 // solo URLs de la propia API (las de ficheros redirigen después a su CDN)
@@ -65,7 +66,7 @@ export async function text(url, { signal, max = 200_000 } = {}) {
   const u = deOpenVsx(url);
   if (!u) throw new OpenVsxError('URL fuera de Open VSX', 'http');
   const res = await fetch(u, { signal, credentials: 'omit', referrerPolicy: 'no-referrer' });
-  if (!res.ok) throw new OpenVsxError(`Open VSX respondió ${res.status}`, 'http');
+  if (!res.ok) throw new OpenVsxError(`Open VSX respondió ${res.status}`, 'http', { status: res.status });
   return (await res.text()).slice(0, max);
 }
 
@@ -84,9 +85,9 @@ export async function download(meta, { onProgress = () => {}, confirmLarge = asy
   try { res = await fetch(meta.files.download, { signal: ctl.signal, credentials: 'omit', referrerPolicy: 'no-referrer' }); }
   catch (e) { if (e.name === 'AbortError') throw e; throw new OpenVsxError(e.message || 'sin red', 'net'); }
   if (res.status === 429) throw new OpenVsxError('Open VSX está limitando peticiones', 'rate');
-  if (!res.ok) throw new OpenVsxError(`descarga: ${res.status}`, 'http');
+  if (!res.ok) throw new OpenVsxError(`descarga: ${res.status}`, res.status === 404 ? 'notfound' : 'http', { status: res.status });
   const total = Number(res.headers.get('content-length')) || 0;
-  if (total > MAX) { ctl.abort(); throw new OpenVsxError(`demasiado grande (${(total / 1048576).toFixed(0)} MB)`, 'big'); }
+  if (total > MAX) { ctl.abort(); throw new OpenVsxError(`demasiado grande (${(total / 1048576).toFixed(0)} MB)`, 'big', { mb: Math.round(total / 1048576) }); }
   if (total > BIG && !(await confirmLarge(Math.round(total / 1048576)))) { ctl.abort(); throw new OpenVsxError('cancelado', 'cancel'); }
   const reader = res.body.getReader();
   const trozos = [];
@@ -95,7 +96,7 @@ export async function download(meta, { onProgress = () => {}, confirmLarge = asy
     const { done, value } = await reader.read();
     if (done) break;
     n += value.length;
-    if (n > MAX) { ctl.abort(); throw new OpenVsxError('demasiado grande', 'big'); }
+    if (n > MAX) { ctl.abort(); throw new OpenVsxError('demasiado grande', 'big', { mb: Math.round(n / 1048576) }); }
     trozos.push(value);
     onProgress(n, total);
   }

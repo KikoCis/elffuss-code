@@ -17,6 +17,10 @@
 .ext-msg { margin: 8px 0 0; padding: 6px 10px; border-radius: 8px; font-size: .78rem; background: rgba(63,185,112,.12); border: 1px solid rgba(63,185,112,.35); }
 .ext-msg.err { background: rgba(255,107,139,.1); border-color: rgba(255,107,139,.4); }
 .ext-msg[hidden] { display: none; }
+/* vacío sigue en la página (región viva), pero sin ocupar sitio */
+.ext-msg:empty { margin: 0; padding: 0; border: 0; }
+/* solo para lectores de pantalla */
+.ext-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .ext-hint { font-size: .78rem; margin: 10px 0 2px; }
 .ext-results, .ext-installed { margin-top: 4px; }
 .ext-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; margin-bottom: 6px; font-size: .8rem; }
@@ -27,6 +31,10 @@
 .ext-results .ext-main { cursor: pointer; }
 .ext-title { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; }
 .ext-title b { font-size: .84rem; overflow-wrap: anywhere; }
+.ext-name { background: none; border: none; padding: 0; margin: 0; font: inherit; font-size: .84rem; font-weight: 700; color: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.ext-name:hover { text-decoration: underline; }
+.ext-link { background: none; border: none; padding: 0; font: inherit; color: var(--accent2); cursor: pointer; text-decoration: underline; }
+.ext-panel button:focus-visible, .ext-panel summary:focus-visible, .ext-panel .sk-h:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
 .ext-title .muted { font-size: .72rem; overflow-wrap: anywhere; }
 .ext-badge { font-size: .66rem; color: #3fb970; }
 .ext-desc { color: #b8c0d4; font-size: .76rem; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -39,12 +47,15 @@
 .ext-theme-chips { margin-top: 6px; }
 .ext-license { margin: 6px 0 0; max-height: 180px; overflow: auto; white-space: pre-wrap; font-size: .68rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 .ext-license[hidden] { display: none; }
+.ext-warn { margin-top: 4px; font-size: .72rem; color: #e5a53a; }
+.ext-warn summary { cursor: pointer; }
+.ext-warn ul { margin: 4px 0 0 18px; padding: 0; color: var(--muted); overflow-wrap: anywhere; }
 .ext-actions { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
 .ext-actions button { font-size: .74rem; padding: 5px 11px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
 .ext-actions .primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; }
 .ext-actions .ghost { background: none; border: 1px solid var(--line); color: var(--muted); }
-.ext-actions .ghost:hover:not(:disabled) { color: var(--fg); border-color: var(--accent2); }
-.ext-actions button:disabled { cursor: default; opacity: .75; }
+.ext-actions .ghost:hover:not(:disabled):not([aria-disabled="true"]) { color: var(--fg); border-color: var(--accent2); }
+.ext-actions button:disabled, .ext-actions button[aria-disabled="true"] { cursor: default; opacity: .75; }
 .ext-more { display: block; margin: 4px auto 10px; font-size: .76rem; }
 @media (max-width: 560px) {
   .ext-row { flex-wrap: wrap; }

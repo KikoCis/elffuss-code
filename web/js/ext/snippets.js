@@ -36,6 +36,10 @@ export function replaceStart(lineaAntes, prefix, wordStart) {
   return wordStart;
 }
 
+// Cabecera de la sugerencia: «descripción (Extensión)». `detail` y un
+// `documentation` string son texto para Monaco, no Markdown.
+export const cabecera = (s, ext = '') => (s.description || s.name) + (ext ? ` (${ext})` : '');
+
 // Un proveedor por lenguaje. `cargar()` devuelve (una vez, en diferido) la
 // lista de snippets de todas las extensiones activas para ese lenguaje.
 export function registerSnippets(monaco, language, cargar, origen = () => '') {
@@ -51,8 +55,12 @@ export function registerSnippets(monaco, language, cargar, origen = () => '') {
       const suggestions = lista.map(s => ({
         label: s.prefix,
         kind: K,
-        detail: s.description || s.name,
-        documentation: { value: (s.description ? s.description + '\n\n' : '') + '```\n' + s.body + '\n```' + (origen(s) ? '\n\n' + origen(s) : '') },
+        // como VS Code: arriba la descripción y de qué extensión viene, y en el
+        // detalle el cuerpo. Todo texto plano, NUNCA Markdown: Monaco pintaría
+        // las imágenes y enlaces que escriba la extensión y el navegador las
+        // pediría a cualquier servidor (IP, hora y origen de quien mira).
+        detail: cabecera(s, origen(s)),
+        documentation: s.body,
         insertText: s.body,
         insertTextRules: R,
         range: new monaco.Range(position.lineNumber, replaceStart(antes, s.prefix, palabra.startColumn), position.lineNumber, position.column),

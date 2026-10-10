@@ -6,6 +6,8 @@
 // verdad, no lo que dice la cabecera.
 
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+// Errores con código (el panel los traduce) y, si la hay, la entrada del zip.
+const fallo = (msg, code, entry) => Object.assign(new Error(msg), { code, ...(entry && { entry }) });
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 
 let CRC_TABLA = null;
@@ -34,12 +36,12 @@ export function listEntries(input) {
   if (eocd < 0) throw Object.assign(new Error('no es un zip (falta el directorio central)'), { code: 'notvsix' });
   const total = u16(b, eocd + 10);
   const cdOffset = u32(b, eocd + 16);
-  if (total === 0xffff || cdOffset === 0xffffffff) throw new Error('zip64 no soportado');
+  if (total === 0xffff || cdOffset === 0xffffffff) throw fallo('zip64 no soportado', 'corrupt');
   const entries = [];
   const dec = new TextDecoder();
   let p = cdOffset;
   for (let k = 0; k < total; k++) {
-    if (p + 46 > b.length || u32(b, p) !== 0x02014b50) throw new Error('directorio central corrupto');
+    if (p + 46 > b.length || u32(b, p) !== 0x02014b50) throw fallo('directorio central corrupto', 'corrupt');
     const flags = u16(b, p + 8);
     const method = u16(b, p + 10);
     const crc = u32(b, p + 16);
@@ -63,7 +65,7 @@ async function inflateRaw(datos, tope) {
     const { done, value } = await lector.read();
     if (done) break;
     n += value.length;
-    if (n > tope) { lector.cancel().catch(() => {}); throw new Error('entrada demasiado grande al descomprimir'); }
+    if (n > tope) { lector.cancel().catch(() => {}); throw fallo('entrada demasiado grande al descomprimir', 'big'); }
     trozos.push(value);
   }
   const out = new Uint8Array(n);
@@ -81,19 +83,22 @@ export function openZip(input, { maxEntry = 8 << 20, maxTotal = 48 << 20 } = {})
   let gastado = 0;
   async function read(name) {
     const e = porNombre.get(name);
-    if (!e) throw new Error('no está en el paquete: ' + name);
-    if (e.flags & 1) throw new Error('entrada cifrada: ' + name);
-    if (e.usize > maxEntry) throw new Error(`${name} pesa demasiado (${e.usize} bytes)`);
-    if (gastado + e.usize > maxTotal) throw new Error('el paquete descomprime demasiado');
-    if (e.local + 30 > b.length || u32(b, e.local) !== 0x04034b50) throw new Error('cabecera local corrupta: ' + name);
+    if (!e) throw fallo('no está en el paquete: ' + name, 'missing', name);
+    if (e.flags & 1) throw fallo('entrada cifrada: ' + name, 'corrupt', name);
+    if (e.usize > maxEntry) throw fallo(`${name} pesa demasiado (${e.usize} bytes)`, 'big', name);
+    if (gastado + e.usize > maxTotal) throw fallo('el paquete descomprime demasiado', 'big', name);
+    if (e.local + 30 > b.length || u32(b, e.local) !== 0x04034b50) throw fallo('cabecera local corrupta: ' + name, 'corrupt', name);
     const inicio = e.local + 30 + u16(b, e.local + 26) + u16(b, e.local + 28);
     const datos = b.subarray(inicio, inicio + e.csize);
-    if (datos.length !== e.csize) throw new Error('entrada truncada: ' + name);
+    if (datos.length !== e.csize) throw fallo('entrada truncada: ' + name, 'corrupt', name);
     let out;
     if (e.method === 0) out = datos.slice();
-    else if (e.method === 8) out = await inflateRaw(datos, Math.min(maxEntry, e.usize));
-    else throw new Error(`compresión ${e.method} no soportada: ${name}`);
-    if (out.length !== e.usize || crc32(out) !== e.crc) throw new Error('CRC incorrecto: ' + name);
+    else if (e.method === 8) {
+      try { out = await inflateRaw(datos, Math.min(maxEntry, e.usize)); }
+      catch (err) { throw err?.code === 'big' ? err : fallo('no se pudo descomprimir: ' + name, 'corrupt', name); }   // el resto: datos que no son deflate
+    }
+    else throw fallo(`compresión ${e.method} no soportada: ${name}`, 'corrupt', name);
+    if (out.length !== e.usize || crc32(out) !== e.crc) throw fallo('CRC incorrecto: ' + name, 'corrupt', name);
     gastado += out.length;
     return out;
   }

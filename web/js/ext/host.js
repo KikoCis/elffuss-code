@@ -10,12 +10,66 @@
 import * as store from './store.js';
 import { BASES, builtinTheme, toMonacoTheme, toTextMateTheme, chromeCss, themeIdFor } from './themes.js';
 import { registerSnippets } from './snippets.js';
-import { toLanguageConfiguration, matchLanguage } from './languages.js';
-import { Grammars } from './grammars.js';
+import { toLanguageConfiguration, matchLanguage, firstLineCandidates } from './languages.js';
+import { Grammars, canOverride } from './grammars.js';
 import { uiLang } from '../i18n.js';
 
 export const THEME_PREF = 'elffusscode.theme';
 let instancia = null;
+
+// ── primera línea (firstLine) en un Worker con tiempo tope ──
+// Una expresión de un paquete puede no terminar nunca con según qué línea; en
+// el hilo de la página congelaría la pestaña al abrir un fichero. El Worker
+// avisa antes de probar cada expresión: si una se pasa de tiempo, se corta el
+// Worker, esa expresión queda fuera hasta recargar y se repite con las demás.
+const TOPE_EXPRESION_MS = 250;
+const TOPE_ARRANQUE_MS = 8000;             // el Worker ni contestó (no cargó)
+const lentas = new Set();
+const peticiones = new Map();
+let trabajador = null, nPeticion = 0;
+
+function sueltaTrabajador() {
+  trabajador?.terminate();
+  trabajador = null;
+  const resto = [...peticiones.values()];
+  peticiones.clear();
+  for (const p of resto) clearTimeout(p.timer);
+  return resto;
+}
+function alRecibir({ data }) {
+  const p = peticiones.get(data.id);
+  if (!p) return;
+  clearTimeout(p.timer);
+  if ('trying' in data) {
+    p.timer = setTimeout(() => {
+      const mala = p.candidatos[data.trying];
+      lentas.add(mala.src);
+      console.warn(`[elffuss-ext] la firstLine de «${mala.id}» no termina a tiempo: no se usa en esta sesión`);
+      for (const q of sueltaTrabajador()) firstLineEnWorker(q.candidatos, q.linea).then(q.resolve);
+    }, TOPE_EXPRESION_MS);
+    return;
+  }
+  peticiones.delete(data.id);
+  p.resolve(data.lang ?? null);
+}
+function firstLineEnWorker(candidatos, linea) {
+  candidatos = candidatos.filter(c => !lentas.has(c.src));
+  if (!candidatos.length || !linea) return Promise.resolve(null);
+  return new Promise(resolve => {
+    try {
+      if (!trabajador) {
+        trabajador = new Worker(new URL('./firstline-worker.js', import.meta.url), { type: 'module' });
+        trabajador.onmessage = alRecibir;
+        trabajador.onerror = () => { for (const q of sueltaTrabajador()) q.resolve(null); };
+      }
+      const id = ++nPeticion;
+      const p = { resolve, candidatos, linea, timer: null };
+      p.timer = setTimeout(() => { if (peticiones.get(id) === p) { peticiones.delete(id); resolve(null); } }, TOPE_ARRANQUE_MS);
+      peticiones.set(id, p);
+      trabajador.postMessage({ id, candidates: candidatos, line: linea });
+    } catch { resolve(null); }               // sin Workers: sin detección por primera línea
+  });
+}
 
 export function init(monaco, opts = {}) {
   instancia ??= crear(monaco, opts).catch(e => { instancia = null; throw e; });
@@ -93,7 +147,9 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
         langContribs.push(l);
         if (builtin.has(l.id)) continue;      // los de serie conservan su configuración
         if (!registrados.has(l.id)) {
-          monaco.languages.register({ id: l.id, extensions: l.extensions, filenames: l.filenames, filenamePatterns: l.filenamePatterns, firstLine: l.firstLine, aliases: l.aliases, mimetypes: l.mimetypes });
+          // sin firstLine: Monaco la ejecutaría en la página; la detección por
+          // primera línea es nuestra y va en un Worker (languageForFirstLine)
+          monaco.languages.register({ id: l.id, extensions: l.extensions, filenames: l.filenames, filenamePatterns: l.filenamePatterns, aliases: l.aliases, mimetypes: l.mimetypes });
           registrados.add(l.id);
         }
         if (l.configKey) {
@@ -156,9 +212,14 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     }
     const { readVsix } = await import('./vsix.js');
     const v = await readVsix(bytes, { lang: uiLang() });
-    if (meta && v.id !== `${meta.namespace}.${meta.name}`.toLowerCase()) throw new Error(`el paquete dice ser ${v.id}, no ${meta.namespace}.${meta.name}`);
+    if (meta && v.id !== `${meta.namespace}.${meta.name}`.toLowerCase()) {
+      throw Object.assign(new Error(`el paquete dice ser ${v.id}, no ${meta.namespace}.${meta.name}`), { code: 'mismatch', got: v.id, want: `${meta.namespace}.${meta.name}` });
+    }
     if (!v.themes.length && !v.grammars.length && !v.snippets.length && !v.languages.length) {
-      const e = new Error('nothing-applies'); e.code = 'nothing'; throw e;
+      // declaraba cosas aplicables pero ninguna se pudo leer: no es lo mismo
+      // que no traer nada, y el usuario tiene que saber por qué
+      if (v.warnings.length) throw Object.assign(new Error('unreadable'), { code: 'unreadable', warning: v.warnings[0], warnings: v.warnings });
+      throw Object.assign(new Error('nothing-applies'), { code: 'nothing' });
     }
     const previo = exts.find(e => e.id === v.id);
     const usados = new Set(exts.filter(e => e.id !== v.id).flatMap(e => (e.themes || []).map(t => t.themeId)));
@@ -215,8 +276,15 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     themeId: () => monacoId,
     setTheme: id => aplicaTema(id, { guardar: true }),
     previewTheme: id => aplicaTema(id),
-    languageForPath: (path, primeraLinea = null) => (paused ? null : matchLanguage(langContribs, path, primeraLinea)),
+    languageForPath: path => (paused ? null : matchLanguage(langContribs, path)),
+    // solo para ficheros que nadie reclama por su nombre (ide.js)
+    languageForFirstLine: line => (paused ? Promise.resolve(null) : firstLineEnWorker(firstLineCandidates(langContribs), line)),
     prepareLanguage: async lang => (paused || !grammars.hasGrammarFor(lang) ? false : grammars.prepare(lang)),
     skippedGrammars: () => grammars.skipped.map(g => ({ ext: g.ext, language: g.language, scopeName: g.scopeName })),
+    // lo que no se aplicaría aunque la extensión esté activa: la gramática de
+    // un lenguaje de serie sin Monarch (JSON) y la configuración de un lenguaje
+    // de serie (Monaco conserva la suya)
+    grammarSkippedFor: lang => typeof lang === 'string' && builtin.has(lang) && !canOverride(monaco, lang),
+    builtinLanguage: id => builtin.has(id),
   };
 }

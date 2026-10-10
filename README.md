@@ -49,7 +49,8 @@ for real. Everything runs in your browser: your code never leaves your machine.*
 
 ## VS Code extensions: themes, grammars, snippets
 
-The **Extensions** button in the activity bar searches [Open VSX](https://open-vsx.org)
+The **Extensions** button in the activity bar (also *View → Extensions…*, or `/extensions`
+in the chat on small screens) searches [Open VSX](https://open-vsx.org)
 and installs the *declarative* part of VS Code extensions: **color themes** (with a
 Color Theme picker), **TextMate grammars**, **snippets** and **language configurations**
 (comments, brackets, indentation). You can also install a `.vsix` file.
@@ -58,8 +59,14 @@ Color Theme picker), **TextMate grammars**, **snippets** and **language configur
   extension applies and what would need an extension host (commands, views, debuggers…).
 - **Your project stays in the browser.** Open VSX only sees what you search for and install.
 - Packages are checked against the SHA-256 that Open VSX publishes and kept in IndexedDB.
-- Grammars run on the same engine as VS Code (vscode-textmate + Oniguruma), loaded from
-  the CDN only when a file needs one. Without extensions, nothing extra loads.
+- Grammars run on the same engine as VS Code (vscode-textmate + Oniguruma), loaded only
+  when a file needs one: the engine is vendored in `web/js/ext/vendor/` (unchanged, MIT)
+  and the Oniguruma WebAssembly comes from jsDelivr with an integrity check. Without
+  extensions, nothing extra loads.
+- What a package brings is treated as untrusted data: grammars and themes are cleaned
+  of names that would reach `Object.prototype`, snippet details are plain text (no remote
+  images), regular expressions that repeat a repetition are dropped, and `firstLine`
+  patterns run in a Worker with a time limit. The panel lists anything it had to skip.
 - `?noext` starts with every extension paused (to rescue a tab from a bad grammar).
 
 ## Run locally

@@ -3,6 +3,10 @@
 // el selector de tema de color. Mismo patrón que el panel de Skills: se pinta
 // dentro de #settings-panel. Todo texto que viene de una extensión entra con
 // textContent, nunca como HTML.
+//
+// Teclado y lector de pantalla: todo lo que se pulsa es un botón (o un
+// <summary>), los resultados y avisos se anuncian (role=status/alert), el
+// foco no se pierde al repintar ni al cerrar, y Escape cierra el panel.
 import { tx } from './i18n.js';
 
 const $ = id => document.getElementById(id);
@@ -14,6 +18,9 @@ let cssPuesto = false;
 const estado = { q: '', cat: null, items: [], total: 0, cargando: false, msg: null, ctl: null };
 let temporizador = null;
 let desuscribe = null;
+let abridor = null;                     // quién tenía el foco al abrir el panel
+let focoPendiente = null;               // control a recuperar tras repintar «Instaladas»
+let nDetalle = 0;
 
 function ponCss() {
   if (cssPuesto) return;
@@ -24,37 +31,105 @@ function ponCss() {
   document.head.appendChild(l);
 }
 
+const visible = x => !!x && x.isConnected && x !== document.body && !x.disabled && x.getClientRects().length > 0;
+// El foco vuelve a donde estaba; si eso ya no existe o no se ve (un menú que
+// se cerró, la paleta), a lo primero que se vea de la lista.
+function devuelveFoco(previo, ...alternativas) {
+  for (const x of [previo, ...alternativas]) {
+    if (typeof x === 'function') { if (x()) return; continue; }
+    if (visible(x)) { x.focus(); return; }
+  }
+}
+const enfocaEditor = () => {
+  const ed = window.monaco?.editor?.getEditors?.()[0];
+  if (!ed || !visible(ed.getDomNode())) return false;
+  ed.focus();
+  return true;
+};
+
 export function open(h, { themes = false } = {}) {
   host = h;
   ponCss();
   desuscribe?.();
   desuscribe = h.onChange(() => { if ($('ext-panel')?.isConnected) pintaInstaladas(); });
   if (themes) return openThemePicker(h);
+  const box = $('settings-panel');
+  if (!$('ext-panel')?.isConnected || box.hidden) abridor = document.activeElement;
   estado.msg = null;                    // un aviso viejo no se repite al volver a abrir
   pinta();
 }
 
-// ── mensajes de error legibles ──
-function textoError(e) {
-  if (e?.code === 'rate') return tx('errRate');
-  if (e?.code === 'net') return tx('errNet', { e: e.message });
-  if (e?.code === 'sha') return tx('errSha');
-  if (e?.code === 'nothing') return tx('errNothing');
-  if (e?.code === 'notvsix') return tx('errNotVsix');
-  if (e?.code === 'cancel' || e?.name === 'AbortError') return tx('cancelled');
+function cierraPanel() {
+  $('settings-panel').hidden = true;
+  devuelveFoco(abridor, $('act-ext'), document.querySelector('#menubar button[data-menu="view"]'), enfocaEditor, $('prompt'));
+}
+
+// ── mensajes legibles (exportados para las pruebas en Node) ──
+const ERRORES = {
+  rate: 'errRate', sha: 'errSha', nothing: 'errNothing', notvsix: 'errNotVsix', notfound: 'errNotFound',
+  big: 'errBig', noname: 'errNoName', blocked: 'errBlocked',
+};
+export function textoError(e) {
+  const code = e?.code;
+  if (code === 'cancel' || e?.name === 'AbortError') return tx('cancelled');
+  if (e?.name === 'QuotaExceededError') return tx('errQuota');
+  if (typeof code === 'string' && Object.hasOwn(ERRORES, code)) return tx(ERRORES[code]);
+  switch (code) {
+    case 'net': return tx('errNet', { e: e.message });
+    case 'http': return tx('errHttp', { status: e.status ? ` (${e.status})` : '' });
+    case 'mismatch': return tx('errMismatch', { got: e.got, want: e.want });
+    case 'corrupt': case 'missing': return tx('errCorrupt', { entry: e.entry ? ` (${e.entry})` : '' });
+    case 'badmanifest': return tx('errBadManifest', { e: e.message });
+    case 'unreadable': return tx('errUnreadable', { w: e.warning ? textoAviso(e.warning) : '' }).trim();
+  }
   return tx('err', { e: e?.message || String(e) });
 }
+// Una parte del paquete que no se pudo usar (vsix.js: { kind, name, code, detail }).
+const MOTIVOS = {
+  missing: 'whyMissing', corrupt: 'whyCorrupt', big: 'whyBig', json: 'whyJson', plist: 'whyPlist',
+  notgrammar: 'whyNotGrammar', notheme: 'whyNotTheme', scope: 'whyScope', outside: 'whyOutside',
+};
+const TIPOS_AVISO = new Set(['theme', 'grammar', 'snippets', 'config', 'regex']);
+export function textoAviso(w) {
+  if (typeof w === 'string') return w;                // instaladas antes de que hubiera códigos
+  if (!w || typeof w !== 'object') return '';
+  const why = w.kind !== 'regex' && typeof w.code === 'string' && Object.hasOwn(MOTIVOS, w.code) ? tx(MOTIVOS[w.code], { e: w.detail }) : w.detail;
+  return TIPOS_AVISO.has(w.kind) ? tx('warn_' + w.kind, { name: w.name, why }) : `${w.name}: ${why}`;
+}
+
+// Los avisos que importan: la configuración de un lenguaje de serie no se
+// aplica, así que sus expresiones descartadas no cuentan (ya lo dice «No aplica»).
+const avisosVisibles = ws => (ws || []).filter(w => !(w?.kind === 'regex' && w.where === 'config' && host.builtinLanguage?.(w.name)));
+
 function aviso(texto, error = false) {
   estado.msg = texto ? { texto, error } : null;
   const m = $('ext-msg');
   if (!m) return;
+  // vacío pero presente: una región viva que aparece a la vez que su texto
+  // no siempre se anuncia
+  m.setAttribute('role', error ? 'alert' : 'status');
+  m.setAttribute('aria-live', error ? 'assertive' : 'polite');
+  m.hidden = false;
   m.textContent = texto || '';
-  m.hidden = !texto;
   m.classList.toggle('err', !!error);
 }
+// Estado de la búsqueda para el lector de pantalla (la cabecera visible se
+// rehace en cada repintado y no podría anunciarse).
+function anunciaBusqueda(texto) {
+  const s = $('ext-status');
+  if (s && s.textContent !== texto) s.textContent = texto;
+}
 
-// «Aplica: 2 temas · No aplica: commands (necesita su código)»
-function lineasResumen({ themes = 0, grammars = 0, languages = 0, snippetLangs = [], ignored = [], hasCode = false, pack = [] }) {
+// «Aplica: 2 temas · No aplica: commands (necesita su código)», con lo que de
+// verdad se aplicaría aquí: la gramática de un lenguaje de serie sin Monarch
+// (JSON) y la configuración de un lenguaje de serie no se aplican, y no cuentan.
+function resumen({ themes = 0, grammarLangs = [], languageList = [], snippetLangs = [], ignored = [], hasCode = false, pack = [] }) {
+  const saltaGram = l => !!l && !!host.grammarSkippedFor?.(l);
+  const deSerie = id => !!host.builtinLanguage?.(id);
+  const gramSaltadas = [...new Set(grammarLangs.filter(saltaGram))];
+  const confSaltadas = [...new Set(languageList.filter(l => l.config && deSerie(l.id)).map(l => l.id))];
+  const grammars = grammarLangs.filter(l => !saltaGram(l)).length;
+  const languages = languageList.filter(l => !deSerie(l.id)).length;
   const aplica = [];
   if (themes) aplica.push(tx('themes', { n: themes }));
   if (grammars) aplica.push(tx('grammars', { n: grammars }));
@@ -62,16 +137,28 @@ function lineasResumen({ themes = 0, grammars = 0, languages = 0, snippetLangs =
   if (snippetLangs.length) aplica.push(tx('snippets', { langs: snippetLangs.slice(0, 6).join(', ') + (snippetLangs.length > 6 ? '…' : '') }));
   const porMotivo = { code: [], later: [] };
   for (const i of ignored) (porMotivo[i.why] || porMotivo.later).push(i.key);
-  const no = [];
+  const no = [...gramSaltadas.map(lang => tx('grammarNotApplied', { lang })), ...confSaltadas.map(lang => tx('settingsNotApplied', { lang }))];
   if (porMotivo.code.length) no.push(`${porMotivo.code.join(', ')} (${tx('needsCode')})`);
   if (porMotivo.later.length) no.push(`${porMotivo.later.join(', ')} (${tx('notYet')})`);
-  const out = [];
-  out.push(aplica.length ? { cls: 'ext-applies', t: tx('applies', { list: aplica.join(' · ') }) } : { cls: 'ext-nothing', t: tx('nothing') });
-  if (no.length) out.push({ cls: 'ext-ignored', t: tx('ignores', { list: no.join(' · ') }) });
-  if (hasCode) out.push({ cls: 'ext-ignored', t: tx('hasCode') });
-  if (pack.length) out.push({ cls: 'ext-ignored', t: tx('pack', { n: pack.length }) });
-  return out;
+  const lineas = [];
+  lineas.push(aplica.length ? { cls: 'ext-applies', t: tx('applies', { list: aplica.join(' · ') }) } : { cls: 'ext-nothing', t: tx('nothing') });
+  if (no.length) lineas.push({ cls: 'ext-ignored', t: tx('ignores', { list: no.join(' · ') }) });
+  if (hasCode) lineas.push({ cls: 'ext-ignored', t: tx('hasCode') });
+  if (pack.length) lineas.push({ cls: 'ext-ignored', t: tx('pack', { n: pack.length }) });
+  return { lineas, any: aplica.length > 0 };
 }
+
+// Botón de acción: texto visible y nombre accesible con la extensión
+// («Instalar Monokai»). Sin nombre accesible, el lector lee el texto visible
+// (el progreso de la descarga, por ejemplo).
+function rotula(b, texto, accesible = null) {
+  b.textContent = texto;
+  if (accesible) b.setAttribute('aria-label', accesible); else b.removeAttribute('aria-label');
+}
+// Ocupado o ya hecho, pero SIN disabled: un botón deshabilitado pierde el foco
+// y quien va con teclado se quedaría en ninguna parte.
+const inerte = (b, si) => { if (si) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled'); };
+const esInerte = b => b.getAttribute('aria-disabled') === 'true';
 
 // ── panel ──
 function pinta() {
@@ -80,9 +167,15 @@ function pinta() {
   box.replaceChildren();
   const cerrar = el('button', null, '✕');
   cerrar.id = 'settings-close';
-  cerrar.onclick = () => { box.hidden = true; };
+  cerrar.type = 'button';
+  cerrar.title = tx('close');
+  cerrar.setAttribute('aria-label', tx('close'));
+  cerrar.onclick = cierraPanel;
   const wrap = el('div', 'ext-panel');
   wrap.id = 'ext-panel';
+  const conEscape = e => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); e.stopPropagation(); cierraPanel(); } };
+  wrap.addEventListener('keydown', conEscape);
+  cerrar.addEventListener('keydown', conEscape);
   const h3 = el('h3', null, tx('title') + ' ');
   h3.appendChild(el('span', 'muted', '· ' + tx('sub')));
   wrap.append(h3, el('p', 'muted ext-intro', tx('intro')));
@@ -113,6 +206,7 @@ function pinta() {
   inp.id = 'ext-q';
   inp.type = 'search';
   inp.placeholder = tx('searchPh');
+  inp.setAttribute('aria-label', tx('searchPh'));
   inp.autocomplete = 'off';
   inp.spellcheck = false;
   inp.value = estado.q;
@@ -122,6 +216,7 @@ function pinta() {
   for (const [cat, key] of CATS) {
     const c = el('button', 'ext-chip' + (estado.cat === cat ? ' on' : ''), tx(key));
     c.dataset.cat = cat;
+    c.setAttribute('aria-pressed', String(estado.cat === cat));
     c.onclick = () => { estado.cat = estado.cat === cat && cat ? '' : cat; busca_(); };
     chips.appendChild(c);
   }
@@ -130,8 +225,14 @@ function pinta() {
 
   const msg = el('div', 'ext-msg');
   msg.id = 'ext-msg';
-  msg.hidden = true;
+  msg.setAttribute('role', 'status');
+  msg.setAttribute('aria-live', 'polite');
   wrap.appendChild(msg);
+  const estadoBusqueda = el('div', 'ext-sr');
+  estadoBusqueda.id = 'ext-status';
+  estadoBusqueda.setAttribute('role', 'status');
+  estadoBusqueda.setAttribute('aria-live', 'polite');
+  wrap.appendChild(estadoBusqueda);
   const res = el('div', 'ext-results');
   res.id = 'ext-results';
   wrap.appendChild(res);
@@ -156,7 +257,12 @@ async function busca_({ mas = false } = {}) {
   if (!mas) { estado.items = []; estado.total = 0; }
   aviso(null);
   pintaResultados();
-  document.querySelectorAll('.ext-chip').forEach(c => c.classList.toggle('on', c.dataset.cat === (estado.cat || '') && estado.cat != null));
+  // solo las categorías: las fichas de tema de «Instaladas» también son .ext-chip
+  for (const c of document.querySelectorAll('#ext-panel .ext-search .ext-chip')) {
+    const on = c.dataset.cat === (estado.cat || '') && estado.cat != null;
+    c.classList.toggle('on', on);
+    c.setAttribute('aria-pressed', String(on));
+  }
   try {
     const r = await ovsx.search(estado.q, { category: estado.cat || '', offset: mas ? estado.items.length : 0, size: 20, signal: ctl.signal });
     if (estado.ctl !== ctl) return;
@@ -174,12 +280,21 @@ function pintaResultados() {
   const res = $('ext-results');
   if (!res) return;
   res.replaceChildren();
-  if (estado.cargando && !estado.items.length) { res.appendChild(el('div', 'muted ext-hint', tx('searching'))); return; }
+  if (estado.cargando && !estado.items.length) {
+    res.appendChild(el('div', 'muted ext-hint', tx('searching')));
+    anunciaBusqueda(tx('searching'));
+    return;
+  }
   if (!estado.items.length) {
-    if (estado.q || estado.cat != null) res.appendChild(el('div', 'muted ext-hint', estado.cargando ? tx('searching') : tx('noResults')));
+    if (estado.q || estado.cat != null) {
+      const t = estado.cargando ? tx('searching') : tx('noResults');
+      res.appendChild(el('div', 'muted ext-hint', t));
+      anunciaBusqueda(t);
+    } else anunciaBusqueda('');
     return;
   }
   res.appendChild(el('div', 'sk-h', estado.q ? tx('results', { n: estado.total }) : tx('popular')));
+  anunciaBusqueda(tx('results', { n: estado.total }));
   const instaladas = new Map(host.list().map(e => [e.id, e]));
   for (const it of estado.items) res.appendChild(filaResultado(it, instaladas.get(`${it.namespace}.${it.name}`.toLowerCase())));
   if (estado.items.length < estado.total) {
@@ -199,46 +314,62 @@ function icono(url, nombre) {
     img.onerror = () => img.replaceWith(icono(null, nombre));
     return img;
   }
-  return el('div', 'ext-ico ext-ico-letra', (nombre || '?').trim().charAt(0).toUpperCase());
+  const letra = el('div', 'ext-ico ext-ico-letra', (nombre || '?').trim().charAt(0).toUpperCase());
+  letra.setAttribute('aria-hidden', 'true');
+  return letra;
 }
 
 function filaResultado(it, instalada) {
   const row = el('div', 'ext-row');
   row.dataset.id = `${it.namespace}.${it.name}`;
   const main = el('div', 'ext-main');
+  const det = el('div', 'ext-detail');
+  det.id = 'ext-det-' + (++nDetalle);
+  det.hidden = true;
+  // el nombre es el botón que despliega el detalle (qué aplicaría y qué no):
+  // antes de instalar, también con teclado
   const t = el('div', 'ext-title');
-  t.append(el('b', null, it.displayName), el('span', 'muted', ` ${it.namespace} · v${it.version}`));
+  const nombre = el('button', 'ext-name', it.displayName);
+  nombre.type = 'button';
+  nombre.title = tx('details');
+  nombre.setAttribute('aria-expanded', 'false');
+  nombre.setAttribute('aria-controls', det.id);
+  nombre.onclick = e => { e.stopPropagation(); detalle(it, det, nombre); };
+  t.append(nombre, el('span', 'muted', ` ${it.namespace} · v${it.version}`));
   if (it.verified) t.appendChild(el('span', 'ext-badge', '✓'));
   main.append(t, el('div', 'ext-desc', it.description));
   main.appendChild(el('div', 'ext-meta muted', tx('downloads', { n: it.downloadCount.toLocaleString() })));
-  const det = el('div', 'ext-detail');
-  det.hidden = true;
   main.appendChild(det);
-  main.onclick = () => detalle(it, det);
-  main.title = tx('details');
+  main.onclick = e => { if (!e.target.closest('button, a, summary')) detalle(it, det, nombre); };
 
   const acc = el('div', 'ext-actions');
   const b = el('button', 'primary ext-install');
-  if (instalada && instalada.version === it.version) { b.textContent = tx('installedOk'); b.className = 'ghost ext-install'; b.disabled = true; }
-  else b.textContent = instalada ? tx('update', { v: it.version }) : tx('install');
-  b.onclick = e => { e.stopPropagation(); instala(it, b); };
+  b.type = 'button';
+  if (instalada && instalada.version === it.version) {
+    rotula(b, tx('installedOk'), tx('installedNamed', { name: it.displayName }));
+    b.className = 'ghost ext-install';
+    inerte(b, true);
+  } else if (instalada) rotula(b, tx('update', { v: it.version }), tx('updateNamed', { name: it.displayName, v: it.version }));
+  else rotula(b, tx('install'), tx('installNamed', { name: it.displayName }));
+  b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b); };
   acc.appendChild(b);
   row.append(icono(it.icon, it.displayName), main, acc);
   return row;
 }
 
-async function detalle(it, det) {
-  if (!det.hidden) { det.hidden = true; return; }
-  det.hidden = false;
-  if (det.dataset.listo) return;
+async function detalle(it, det, boton) {
+  det.hidden = !det.hidden;
+  boton?.setAttribute('aria-expanded', String(!det.hidden));
+  if (det.hidden || det.dataset.listo) return;
   det.replaceChildren(el('div', 'muted', tx('loadingDetails')));
   try {
     const ovsx = await import('./openvsx.js');
     const { analyzeManifest } = await import('./vsix.js');
     const meta = await ovsx.metadata(it.namespace, it.name, it.version);
     const a = analyzeManifest(await ovsx.manifest(meta));
+    const r = resumen({ themes: a.applies.themes, grammarLangs: a.grammarLangs, languageList: a.languageList, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: a.hasCode, pack: a.pack });
     det.replaceChildren();
-    for (const l of lineasResumen({ ...a.applies, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: a.hasCode, pack: a.pack })) det.appendChild(el('div', l.cls, l.t));
+    for (const l of r.lineas) det.appendChild(el('div', l.cls, l.t));
     const lic = el('div', 'ext-meta muted', tx('license', { l: meta.license || tx('noLicense') }) + ' ');
     if (meta.files.license) {
       const a2 = el('a', null, tx('viewLicense'));
@@ -250,36 +381,58 @@ async function detalle(it, det) {
     det.appendChild(lic);
     det.dataset.listo = '1';
     // nada aplicable: instalarla solo daría un error, mejor decirlo en el botón
-    const boton = det.closest('.ext-row')?.querySelector('.ext-install');
-    if (!a.any && boton && !boton.disabled) { boton.disabled = true; boton.title = tx('nothing'); boton.className = 'ghost ext-install'; }
+    const inst = det.closest('.ext-row')?.querySelector('.ext-install');
+    if (!r.any && inst && !esInerte(inst)) { inerte(inst, true); inst.title = tx('nothing'); inst.className = 'ghost ext-install'; }
   } catch (e) { det.replaceChildren(el('div', 'ext-ignored', textoError(e))); }
 }
 
 async function instala(src, boton) {
   const nombre = src instanceof Blob ? src.name : src.displayName;
-  const original = boton?.textContent;
-  if (boton) { boton.disabled = true; boton.textContent = tx('installing'); }
+  const original = boton ? { texto: boton.textContent, accesible: boton.getAttribute('aria-label') } : null;
+  if (boton) { inerte(boton, true); rotula(boton, tx('installing')); }
   aviso(null);
   try {
     const rec = await host.install(src instanceof Blob ? src : { namespace: src.namespace, name: src.name, version: src.version }, {
       onProgress: (n, total) => { if (boton && total) boton.textContent = tx('downloading', { pct: Math.round(n / total * 100) }); },
       confirmLarge: async mb => confirm(tx('bigConfirm', { mb })),
     });
-    if (boton) { boton.textContent = tx('installedOk'); boton.className = 'ghost ext-install'; }
-    aviso(tx('installedMsg', { name: rec.displayName || nombre }));
+    if (boton) { rotula(boton, tx('installedOk'), tx('installedNamed', { name: rec.displayName || nombre })); boton.className = 'ghost ext-install'; }
+    const nAvisos = avisosVisibles(rec.warnings).length;
+    aviso(tx('installedMsg', { name: rec.displayName || nombre }) + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
   } catch (e) {
-    if (boton) { boton.disabled = false; boton.textContent = original; }
+    if (boton) { inerte(boton, false); rotula(boton, original.texto, original.accesible); }
     aviso(textoError(e), true);
   }
+}
+
+// ── instaladas ──
+function claveFoco(x) {
+  const k = x?.closest?.('[data-k]')?.dataset.k;
+  const id = x?.closest?.('.ext-row')?.dataset.id;
+  return k && id ? { id, k } : null;
+}
+function recuperaFoco(box, f) {
+  if (!f) return;
+  if (f.heading) { $('ext-installed-h')?.focus(); return; }
+  const fila = [...box.querySelectorAll('.ext-row')].find(r => r.dataset.id === f.id);
+  const x = fila && ([...fila.querySelectorAll('[data-k]')].find(c => c.dataset.k === f.k) || fila.querySelector('[data-k="toggle"]'));
+  if (x) x.focus(); else $('ext-installed-h')?.focus();
 }
 
 function pintaInstaladas() {
   const box = $('ext-installed');
   if (!box) return;
+  // se rehace entera: lo que tenía el foco aquí dentro lo recupera después
+  const foco = focoPendiente || (box.contains(document.activeElement) ? claveFoco(document.activeElement) : null);
+  focoPendiente = null;
+  // …y los avisos que estaban desplegados siguen desplegados
+  const desplegados = new Set([...box.querySelectorAll('details.ext-warn[open]')].map(d => d.closest('.ext-row')?.dataset.id));
   const lista = host.list();
-  box.replaceChildren(el('div', 'sk-h', tx('installedH', { n: lista.length })));
-  if (!lista.length) { box.appendChild(el('p', 'muted ext-hint', tx('none'))); return; }
-  const saltadas = host.skippedGrammars();
+  const cab = el('div', 'sk-h', tx('installedH', { n: lista.length }));
+  cab.id = 'ext-installed-h';
+  cab.tabIndex = -1;
+  box.replaceChildren(cab);
+  if (!lista.length) { box.appendChild(el('p', 'muted ext-hint', tx('none'))); recuperaFoco(box, foco && { heading: true }); return; }
   for (const e of lista.slice().reverse()) {
     const row = el('div', 'ext-row installed' + (e.enabled ? '' : ' off'));
     row.dataset.id = e.id;
@@ -288,42 +441,83 @@ function pintaInstaladas() {
     t.append(el('b', null, e.displayName), el('span', 'muted', ` ${e.id} · v${e.version}${e.enabled ? '' : ' · ' + tx('disabled')}`));
     main.append(t);
     if (e.description) main.appendChild(el('div', 'ext-desc', e.description));
-    const langsSnip = [...new Set((e.snippets || []).map(s => s.language))];
-    for (const l of lineasResumen({ themes: e.themes?.length, grammars: e.grammars?.length, languages: e.languages?.length, snippetLangs: langsSnip, ignored: e.ignored || [], hasCode: e.hasCode, pack: e.pack || [] })) main.appendChild(el('div', l.cls, l.t));
-    for (const g of saltadas.filter(g => g.ext === e.id)) main.appendChild(el('div', 'ext-ignored', tx('grammarSkipped', { lang: g.language })));
+    const r = resumen({
+      themes: e.themes?.length || 0,
+      grammarLangs: (e.grammars || []).map(g => g.language ?? null),
+      languageList: (e.languages || []).map(l => ({ id: l.id, config: !!l.configKey })),
+      snippetLangs: [...new Set((e.snippets || []).map(s => s.language))],
+      ignored: e.ignored || [], hasCode: e.hasCode, pack: e.pack || [],
+    });
+    for (const l of r.lineas) main.appendChild(el('div', l.cls, l.t));
+    // lo que el paquete declaraba y no se pudo usar: plegado, sin esconderlo
+    const avisos = avisosVisibles(e.warnings).map(textoAviso).filter(Boolean);
+    if (avisos.length) {
+      const d = el('details', 'ext-warn');
+      d.open = desplegados.has(e.id);
+      const s = el('summary', null, tx('warnSummary', { n: avisos.length }));
+      s.dataset.k = 'warn';
+      const ul = el('ul');
+      for (const a of avisos) ul.appendChild(el('li', null, a));
+      d.append(s, ul);
+      main.appendChild(d);
+    }
     if (e.enabled && e.themes?.length) {
       const chips = el('div', 'ext-chips ext-theme-chips');
       for (const th of e.themes) {
-        const c = el('button', 'ext-chip' + (host.currentTheme() === th.themeId ? ' on' : ''), '◐ ' + th.label);
+        const on = host.currentTheme() === th.themeId;
+        const c = el('button', 'ext-chip' + (on ? ' on' : ''), '◐ ' + th.label);
+        c.type = 'button';
         c.dataset.theme = th.themeId;
-        c.onclick = async () => { await host.setTheme(th.themeId); pintaInstaladas(); };
+        c.dataset.k = 'theme:' + th.themeId;
+        c.setAttribute('aria-pressed', String(on));
+        c.onclick = async () => { focoPendiente = { id: e.id, k: c.dataset.k }; await host.setTheme(th.themeId); pintaInstaladas(); };
         chips.appendChild(c);
       }
       main.appendChild(chips);
     }
     const meta = el('div', 'ext-meta muted', tx('license', { l: e.license || tx('noLicense') }) + ' · ' + (e.source === 'file' ? tx('fromFile') : e.verified ? tx('verified') : tx('unverified')) + ' ');
     if (e.licenseKey) {
-      const ver = el('a', null, tx('viewLicense'));
-      ver.href = '#';
+      const ver = el('button', 'ext-link', tx('viewLicense'));
+      ver.type = 'button';
+      ver.dataset.k = 'license';
       const pre = el('pre', 'ext-license');
       pre.hidden = true;
-      ver.onclick = async ev => {
-        ev.preventDefault();
+      pre.id = 'ext-lic-' + (++nDetalle);
+      ver.setAttribute('aria-expanded', 'false');
+      ver.setAttribute('aria-controls', pre.id);
+      ver.onclick = async () => {
         if (pre.hidden && !pre.textContent) pre.textContent = await host.licenseText(e.id);
         pre.hidden = !pre.hidden;
+        ver.setAttribute('aria-expanded', String(!pre.hidden));
       };
       meta.appendChild(ver);
       main.append(meta, pre);
     } else main.appendChild(meta);
 
     const acc = el('div', 'ext-actions');
-    const bOn = el('button', 'ghost ext-toggle', e.enabled ? tx('disable') : tx('enable'));
-    bOn.onclick = async () => { bOn.disabled = true; try { await host.setEnabled(e.id, !e.enabled); } catch (err) { aviso(textoError(err), true); } pintaInstaladas(); };
-    const bDel = el('button', 'ghost ext-uninstall', tx('uninstall'));
+    const bOn = el('button', 'ghost ext-toggle');
+    bOn.type = 'button';
+    bOn.dataset.k = 'toggle';
+    rotula(bOn, e.enabled ? tx('disable') : tx('enable'), tx(e.enabled ? 'disableNamed' : 'enableNamed', { name: e.displayName }));
+    bOn.onclick = async () => {
+      focoPendiente = { id: e.id, k: 'toggle' };
+      bOn.disabled = true;
+      try { await host.setEnabled(e.id, !e.enabled); } catch (err) { aviso(textoError(err), true); }
+      pintaInstaladas();
+    };
+    const bDel = el('button', 'ghost ext-uninstall');
+    bDel.type = 'button';
+    bDel.dataset.k = 'uninstall';
+    rotula(bDel, tx('uninstall'), tx('uninstallNamed', { name: e.displayName }));
     bDel.onclick = async () => {
       if (!confirm(tx('confirmUninstall', { name: e.displayName }))) return;
+      // la fila desaparece: el foco pasa a la siguiente (o a la anterior, o al título)
+      const filas = [...box.querySelectorAll('.ext-row')];
+      const i = filas.findIndex(f => f.dataset.id === e.id);
+      const otra = filas[i + 1] || filas[i - 1];
+      focoPendiente = otra ? { id: otra.dataset.id, k: 'toggle' } : { heading: true };
       bDel.disabled = true;
-      try { await host.uninstall(e.id); } catch (err) { aviso(textoError(err), true); }
+      try { await host.uninstall(e.id); } catch (err) { focoPendiente = { id: e.id, k: 'uninstall' }; aviso(textoError(err), true); }
       pintaInstaladas();
       pintaResultados();
     };
@@ -331,13 +525,18 @@ function pintaInstaladas() {
     row.append(icono(null, e.displayName), main, acc);
     box.appendChild(row);
   }
+  recuperaFoco(box, foco);
 }
 
 // ── selector de tema (estilo «Color Theme» de VS Code) ──
+// Un combobox con su lista: las flechas mueven la opción activa (y la
+// previsualizan), el lector la anuncia (aria-activedescendant), y al cerrar el
+// foco vuelve a donde estaba.
 export function openThemePicker(h) {
   host = h;
   ponCss();
   $('ext-themepick')?.remove();
+  const previo = document.activeElement;
   const original = h.currentTheme();
   const caja = el('div');
   caja.id = 'ext-themepick';
@@ -345,7 +544,15 @@ export function openThemePicker(h) {
   inp.placeholder = tx('pickPh');
   inp.autocomplete = 'off';
   inp.spellcheck = false;
+  inp.setAttribute('role', 'combobox');
+  inp.setAttribute('aria-label', tx('pickPh'));
+  inp.setAttribute('aria-expanded', 'true');
+  inp.setAttribute('aria-autocomplete', 'list');
+  inp.setAttribute('aria-controls', 'ext-tp-list');
   const lista = el('div', 'tp-list');
+  lista.id = 'ext-tp-list';
+  lista.setAttribute('role', 'listbox');
+  lista.setAttribute('aria-label', tx('themeList'));
   caja.append(inp, lista);
   document.body.appendChild(caja);
 
@@ -356,6 +563,7 @@ export function openThemePicker(h) {
     cerrado = true;
     document.removeEventListener('mousedown', fuera, true);
     caja.remove();
+    devuelveFoco(previo, $('ext-theme-btn'), enfocaEditor, $('act-ext'));
     if (aplicar) await h.setTheme(aplicar);
     else await h.previewTheme(original);
     if ($('ext-panel')?.isConnected) pintaInstaladas();
@@ -368,23 +576,38 @@ export function openThemePicker(h) {
     const todos = h.themes();
     items = todos.filter(t => !q || (etiqueta(t) + ' ' + (t.extName || '')).toLowerCase().includes(q));
     lista.replaceChildren();
-    let grupo = null;
+    let grupo = null, caja2 = null;
     items.forEach((t, i) => {
       const g = t.builtin ? tx('builtinGroup') : t.extName;
-      if (g !== grupo) { grupo = g; lista.appendChild(el('div', 'tp-group', g)); }
-      const row = el('button', 'tp-item' + (i === sel ? ' sel' : ''));
+      if (g !== grupo || !caja2) {
+        grupo = g;
+        caja2 = el('div', 'tp-grupo');
+        caja2.setAttribute('role', 'group');
+        caja2.setAttribute('aria-label', g);
+        const cab = el('div', 'tp-group', g);
+        cab.setAttribute('aria-hidden', 'true');
+        caja2.appendChild(cab);
+        lista.appendChild(caja2);
+      }
+      const row = el('div', 'tp-item' + (i === sel ? ' sel' : ''));
+      row.id = 'ext-tp-' + i;
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', String(i === sel));
       row.dataset.theme = t.id;
       row.append(el('span', null, etiqueta(t)));
       if (t.id === original) row.appendChild(el('span', 'muted', tx('current')));
       row.onclick = () => cerrar(t.id);
-      lista.appendChild(row);
+      caja2.appendChild(row);
     });
   }
   const marca = () => {
-    lista.querySelectorAll('.tp-item').forEach((r, i) => r.classList.toggle('sel', i === sel));
-    lista.querySelectorAll('.tp-item')[sel]?.scrollIntoView({ block: 'nearest' });
+    const filas = lista.querySelectorAll('.tp-item');
+    filas.forEach((r, i) => { r.classList.toggle('sel', i === sel); r.setAttribute('aria-selected', String(i === sel)); });
+    const activa = filas[sel];
+    if (activa) { inp.setAttribute('aria-activedescendant', activa.id); activa.scrollIntoView({ block: 'nearest' }); }
+    else inp.removeAttribute('aria-activedescendant');
   };
-  inp.oninput = () => { sel = 0; pintaLista(); };
+  inp.oninput = () => { sel = 0; pintaLista(); marca(); };
   inp.onkeydown = e => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();

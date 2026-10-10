@@ -193,3 +193,109 @@ export function elfscriptVsix({ version = '1.0.0' } = {}) {
     ['extension/snippets/js.json', JSON.stringify({ 'Elf log': { prefix: 'elflog', body: "console.log('elf', $1);$0", description: 'Log with an elf' } })],
   ]);
 }
+
+// ── paquetes hostiles o rotos: seguridad y mensajes ──────────────────────────
+const paquete = (pkg, ficheros) => zip([
+  ...ENVOLTORIO,
+  ['extension/package.json', JSON.stringify({ publisher: 'elffuss-test', version: '1.0.0', engines: { vscode: '^1.80.0' }, license: 'MIT', ...pkg }, null, 2)],
+  ...ficheros,
+]);
+
+// Gramática que intenta sacar al motor de su repositorio con nombres de
+// Object.prototype: «#__proto__» escribía Object.prototype.id para TODA la
+// página. Lleva también reglas legítimas (#kw, y una que se llama
+// «constructor») que tienen que seguir pintando. El texto va a mano: un objeto
+// JS con clave __proto__ no la serializaría. Y un tema con un ámbito
+// «hasOwnProperty», que tumbaba el árbol de temas del motor.
+export const EVIL = { lang: 'evilscript', ext: '.evil', scope: 'source.evil', kw: '#DD2200', ctor: '#22AA44' };
+export const EVIL_GRAMMAR = `{
+  "scopeName": "source.evil",
+  "patterns": [
+    { "include": "#__proto__" }, { "include": "#constructor" }, { "include": "#toString" },
+    { "include": "source.evil#__proto__" }, { "include": "hasOwnProperty" }, { "include": "__proto__#x" },
+    { "include": "#kw" },
+    { "begin": "\\\\(", "end": "\\\\)", "id": 1, "__proto__": { "match": "x" }, "patterns": [{ "include": "#valueOf" }],
+      "captures": { "__proto__": { "name": "x" }, "0": { "name": "punctuation.paren.evil" } } }
+  ],
+  "repository": {
+    "kw": { "match": "\\\\bevil\\\\b", "name": "keyword.control.evil" },
+    "constructor": { "match": "\\\\bctor\\\\b", "name": "entity.name.function.ctor.evil" }
+  }
+}`;
+export function hostileGrammarVsix() {
+  const theme = {
+    colors: { 'editor.background': '#101010', 'editor.foreground': '#EEEEEE' },
+    tokenColors: [
+      { scope: 'hasOwnProperty', settings: { foreground: '#123123' } },
+      { scope: ['__proto__.x', 'keyword.control'], settings: { foreground: EVIL.kw } },
+      { scope: 'entity.name.function', settings: { foreground: EVIL.ctor } },
+    ],
+  };
+  return paquete({
+    name: 'evil', displayName: 'Evil Grammar',
+    contributes: {
+      languages: [{ id: EVIL.lang, extensions: [EVIL.ext] }],
+      grammars: [
+        { language: EVIL.lang, scopeName: EVIL.scope, path: './evil.tmLanguage.json' },
+        { scopeName: '__proto__', path: './evil.tmLanguage.json' },
+      ],
+      themes: [{ label: 'Evil Theme', uiTheme: 'vs-dark', path: './evil-theme.json' }],
+    },
+  }, [['extension/evil.tmLanguage.json', EVIL_GRAMMAR], ['extension/evil-theme.json', JSON.stringify(theme)]]);
+}
+
+// Snippet cuya descripción y cuerpo llevan imágenes y enlaces en Markdown: si
+// el detalle se pintara como Markdown, el navegador los pediría a `base`.
+export function beaconSnippetVsix(base) {
+  const snippets = { Beacon: {
+    prefix: 'zzbeacon',
+    description: `![d](${base}/desc.png) [click](${base}/link)`,
+    body: ['x', '```', `![b](${base}/body.png)`, '```'],
+  } };
+  return paquete({ name: 'beacon', displayName: 'Beacon Snippets', contributes: { snippets: [{ language: 'javascript', path: './s.json' }] } },
+    [['extension/s.json', JSON.stringify(snippets)]]);
+}
+
+// Dos temas, uno con JSON roto; o (onlyBroken) solo temas que no se pueden leer.
+export function brokenThemeVsix({ onlyBroken = false } = {}) {
+  const bueno = JSON.stringify({ colors: { 'editor.background': '#0A1A2A', 'tab.activeBackground': '#0A1A2A' }, tokenColors: [] });
+  const themes = onlyBroken
+    ? [{ label: 'Broken One', path: './themes/broken.json' }, { label: 'Missing One', path: './themes/missing.json' }]
+    : [{ label: 'Good One', uiTheme: 'vs-dark', path: './themes/good.json' }, { label: 'Broken One', path: './themes/broken.json' }];
+  return paquete({ name: onlyBroken ? 'broken-only' : 'half-broken', displayName: onlyBroken ? 'Broken Only' : 'Half Broken', contributes: { themes } },
+    [['extension/themes/good.json', bueno], ['extension/themes/broken.json', '{ "colors": { "editor.background": "#000000" ']]);
+}
+
+// Gramática y configuración para JSON: Monaco lo trae sin Monarch, así que ni
+// la gramática ni la configuración se aplican.
+export function jsonGrammarVsix() {
+  return paquete({
+    name: 'json-x', displayName: 'JSON X',
+    contributes: {
+      languages: [{ id: 'json', extensions: ['.json'], configuration: './conf.json' }],
+      grammars: [{ language: 'json', scopeName: 'source.json.x', path: './json.tmLanguage.json' }],
+    },
+  }, [['extension/conf.json', '{ "comments": { "lineComment": "//" } }'],
+    ['extension/json.tmLanguage.json', JSON.stringify({ scopeName: 'source.json.x', patterns: [{ match: '"', name: 'string.json' }] })]]);
+}
+
+// package.json sin publisher.
+export function noPublisherVsix() {
+  return zip([...ENVOLTORIO, ['extension/package.json', JSON.stringify({ name: 'nopub', version: '1.0.0', contributes: { themes: [] } })]]);
+}
+
+// Expresiones que pueden no terminar: una firstLine con alternativas que se
+// solapan (no es repetición anidada, así que pasa la comprobación estática y
+// la para el Worker), otra con repetición anidada y un wordPattern igual.
+export const SLOW = { lang: 'slowlang', nest: 'nestlang', firstLine: '^(.|\\s)*z' };
+export function slowRegexVsix() {
+  return paquete({
+    name: 'slow', displayName: 'Slow Regex',
+    contributes: {
+      languages: [
+        { id: SLOW.lang, extensions: ['.slow'], firstLine: SLOW.firstLine },
+        { id: SLOW.nest, extensions: ['.nest'], firstLine: '^(a+)+$', configuration: './conf.json' },
+      ],
+    },
+  }, [['extension/conf.json', JSON.stringify({ wordPattern: '(a+)+$', brackets: [['(', ')']] })]]);
+}

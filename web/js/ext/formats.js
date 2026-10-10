@@ -2,6 +2,12 @@
 // plist XML (.tmTheme / .tmLanguage) y colores hex. Sin DOM ni dependencias:
 // se prueban en Node igual que en el navegador.
 
+// Nombres que un objeto normal hereda de Object.prototype (más «prototype»).
+// Usados como clave de un objeto de datos, una búsqueda sale del objeto y una
+// escritura toca el prototipo: los datos de una extensión nunca deben llegar
+// con ellos a donde se busca o se escribe por nombre.
+export const NOMBRES_PROTO = new Set([...Object.getOwnPropertyNames(Object.prototype), 'prototype']);
+
 // JSONC como lo lee VS Code: comentarios // y /* */ y comas finales. Recorre
 // el texto respetando las cadenas, así un "http://…" dentro de un string no se
 // toma por comentario.
@@ -47,7 +53,7 @@ function desentidad(t) {
 export function parsePlist(text) {
   const s = String(text ?? '').replace(/^﻿/, '');
   let i = 0;
-  const fallo = msg => { throw new Error(`plist: ${msg} (posición ${i})`); };
+  const fallo = msg => { throw Object.assign(new Error(`plist: ${msg} (posición ${i})`), { code: 'plist' }); };
 
   // salta espacios, comentarios, <?xml?> y <!DOCTYPE>
   function saltaRelleno() {
@@ -109,7 +115,8 @@ export function parsePlist(text) {
           const clave = k.vacia ? '' : texto('key');
           const v = etiqueta();
           if (v.cierre) fallo('falta el valor de ' + clave);
-          o[clave] = valor(v);
+          const x = valor(v);
+          if (clave !== '__proto__') o[clave] = x;     // asignarla cambiaría el prototipo de `o`
         }
       }
       case 'array': {

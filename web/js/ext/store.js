@@ -28,7 +28,7 @@ function open() {
       resolve(db);
     };
     req.onerror = () => { dbp = null; reject(req.error); };
-    req.onblocked = () => { dbp = null; reject(new Error('base de extensiones bloqueada por otra pestaña')); };
+    req.onblocked = () => { dbp = null; reject(Object.assign(new Error('base de extensiones bloqueada por otra pestaña'), { code: 'blocked' })); };
   });
   return dbp;
 }

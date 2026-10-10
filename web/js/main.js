@@ -2085,6 +2085,9 @@ $('btn-slash').addEventListener('click', () => openMenu([
   { label: '/tree', hint: t('slTree'), run: () => send(t('pTree')) },
   { label: '/search', hint: t('slSearch'), run: () => { $('prompt').value = t('pSearch'); $('prompt').focus(); } },
   { label: '/skills', hint: t('slSkills'), run: () => openSkillsPanel() },
+  // en pantallas estrechas no hay barra de actividad ni menú View: esto sí se ve
+  { label: '/extensions', hint: extTexto('temas, gramáticas, snippets', 'themes, grammars, snippets'), run: () => openExtensions() },
+  { label: '/theme', hint: extTexto('tema de color', 'color theme'), run: () => openExtensions({ themes: true }) },
   { label: '/model', hint: t('slModel'), run: () => $('btn-settings').click() },
   // «/clear» abría una conversación NUEVA (no limpiaba la actual): se llama
   // por lo que hace.
@@ -2667,6 +2670,8 @@ async function menuFor(which) {
     { label: t('tCity'), run: () => openView('city') },
     { label: t('mPalette'), hint: atajo('P', true), run: () => openPalette('>') },
     { label: 'Skills', run: () => openSkillsPanel() },
+    { label: extTexto('Extensiones…', 'Extensions…'), run: () => openExtensions() },
+    { label: extTexto('Tema de color…', 'Color Theme…'), run: () => openExtensions({ themes: true }) },
     { label: t('mLab'), hint: '↗', run: () => abrirLab() },
     { label: t('mAbout'), hint: '↗', run: () => window.open('https://github.com/KikoCis/elffuss-code', '_blank', 'noopener') },
   ];

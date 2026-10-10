@@ -20,7 +20,12 @@ const LANG = {
   svg: 'xml', xml: 'xml', sql: 'sql', txt: 'plaintext',
 };
 // las extensiones instaladas mandan (p. ej. .toml → toml en vez de ini)
-const langOf = (p, primeraLinea = null) => ext?.languageForPath(p, primeraLinea) || LANG[p.split('.').pop().toLowerCase()] || 'plaintext';
+const porNombre = p => ext?.languageForPath(p) || LANG[p.split('.').pop().toLowerCase()] || null;
+const langOf = p => porNombre(p) || 'plaintext';
+// …y, como en VS Code, la primera línea (firstLine de una extensión) solo
+// cuenta si nadie reclama el fichero por su nombre. Va en un Worker con tiempo
+// tope: una expresión de un paquete puede no terminar nunca.
+const langDe = async (p, primeraLinea) => porNombre(p) || (ext && primeraLinea ? await ext.languageForFirstLine(primeraLinea) : null) || 'plaintext';
 const $ = id => document.getElementById(id);
 
 export async function initEditor() {
@@ -97,7 +102,7 @@ export async function openFile(path) {
       if (hits.length === 1 && hits[0] !== path) return openFile(hits[0]);
       return alertBar(t('openFailed', { path, e: e.message }));
     }
-    const lang = langOf(path, content.slice(0, 500).split('\n')[0]);
+    const lang = await langDe(path, content.slice(0, 500).split('\n')[0]);
     await ext?.prepareLanguage(lang);       // la gramática, antes de que exista el modelo
     tab = tabs.find(t => t.path === path);  // otra llamada pudo abrirla mientras tanto
     if (!tab) {
@@ -764,7 +769,8 @@ export async function loadExt(force = true) {
 // su gramática al día (o de vuelta a lo de serie).
 async function refreshLanguages() {
   for (const tab of [...tabs]) {
-    const lang = langOf(tab.path, tab.model.getLineContent(1));
+    if (tab.model.isDisposed()) continue;
+    const lang = await langDe(tab.path, tab.model.getLineContent(1));
     await ext?.prepareLanguage(lang);
     if (!tab.model.isDisposed() && tab.model.getLanguageId() !== lang) monacoRef.editor.setModelLanguage(tab.model, lang);
   }

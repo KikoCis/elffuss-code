@@ -1,7 +1,8 @@
 // Gramáticas TextMate de las extensiones, con el mismo motor que VS Code:
-// vscode-textmate + Oniguruma (WebAssembly). Se bajan del CDN SOLO cuando un
-// fichero necesita la primera gramática; sin extensiones de lenguaje no se
-// carga nada.
+// vscode-textmate + Oniguruma (WebAssembly). El motor va en el repositorio
+// (vendor/, el release/main.js de cada paquete sin cambios) y el WebAssembly se
+// baja del CDN con comprobación de integridad. Todo SOLO cuando un fichero
+// necesita la primera gramática; sin extensiones de lenguaje no se carga nada.
 //
 // Los tokens van a Monaco en binario (tokenizeEncoded), igual que en VS Code:
 // cada token lleva el índice de su color en el mapa de colores de TextMate, y
@@ -9,12 +10,84 @@
 // así los dos mapas coinciden índice a índice. Resultado: los colores exactos
 // del tema (incluidos los selectores con contexto), cursivas/negritas, y el
 // tipo de token (comentario/cadena) que Monaco usa para el autocierre.
-const TM_URL = 'https://cdn.jsdelivr.net/npm/vscode-textmate@9.3.2/+esm';
-const ONIG_URL = 'https://cdn.jsdelivr.net/npm/vscode-oniguruma@2.0.1/+esm';
+import { NOMBRES_PROTO } from './formats.js';
+
+const TM_URL = './vendor/vscode-textmate@9.3.2/main.js';
+const ONIG_URL = './vendor/vscode-oniguruma@2.0.1/main.js';
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/vscode-oniguruma@2.0.1/release/onig.wasm';
 const WASM_SRI = 'sha384-bmaXom6bK+vfssb0IcRH2lE1asksQiEsK/WnxAcnHDB3Cx8v3KxZ7BthuGq1DU8v';
 const LIMITE_MS = 500;              // por línea, como VS Code: una gramática mala no congela la pestaña
 const TIPOS = { other: 0, comment: 1, string: 2, regex: 3 };
+
+// ── gramáticas seguras para el motor ─────────────────────────────────────────
+// vscode-textmate busca las reglas en objetos normales: `repository[nombre]` y,
+// para otra gramática, `_includedGrammars[ámbito]`. Con un nombre como
+// «__proto__» o «constructor» la búsqueda acaba en Object.prototype (o en
+// Object) y el motor le escribe `.id`: toda la página queda contaminada y las
+// gramáticas que se compilan después dejan de pintar. Así que, al instalar y
+// al cargar de la base:
+//   · las claves de repository con nombre de Object.prototype se renombran, y
+//     los include que las citan también: lo legítimo sigue funcionando y una
+//     búsqueda ya no puede salir del propio objeto;
+//   · fuera los include a una gramática con ese nombre (los ámbitos de verdad
+//     llevan punto: source.x);
+//   · fuera toda clave «__proto__» (al clonar, el motor la convertiría en el
+//     prototipo del objeto) y el `id` de las reglas (es la marca que pone el
+//     motor al compilar).
+const RENOMBRE = '$elffuss-safe:';
+const nombreSeguro = k => (NOMBRES_PROTO.has(k) ? RENOMBRE + k : k);
+const CAPTURAS = new Set(['captures', 'beginCaptures', 'endCaptures', 'whileCaptures']);
+
+function includeSeguro(inc) {
+  if (inc === '$self' || inc === '$base') return inc;
+  const i = inc.indexOf('#');
+  const ambito = i < 0 ? inc : inc.slice(0, i);
+  if (i !== 0 && NOMBRES_PROTO.has(ambito)) return null;
+  return i < 0 ? inc : ambito + '#' + nombreSeguro(inc.slice(i + 1));
+}
+// Copia sin claves «__proto__» (datos que no son reglas: fileTypes, comment…).
+function copiaPlana(v) {
+  if (Array.isArray(v)) return v.map(copiaPlana);
+  if (!v || typeof v !== 'object') return v;
+  const o = {};
+  for (const [k, x] of Object.entries(v)) if (k !== '__proto__') o[k] = copiaPlana(x);
+  return o;
+}
+function mapaDeReglas(m, renombrar) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return undefined;
+  const o = {};
+  for (const [k, r] of Object.entries(m)) {
+    if (k === '__proto__' && !renombrar) continue;
+    const limpia = regla(r);
+    if (limpia) o[renombrar ? nombreSeguro(k) : k] = limpia;
+  }
+  return o;
+}
+function regla(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+  const o = {};
+  for (const [k, v] of Object.entries(r)) {
+    if (k === '__proto__' || k === 'id') continue;
+    if (k === 'include') {
+      if (typeof v !== 'string') return null;
+      const inc = includeSeguro(v);
+      if (inc == null) return null;            // la regla entera fuera, como un include que no existe
+      o.include = inc;
+    } else if (k === 'patterns') o.patterns = Array.isArray(v) ? v.map(regla).filter(Boolean) : undefined;
+    else if (k === 'repository') o.repository = mapaDeReglas(v, true);
+    else if (CAPTURAS.has(k)) o[k] = mapaDeReglas(v, false);
+    else if (k === 'injections') o.injections = mapaDeReglas(v, false);
+    else o[k] = copiaPlana(v);
+  }
+  return o;
+}
+export function sanitizeGrammar(g) {
+  const o = regla(g);
+  if (!o) throw new Error('no parece una gramática TextMate');
+  return o;
+}
+// Un ámbito que el motor usará de clave (scopeName de una gramática).
+export const ambitoValido = s => typeof s === 'string' && !!s.trim() && !NOMBRES_PROTO.has(s);
 
 let motor = null;
 export function loadEngine() {
@@ -69,6 +142,7 @@ export class Grammars {
     this.injections = new Map();
     this.skipped = [];
     for (const c of contribs) {
+      if (!ambitoValido(c.scopeName)) continue;
       this.byScope.set(c.scopeName, c);
       for (const destino of c.injectTo || []) {
         if (!this.injections.has(destino)) this.injections.set(destino, []);
@@ -92,7 +166,8 @@ export class Grammars {
         loadGrammar: async scope => {
           const c = this.byScope.get(scope);
           if (!c) return null;
-          try { const g = await this.loadFile(c.key); if (g) g.scopeName = scope; return g || null; } catch { return null; }
+          // también aquí: lo guardado antes de sanearse al instalar
+          try { const g = await this.loadFile(c.key); if (!g) return null; const s = sanitizeGrammar(g); s.scopeName = scope; return s; } catch { return null; }
         },
         getInjections: scope => this.injections.get(scope),
       });
@@ -108,7 +183,7 @@ export class Grammars {
   // Tema TextMate actual → mapa de colores para encodedTokensColors (null si
   // el motor aún no está activo: entonces no hay tokens TextMate que pintar).
   setTheme(rawTheme) {
-    this.rawTheme = rawTheme;
+    this.rawTheme = rawTheme;               // ya sin ámbitos peligrosos: toTextMateTheme (themes.js)
     if (!this.registry) return null;
     this.registry.setTheme(rawTheme);
     return this.registry.getColorMap().slice(1);
