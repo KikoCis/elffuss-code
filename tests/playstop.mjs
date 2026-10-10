@@ -41,6 +41,68 @@ await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.w
 const enAfterReload2 = await p.evaluate(async () => (await import('/js/ceo.js')).isEnabled());
 ok('tras recargar de nuevo, sigue ACTIVO (también se guardó al reanudar)', enAfterReload2);
 
-console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ PLAY/STOP DEL CEREBRO OK — persiste de verdad entre recargas');
+// PAUSAR A MITAD DE CICLO. Antes «pausar» solo apagaba la bandera: el ciclo en
+// curso seguía generando por detrás, escribía su propuesta igual, y «Pensar
+// ahora» podía arrancar un segundo ciclo encima (dos generate() contra el mismo
+// modelo). Con un modelo de mentira, lento y que respeta la señal:
+//   - pausar corta el ciclo (el modelo recibe la parada y no hay más llamadas),
+//   - no se escribe ninguna propuesta,
+//   - y forceCycle() devuelve false mientras el ciclo parado se desmonta.
+await p.locator('#activity img').click(); await p.waitForTimeout(800);
+const mid = await p.evaluate(async () => {
+  const ceo = await import('/js/ceo.js');
+  const conv = await import('/js/conversations.js');
+  const st = { llamadas: 0, abortadas: 0, terminadas: 0, trasPausa: 0 };
+  let pausado = false;
+  const lento = {
+    name: 'lento',
+    chat: async (h, s, cb, signal) => {
+      st.llamadas++; if (pausado) st.trasPausa++;
+      for (let i = 0; i < 60; i++) {
+        if (signal?.aborted) { st.abortadas++; throw new DOMException('Parado', 'AbortError'); }
+        cb('·'); await new Promise(r => setTimeout(r, 50));
+      }
+      st.terminadas++;
+      return 'Propuesta: dividir el módulo grande en dos ficheros con responsabilidades claras.';
+    },
+  };
+  const antes = conv.getProvider();
+  conv.setProvider(lento);
+  const soulFiles = async () => {
+    try {
+      let d = await navigator.storage.getDirectory();
+      for (const seg of ceo.getSoulDir().split('/')) d = await d.getDirectoryHandle(seg);
+      const n = []; for await (const e of d.values()) if (e.kind === 'file' && e.name.endsWith('.md')) n.push(e.name);
+      return n;
+    } catch { return []; }
+  };
+  const ficherosAntes = (await soulFiles()).length;
+  const primero = ceo.forceCycle();
+  for (let i = 0; i < 100 && st.llamadas === 0; i++) await new Promise(r => setTimeout(r, 20));
+  await new Promise(r => setTimeout(r, 300));       // el ciclo ya está generando
+  const enMarcha = ceo.isRunning();
+  // El botón de la Mente (onclick → ceo.disable()) y, en el MISMO instante,
+  // «Pensar ahora»: el ciclo parado aún no ha terminado de soltarse.
+  pausado = true;
+  document.getElementById('mind-playstop').click();
+  const segundo = await ceo.forceCycle();
+  const resPrimero = await Promise.race([primero, new Promise(r => setTimeout(() => r('SIGUE'), 8000))]);
+  await new Promise(r => setTimeout(r, 400));
+  const out = { ...st, enMarcha, segundo, resPrimero, sigueCorriendo: ceo.isRunning(), habilitado: ceo.isEnabled(),
+    nuevos: (await soulFiles()).length - ficherosAntes };
+  conv.setProvider(antes);
+  return out;
+});
+ok('el ciclo estaba en marcha con el modelo lento', mid.enMarcha && mid.llamadas >= 1, `${mid.llamadas} llamadas`);
+ok('pausar a mitad corta el ciclo: el modelo recibe la parada', mid.abortadas === mid.llamadas && mid.terminadas === 0,
+  `${mid.abortadas} de ${mid.llamadas} abortadas, ${mid.terminadas} terminadas`);
+ok('  …y no se le vuelve a llamar después de pausar', mid.trasPausa === 0, `${mid.trasPausa} llamadas tras la pausa`);
+ok('forceCycle() devuelve false mientras el ciclo parado se desmonta (no hay dos a la vez)', mid.segundo === false, String(mid.segundo));
+ok('el ciclo parado termina de verdad (isRunning() vuelve a false)', mid.resPrimero !== 'SIGUE' && mid.sigueCorriendo === false,
+  `forceCycle → ${mid.resPrimero}, isRunning ${mid.sigueCorriendo}`);
+ok('no se escribe ninguna propuesta', mid.nuevos === 0, `${mid.nuevos} ficheros nuevos en la carpeta-alma`);
+ok('el cerebro queda en pausa', mid.habilitado === false);
+
+console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ PLAY/STOP DEL CEREBRO OK — persiste de verdad entre recargas y pausar corta el ciclo');
 await b.close();
 process.exit(fails ? 1 : 0);
