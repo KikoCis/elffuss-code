@@ -92,7 +92,8 @@ async function brokerApi() {
     const b = await import('./runtime/model-broker.js');
     if (typeof b.sharedUsage !== 'function') return null;
     let origenes;
-    try { const r = await import('./engine/registro.js'); origenes = r.origenesAlmacen ? r.origenesAlmacen() : undefined; }
+    // Puede devolver la lista o una promesa de ella: se espera siempre.
+    try { const r = await import('./engine/registro.js'); origenes = r.origenesAlmacen ? await r.origenesAlmacen() : undefined; }
     catch { /* sin motor: el broker por defecto */ }
     return { b, origenes };
   } catch { return null; }
