@@ -66,16 +66,48 @@ const r1 = await p.evaluate(async () => {
   const esperaba = B.pumping && prov.llamadas.length === 1;
   const paro = conv.stopActive();             // para B, no A
   await window.__hasta(() => !A.pumping && !B.pumping);
+  // Lo GUARDADO, no solo lo que hay en memoria: B, al saltarse, guarda a la vez
+  // que A guarda su respuesta, y las dos escrituras reescriben la lista entera.
+  const db = await import('/js/db.js');
+  const guardadaA = (await db.get('kv', 'conversations')).find(c => c.id === A.id);
   return {
     esperaba, paro, llamadas: prov.llamadas,
     histB: B.agent.history.filter(m => m.role === 'user').map(m => m.content),
     colaB: B.queue.length, respondioA: A.agent.history.at(-1)?.role === 'assistant',
+    guardadaA: { roles: guardadaA?.history?.map(m => m.role), cola: guardadaA?.queue?.length },
   };
 });
 ok('1 · B estaba esperando turno detrás de A', r1.esperaba && r1.paro);
 ok('1 · parado mientras esperaba: el modelo NUNCA recibe el mensaje B', !r1.llamadas.some(t => t.includes('mensaje B')), JSON.stringify(r1.llamadas));
 ok('1 · …ni se apunta en su historial, y su cola queda vacía', r1.histB.length === 0 && r1.colaB === 0, `historial ${JSON.stringify(r1.histB)} · cola ${r1.colaB}`);
 ok('1 · A, que no se paró, termina con su respuesta', r1.respondioA);
+ok('1 · …y IndexedDB guarda esa respuesta con la cola de A vacía (si no, al recargar A se repite)',
+  r1.guardadaA.roles?.at(-1) === 'assistant' && r1.guardadaA.cola === 0, JSON.stringify(r1.guardadaA));
+
+// 1b. Lo mismo varias veces seguidas: la carrera entre las dos escrituras no
+// puede depender de la suerte. Cada ronda con su propio A y B.
+const r1b = await p.evaluate(async () => {
+  const conv = await import('/js/conversations.js');
+  const db = await import('/js/db.js');
+  const rondas = [];
+  for (let i = 0; i < 4; i++) {
+    const prov = window.__lento({ pasos: 12, paso: 20 });
+    conv.setProvider(prov);
+    const A = conv.create();
+    conv.send(A.id, `A${i}`);
+    await window.__hasta(() => prov.llamadas.length >= 1);
+    const B = conv.create();
+    conv.send(B.id, `B${i}`);
+    await window.__dormir(60);
+    conv.stopActive();
+    await window.__hasta(() => !A.pumping && !B.pumping);
+    const g = (await db.get('kv', 'conversations')).find(c => c.id === A.id);
+    rondas.push({ ultimo: g?.history?.at(-1)?.role, cola: g?.queue?.length });
+  }
+  return rondas;
+});
+ok('1b · en cada ronda IndexedDB guarda la respuesta de A y su cola vacía',
+  r1b.every(r => r.ultimo === 'assistant' && r.cola === 0), JSON.stringify(r1b));
 
 // 2. Parar y mandar otro enseguida (mientras el turno parado aún se suelta) → se contesta
 const r2 = await p.evaluate(async () => {

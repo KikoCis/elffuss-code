@@ -81,7 +81,28 @@ export function stopActive() {
 
 export function getOpenTabs() { return openTabIds.map(id => convs.get(id)).filter(Boolean); }
 
-async function persistConv(conv) {
+// Todas las conversaciones viven en UNA clave ('conversations'), y guardar una
+// es leer la lista entera, cambiar su registro y escribirla entera. Dos de esas
+// a la vez se pisan: la que escribe la última lo hace con lo que leyó ANTES de
+// la otra y borra lo que la otra guardó. Pasaba al parar un mensaje que
+// esperaba turno: se saltaba y guardaba justo cuando la conversación que tenía
+// el cerrojo guardaba su respuesta, y esa respuesta desaparecía de IndexedDB con
+// su mensaje aún en cola, así que al recargar se volvía a ejecutar (en un IDE
+// con agente, otra vez las ediciones y los comandos). Por eso cada escritura de
+// la lista espera a la anterior, y cada una lee el estado del momento en que le
+// toca, no el del momento en que se pidió.
+let escrituras = Promise.resolve();
+function enOrden(fn) {
+  const hecho = escrituras.then(fn, fn);
+  escrituras = hecho.catch(() => {});
+  return hecho;
+}
+
+function persistConv(conv) { return enOrden(() => persistConvYa(conv)); }
+
+async function persistConvYa(conv) {
+  // Borrada desde la Historial mientras su guardado esperaba: no se resucita.
+  if (convs.get(conv.id) !== conv) return;
   // NO tragarse el error de lectura: un fallo transitorio devolvía [] y el
   // db.set de abajo reescribía el store entero con UNA sola conversación,
   // borrando el resto. Distinguir «no existe aún» (undefined → []) de «no se
@@ -170,8 +191,12 @@ export async function remove(id) {
   convs.delete(id);
   openTabIds = openTabIds.filter(x => x !== id);
   if (activeId === id) activeId = openTabIds[openTabIds.length - 1] || null;
-  const all = (await db.get('kv', 'conversations').catch(() => null) || []).filter(c => c.id !== id);
-  await db.set('kv', 'conversations', all).catch(() => {});
+  // En la misma fila que los guardados: si no, un guardado en curso de esta
+  // conversación la volvía a meter después de borrarla.
+  await enOrden(async () => {
+    const all = (await db.get('kv', 'conversations').catch(() => null) || []).filter(c => c.id !== id);
+    await db.set('kv', 'conversations', all).catch(() => {});
+  });
   persistMeta();
   if (!openTabIds.length) create(); else onChange('tabs');
 }
