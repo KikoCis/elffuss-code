@@ -200,7 +200,10 @@ async function think(channel, task, signal = null) {
   let out = '';
   try {
     await a.handle(task, ev => {
-      if (running === 'interrupt') throw new Error('interrumpido');
+      // Parado: se ignora lo que llegue, sin lanzar. Lanzar desde aquí metía una
+      // excepción en mitad del agente (y de su proveedor), y un agente que no
+      // distingue la parada la reportaba a telemetría como fallo del modelo.
+      if (running === 'interrupt' || signal?.aborted) return;
       if (ev.type === 'token') { out += ev.text; emit(channel, { type: 'token', text: ev.text }); }
       else if (ev.type === 'tool') emit(channel, { type: 'tool', text: humanizeTool(ev.call.tool, ev.call.args), tool: ev.call.tool, path: ev.call.args?.path || null });
       else if (ev.type === 'tool_result') emit(channel, { type: 'tool_result', tool: ev.tool, text: String(ev.result || '').replace(/\s+/g, ' ').trim().slice(0, 100) });

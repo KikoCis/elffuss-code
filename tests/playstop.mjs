@@ -103,6 +103,41 @@ ok('el ciclo parado termina de verdad (isRunning() vuelve a false)', mid.resPrim
 ok('no se escribe ninguna propuesta', mid.nuevos === 0, `${mid.nuevos} ficheros nuevos en la carpeta-alma`);
 ok('el cerebro queda en pausa', mid.habilitado === false);
 
+// VOLVER A USAR LA APP a mitad de ciclo (una tecla fuera de la Mente →
+// noteActivity()) corta el ciclo igual que pausar, sin escribir nada.
+const act = await p.evaluate(async () => {
+  const ceo = await import('/js/ceo.js');
+  const conv = await import('/js/conversations.js');
+  const st = { llamadas: 0, abortadas: 0, terminadas: 0 };
+  const lento = { name: 'lento', chat: async (h, s, cb, signal) => {
+    st.llamadas++;
+    for (let i = 0; i < 60; i++) {
+      if (signal?.aborted) { st.abortadas++; throw new DOMException('Parado', 'AbortError'); }
+      cb('·'); await new Promise(r => setTimeout(r, 50));
+    }
+    st.terminadas++;
+    return 'Propuesta: documentar la API pública con ejemplos de uso reales.';
+  } };
+  const antes = conv.getProvider();
+  conv.setProvider(lento);
+  const contar = async () => { try { let d = await navigator.storage.getDirectory(); for (const seg of ceo.getSoulDir().split('/')) d = await d.getDirectoryHandle(seg); let n = 0; for await (const e of d.values()) if (e.name.endsWith('.md')) n++; return n; } catch { return 0; } };
+  const ficherosAntes = await contar();
+  const primero = ceo.forceCycle();
+  for (let i = 0; i < 100 && st.llamadas === 0; i++) await new Promise(r => setTimeout(r, 20));
+  await new Promise(r => setTimeout(r, 300));
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+  const segundo = await ceo.forceCycle();
+  await Promise.race([primero, new Promise(r => setTimeout(r, 8000))]);
+  await new Promise(r => setTimeout(r, 300));
+  const out = { ...st, segundo, corriendo: ceo.isRunning(), nuevos: (await contar()) - ficherosAntes };
+  conv.setProvider(antes);
+  return out;
+});
+ok('volver a usar la app a mitad de ciclo lo corta (el modelo recibe la parada)', act.llamadas >= 1 && act.abortadas === act.llamadas && act.terminadas === 0,
+  `${act.abortadas} de ${act.llamadas} abortadas`);
+ok('  …sin segundo ciclo encima, sin propuesta y sin quedarse «en marcha»', act.segundo === false && act.nuevos === 0 && act.corriendo === false,
+  `forceCycle ${act.segundo} · ${act.nuevos} ficheros · isRunning ${act.corriendo}`);
+
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ PLAY/STOP DEL CEREBRO OK — persiste de verdad entre recargas y pausar corta el ciclo');
 await b.close();
 process.exit(fails ? 1 : 0);
