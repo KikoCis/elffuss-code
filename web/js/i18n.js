@@ -148,6 +148,15 @@ const L = {
     explorer: "Explorador del proyecto", treeMore: "… y {n} más (no se muestran)",
     editorEmpty: "Abre un fichero del explorador, o pídele algo a la elfa.",
     mPalette: "Paleta de comandos",
+    // landing
+    openFolderFailed: "No pude abrir la carpeta: {e}", openingIde: "Abriendo el editor…",
+    noFsAccess: "Este navegador no deja abrir carpetas de tu disco (hace falta Chrome o Edge en un ordenador). Puedes probar con una carpeta privada del navegador.",
+    tryBrowser: "Probar en el navegador (sin carpeta)",
+    clonePasteUrl: "Pega la URL de un repo público de GitHub o Bitbucket.",
+    cloneBadUrl: "URL no reconocida. Usa github.com/usuario/repo o bitbucket.org/usuario/repo",
+    cloneListing: "Listando el repo…", cloneHalf: "Descarga a medias de {repo} ({n}/{total} ficheros)",
+    reopenFolder: "Reabrir «{name}»",
+    openFolderBusy: "La elfa está trabajando en este proyecto. ¿Abrir otra carpeta igualmente?",
 },
   en: {
     ph: 'Type here… (@ attaches a file)',
@@ -291,6 +300,15 @@ const L = {
     explorer: "Project explorer", treeMore: "… and {n} more (not shown)",
     editorEmpty: "Open a file from the explorer, or ask the elf for something.",
     mPalette: "Command palette",
+    // landing
+    openFolderFailed: "Couldn't open the folder: {e}", openingIde: "Opening the editor…",
+    noFsAccess: "This browser can't open folders on your disk (you need Chrome or Edge on a computer). You can try a private folder inside the browser.",
+    tryBrowser: "Try it in the browser (no folder)",
+    clonePasteUrl: "Paste the URL of a public GitHub or Bitbucket repo.",
+    cloneBadUrl: "Unrecognised URL. Use github.com/user/repo or bitbucket.org/user/repo",
+    cloneListing: "Listing the repo…", cloneHalf: "Half-finished download of {repo} ({n}/{total} files)",
+    reopenFolder: "Reopen “{name}”",
+    openFolderBusy: "The elf is working on this project. Open another folder anyway?",
 },
 };
 
@@ -319,6 +337,7 @@ export function applyI18n() {
   set('#discard-clone-btn', 'textContent', 'discard');
   set('#clone-btn', 'textContent', 'cloneOpen');
   set('#clone-url', 'placeholder', 'clonePh');
+  set('#try-browser', 'textContent', 'tryBrowser');
   set('#pal-input', 'placeholder', 'searchPh');
   const titles = {
     '#act-files': 'tFiles', '#act-search': 'tSearch', '#act-arch': 'tArch', '#act-city': 'tCity',

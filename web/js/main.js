@@ -1083,6 +1083,14 @@ async function enterIDE(handle) {
   preloadModel(); // por si el arranque en la landing no llegó a dispararse
 }
 
+// Un fallo al abrir: en la landing si sigue a la vista, si no en la barra de
+// estado del IDE (enterIDE ya la ha ocultado).
+function avisaFalloApertura(e) {
+  const msg = '⚠️ ' + t('openFolderFailed', { e: e?.message || e });
+  if (!$('landing').hidden) { const st = $('clone-status'); st.textContent = msg; st.classList.add('err'); }
+  else $('statusbar').textContent = msg;
+}
+
 async function boot() {
   applyI18n(); // localiza el chrome estático (placeholder) antes de pintar nada
   // Caché de modelos (persistente + service worker) ANTES de descargar nada,
@@ -1093,11 +1101,6 @@ async function boot() {
   // galaxia en la landing (misma técnica que Elffuss)
   import('./splash-gl.js').then(m => { galaxy = m.startGalaxy($('landing')); }).catch(() => {});
 
-  $('open-project').onclick = async () => {
-    try { await enterIDE(await window.showDirectoryPicker({ mode: 'readwrite' })); }
-    catch { /* cancelado */ }
-  };
-
   // clonar un repo público (GitHub/Bitbucket): elige carpeta destino, se
   // descarga ahí (fichero a fichero, sin git) y se abre como proyecto.
   // RESUMIBLE: el trabajo (lista de ficheros + cuáles ya se bajaron + el
@@ -1105,7 +1108,42 @@ async function boot() {
   // atrás, cierra la pestaña o recarga a medias, al volver se ofrece
   // «Reanudar» en vez de forzar a empezar de cero.
   const cloneUrl = $('clone-url'), cloneBtn = $('clone-btn'), cloneStatus = $('clone-status');
-  const showCloneStatus = (text, isErr) => { cloneStatus.textContent = text; cloneStatus.hidden = !text; cloneStatus.classList.toggle('err', !!isErr); };
+  // #clone-status es la línea de estado de la landing (role=status): ahí van
+  // los fallos de abrir, reabrir y clonar. Antes «Reabrir» escribía en la
+  // barra de estado del IDE, que aún está oculta, y nadie lo veía.
+  const showCloneStatus = (text, isErr) => { cloneStatus.textContent = text; cloneStatus.classList.toggle('err', !!isErr); };
+
+  // Abrir una carpeta: cancelar el selector (AbortError) no es un fallo y se
+  // calla; cualquier otro error se dice. Antes un catch pelado se lo tragaba
+  // todo, y en un navegador sin selector de carpetas el botón no hacía nada.
+  $('open-project').onclick = async () => {
+    const btn = $('open-project');
+    showCloneStatus('');
+    let handle;
+    try { handle = await window.showDirectoryPicker({ mode: 'readwrite' }); }
+    catch (e) { if (e?.name !== 'AbortError') showCloneStatus('⚠️ ' + t('openFolderFailed', { e: e?.message || e }), true); return; }
+    btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+    showCloneStatus(t('openingIde'));
+    try { await enterIDE(handle); showCloneStatus(''); }
+    catch (e) { avisaFalloApertura(e); }
+    finally { btn.disabled = false; btn.removeAttribute('aria-busy'); }
+  };
+  // Sin File System Access (Firefox, Safari) no hay forma de abrir una carpeta
+  // ni de elegir dónde descargar un repo: se dice en la propia landing, se
+  // desactivan esos botones y se ofrece trabajar en el almacenamiento privado
+  // del navegador (OPFS), que sí existe ahí.
+  if (typeof window.showDirectoryPicker !== 'function') {
+    for (const b of [$('open-project'), cloneBtn, cloneUrl]) b.disabled = true;
+    showCloneStatus(t('noFsAccess'), true);
+    if (navigator.storage?.getDirectory) {
+      const probar = $('try-browser');
+      probar.hidden = false;
+      probar.onclick = async () => {
+        try { await enterIDE(await navigator.storage.getDirectory()); }
+        catch (e) { avisaFalloApertura(e); }
+      };
+    }
+  }
   const saveCloneJob = job => db.set('kv', 'cloneJob', job).catch(() => {});
   const loadCloneJob = () => db.get('kv', 'cloneJob').catch(() => null);
   const clearCloneJob = () => db.del('kv', 'cloneJob').catch(() => {});
@@ -1135,13 +1173,18 @@ async function boot() {
 
   const runClone = async () => {
     const url = cloneUrl.value.trim();
-    if (!url) return;
+    // La URL se valida ANTES de abrir el selector de carpeta: antes se elegía
+    // la carpeta y solo después decía que la URL no valía. Vacía, lo dice.
+    if (!url) { showCloneStatus(t('clonePasteUrl'), true); cloneUrl.focus(); return; }
+    const clone = await import('./tools/clone.js');
+    try { clone.parseRepoUrl(url); }
+    catch { showCloneStatus('⚠️ ' + t('cloneBadUrl'), true); cloneUrl.focus(); return; }
+    showCloneStatus('');
     let handle;
     try { handle = await window.showDirectoryPicker({ mode: 'readwrite' }); }
-    catch { return; } // cancelado, sin error
-    showCloneStatus('Listando el repo…');
+    catch (e) { if (e?.name !== 'AbortError') showCloneStatus('⚠️ ' + (e?.message || e), true); return; }
+    showCloneStatus(t('cloneListing'));
     try {
-      const clone = await import('./tools/clone.js');
       const info = await clone.listRepo(url);
       const job = { url, handle, done: [], ...info };
       await saveCloneJob(job);
@@ -1158,7 +1201,14 @@ async function boot() {
   if (job && job.handle && job.files && job.done.length < job.files.length) {
     const banner = $('resume-clone');
     banner.hidden = false;
-    banner.querySelector('.rc-text').textContent = `Descarga a medias de ${job.owner}/${job.repo} (${job.done.length}/${job.files.length} ficheros)`;
+    // owner/repo enlaza al repositorio público que se estaba bajando.
+    const rc = banner.querySelector('.rc-text');
+    const a = document.createElement('a');
+    a.href = (job.host === 'bitbucket' ? 'https://bitbucket.org/' : 'https://github.com/') + encodeURIComponent(job.owner) + '/' + encodeURIComponent(job.repo);
+    a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.textContent = `${job.owner}/${job.repo}`;
+    const [antes, despues] = t('cloneHalf', { repo: '\u0000', n: job.done.length, total: job.files.length }).split('\u0000');
+    rc.replaceChildren(antes, a, despues);
     $('resume-clone-btn').onclick = async () => {
       banner.hidden = true;
       try {
@@ -1185,10 +1235,10 @@ async function boot() {
   if (prev?.handle) {
     const btn = $('reopen-project');
     btn.hidden = false;
-    btn.textContent = `Reabrir «${prev.name}»`;
+    btn.textContent = t('reopenFolder', { name: prev.name });
     btn.onclick = async () => {
       try { await codeTools.regrant(prev.handle); await enterIDE(prev.handle); }
-      catch (e) { $('statusbar').textContent = '⚠️ ' + e.message; }
+      catch (e) { avisaFalloApertura(e); }
     };
   }
 }
@@ -2062,7 +2112,15 @@ async function menuFor(which) {
   if (which === 'file') return [
     { label: t('mNewFile'), run: () => { const p = prompt(t('promptNewPath')); if (p) codeTools.write({ path: p, content: '' }).then(() => { openFile(p); refreshTree(); }); } },
     { label: t('mSave'), hint: atajo('S'), run: () => saveActive() },
-    { label: t('mOpenFolder'), run: async () => { try { await enterIDE(await window.showDirectoryPicker({ mode: 'readwrite' })); } catch {} } },
+    { label: t('mOpenFolder'), run: async () => {
+      // Cambiar de carpeta con la elfa a medias deja su trabajo sobre el
+      // proyecto anterior: se pregunta antes.
+      if (conv.isBusy() && !confirm(t('openFolderBusy'))) return;
+      let handle;
+      try { handle = await window.showDirectoryPicker({ mode: 'readwrite' }); }
+      catch (e) { if (e?.name !== 'AbortError') $('statusbar').textContent = '⚠️ ' + t('openFolderFailed', { e: e?.message || e }); return; }
+      try { await enterIDE(handle); } catch (e) { avisaFalloApertura(e); }
+    } },
   ];
   if (which === 'edit') return [
     { label: t('mSearchCode'), run: () => { $('prompt').value = t('pSearch'); $('prompt').focus(); } },
