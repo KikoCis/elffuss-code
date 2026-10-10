@@ -9,7 +9,10 @@
 //   3. Chip 💾 y «Vaciar caché»: contaban el origen ENTERO como «modelos» y al
 //      vaciar solo borraban una caché vieja. Ahora cuentan solo los modelos
 //      (almacén OPFS de modelos + caché de transformers) y los vacían de verdad
-//      sin tocar lo demás, diciendo cuánto se liberó.
+//      sin tocar lo demás, diciendo cuánto se liberó. Con un SDK de broker que
+//      sabe del almacén compartido, se cuentan y vacían también el broker por
+//      defecto y los hosts del motor, todos a la vez.
+// Ningún broker de verdad: sus páginas las contesta un doble local.
 //
 //   BASE=http://127.0.0.1:8898 node tests/storage-honest.mjs
 import { chromium } from 'playwright';
@@ -17,7 +20,22 @@ const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
 const b = await chromium.launch();
+// Ningún broker de verdad: las páginas de broker (models, m1, m2… de elffuss) las
+// contesta un doble local que dice «listo», mide 0 y vacía. Con el SDK de broker
+// que sabe del almacén compartido (el de main), este test cargaba las páginas de
+// producción y esperaba sus tiempos muertos.
+const BROKER_FALSO = `<!doctype html><script>
+parent.postMessage({ kind: 'elffuss-broker-ready' }, '*');
+addEventListener('message', e => {
+  const d = e.data || {};
+  if (d.type === 'elffuss-broker-diag') e.source.postMessage({ kind: 'diag', id: d.id, usado: 0, quota: 0 }, e.origin);
+  if (d.type === 'elffuss-model-clear') e.source.postMessage({ kind: 'cleared', id: d.id, liberado: 0 }, e.origin);
+});
+<\/script>`;
+const BROKERS = /^https:\/\/(models|m\d+)\.elffuss\.(com|utopiaia\.com)\//;
+const brokersPedidos = [];
 const ctx = await b.newContext({ locale: 'es-ES' });
+await ctx.route(BROKERS, r => { brokersPedidos.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'text/html', body: BROKER_FALSO }); });
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} window.confirm = () => true; });
 const p = await ctx.newPage({ viewport: { width: 1400, height: 900 } });
 const errs = []; p.on('pageerror', e => errs.push(e.message.slice(0, 160)));
@@ -109,6 +127,47 @@ const disco = await p.evaluate(async () => {
   } catch (e) { return { error: e.message }; }
 });
 ok('1 · con «Guardar solo», el mensaje nuevo acaba en .elffuss/code/ sin pulsar Guardar', disco.razon === 'auto' && disco.contiene, JSON.stringify(disco));
+
+// 3 · con un SDK de broker que SÍ sabe del almacén compartido (como el de main)
+// Doble local: el model-broker.js de este árbol más sharedUsage/clearShared que
+// apuntan lo que se les pide, y un registro del motor con dos hosts de pesos.
+{
+  const DOBLE = `
+export async function sharedUsage(o) { (window.__comp ||= []).push(['medir', JSON.stringify(o)]); return { usage: 0, quota: 0, ok: true }; }
+export async function clearShared(o) {
+  window.__vuelo = (window.__vuelo || 0) + 1; window.__maxVuelo = Math.max(window.__maxVuelo || 0, window.__vuelo);
+  (window.__comp ||= []).push(['vaciar', o]);
+  await new Promise(r => setTimeout(r, 400));
+  window.__vuelo--;
+  return { liberado: 0, ok: true };
+}`;
+  const c2 = await b.newContext({ locale: 'es-ES' });
+  await c2.route(BROKERS, r => { brokersPedidos.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'text/html', body: BROKER_FALSO }); });
+  await c2.route('**/js/runtime/model-broker.js*', async route => {
+    const r = await route.fetch();
+    await route.fulfill({ response: r, body: (await r.text()) + DOBLE, headers: { ...r.headers(), 'content-type': 'text/javascript' } });
+  });
+  await c2.route('**/js/engine/registro.js*', r => r.fulfill({ status: 200, contentType: 'text/javascript',
+    body: "export const MODELS = {}; export async function disponible() { return false; } export function origenesAlmacen() { return ['https://m1.elffuss.com/', 'https://m2.elffuss.com/']; }" }));
+  await c2.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} window.confirm = () => true; });
+  const q = await c2.newPage();
+  q.on('pageerror', e => errs.push(e.message.slice(0, 160)));
+  await q.goto(BASE + '/manifest.json');
+  const r = await q.evaluate(async () => {
+    const mc = await import('/js/model-cache.js');
+    await mc.modelUsage();
+    const v = await mc.clearModels();
+    return { comp: window.__comp || [], max: window.__maxVuelo || 0, fallos: v.fallos };
+  });
+  const medido = r.comp.find(([k]) => k === 'medir')?.[1] || '';
+  ok('3 · el almacén compartido se mide en los hosts del motor Y en el broker por defecto (donde están los modelos de Hugging Face)',
+    /m1\.elffuss/.test(medido) && /m2\.elffuss/.test(medido) && /models\.elffuss/.test(medido), medido);
+  const vaciados = r.comp.filter(([k]) => k === 'vaciar').map(([, o]) => o);
+  ok('3 · «Vaciar» los vacía todos, también el broker por defecto', vaciados.length === 3 && vaciados.some(o => /models\.elffuss/.test(o)), JSON.stringify(vaciados));
+  ok('3 · …y a la vez, no uno detrás de otro (un broker mudo no suma esperas)', r.max === 3, JSON.stringify(r));
+  await c2.close();
+}
+console.log('  páginas de broker pedidas (todas las contesta el doble, ninguna sale a la red):', brokersPedidos.length ? brokersPedidos.join(' ') : 'ninguna');
 
 console.log('\n  errores JS:', errs[0] || 'ninguno');
 ok('sin errores de página', errs.length === 0, errs.join(' | '));

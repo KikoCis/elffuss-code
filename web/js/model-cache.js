@@ -87,15 +87,22 @@ async function cacheModelBytes() {
 }
 // El almacén compartido vive en el origen del broker: solo se puede medir y
 // vaciar si el broker sabe hacerlo (sharedUsage / clearShared). Si no, se dice.
+//
+// Los orígenes son los del registro del motor (m1, m2…: los hosts de sus pesos)
+// MÁS SIEMPRE el broker por defecto. El registro solo da los hosts de Elffuss,
+// y en el broker por defecto vive todo lo que viene de otros sitios: el Gemma
+// de LiteRT y el Qwen3.5-0.8B del motor, que se bajan de Hugging Face. Sin él,
+// «Vaciar caché» dejaba esos modelos guardados y aun así decía «Liberados…».
 async function brokerApi() {
   try {
     const b = await import('./runtime/model-broker.js');
     if (typeof b.sharedUsage !== 'function') return null;
-    let origenes;
+    let origenes = [];
     // Puede devolver la lista o una promesa de ella: se espera siempre.
-    try { const r = await import('./engine/registro.js'); origenes = r.origenesAlmacen ? await r.origenesAlmacen() : undefined; }
-    catch { /* sin motor: el broker por defecto */ }
-    return { b, origenes };
+    try { const r = await import('./engine/registro.js'); origenes = (r.origenesAlmacen ? await r.origenesAlmacen() : null) || []; }
+    catch { /* sin motor: solo el broker por defecto */ }
+    const porDefecto = b.BROKER_URL || 'https://models.elffuss.com/';
+    return { b, origenes: [...new Set([...(Array.isArray(origenes) ? origenes : []), porDefecto])] };
   } catch { return null; }
 }
 
@@ -130,11 +137,13 @@ export async function clearModels() {
   } catch (e) { fallos.push('OPFS: ' + (e?.message || e)); }
   const api = await brokerApi();
   if (api && typeof api.b.clearShared === 'function') {
-    const lista = Array.isArray(api.origenes) && api.origenes.length ? [...new Set(api.origenes)] : [undefined];
-    for (const o of lista) {
-      try { const r = await api.b.clearShared(o); if (!r?.ok) fallos.push('broker ' + (o || '')); }
-      catch (e) { fallos.push('broker ' + (o || '') + ': ' + (e?.message || e)); }
-    }
+    // Todos A LA VEZ: uno tras otro, cada broker que no contesta (una página de
+    // broker sin el manejador de «vaciar») sumaba su tiempo de espera, y el chip y
+    // el botón se quedaban ocupados todo ese rato antes de decir que falló.
+    await Promise.all(api.origenes.map(async o => {
+      try { const r = await api.b.clearShared(o); if (!r?.ok) fallos.push('broker ' + o); }
+      catch (e) { fallos.push('broker ' + o + ': ' + (e?.message || e)); }
+    }));
   }
   const despues = await modelUsage();
   return { liberado: Math.max(0, antes.total - despues.total), antes, despues, fallos, sharedOk: antes.sharedOk };
