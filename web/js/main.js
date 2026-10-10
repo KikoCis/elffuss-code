@@ -1592,6 +1592,45 @@ $('model-select').addEventListener('change', e => changeModel(e.target.value));
 $('model-dot').addEventListener('click', () => { renderSettings(); requestAnimationFrame(() => $('settings-panel').querySelector('.model-card.active, .model-card')?.focus()); });
 pintaDot('off', 'rules');
 // móvil: conmutar chat ↔ editor
+// ☰ (solo en el móvil): cajón con el árbol de ficheros y la barra de
+// actividad. Abrir un fichero desde ahí pasa a la vista Editor y cierra el
+// cajón; Escape o tocar fuera lo cierran.
+function abreCajon(abrir) {
+  const on = abrir ?? !document.body.classList.contains('drawer-open');
+  if (on) {
+    document.documentElement.style.setProperty('--drawer-top', Math.round(document.querySelector('#ide header').getBoundingClientRect().bottom) + 'px');
+    if (!$('drawer-scrim')) {
+      const scrim = document.createElement('div');
+      scrim.id = 'drawer-scrim';
+      scrim.onclick = () => abreCajon(false);
+      document.body.appendChild(scrim);
+    }
+  }
+  document.body.classList.toggle('drawer-open', on);
+  // el árbol empieza justo debajo de la fila de herramientas, mida lo que mida
+  if (on) document.documentElement.style.setProperty('--drawer-act', Math.round($('activity').getBoundingClientRect().height) + 'px');
+  $('btn-drawer').setAttribute('aria-expanded', on ? 'true' : 'false');
+  if (on) ($('tree').querySelector('[tabindex="0"]') || $('act-files'))?.focus();
+  else if (document.activeElement && ($('sidebar').contains(document.activeElement) || $('activity').contains(document.activeElement))) $('btn-drawer').focus();
+}
+$('btn-drawer').title = t('drawerTitle');
+$('btn-drawer').setAttribute('aria-label', t('drawerTitle'));
+$('btn-drawer').addEventListener('click', () => abreCajon());
+// Elegir algo del cajón lo cierra; un fichero del árbol además enseña el editor.
+$('tree').addEventListener('click', e => {
+  if (!document.body.classList.contains('drawer-open')) return;
+  if (!e.target.closest('.file')) return;
+  document.body.classList.add('show-editor');
+  paintFlip(true);
+  abreCajon(false);
+});
+$('activity').addEventListener('click', e => {
+  if (!document.body.classList.contains('drawer-open') || !e.target.closest('button')) return;
+  if (e.target.closest('#act-files')) return;            // en el cajón, el árbol ya se ve
+  abreCajon(false);
+  if (e.target.closest('#act-arch, #act-city, #act-term')) { document.body.classList.add('show-editor'); paintFlip(true); }
+}, true);
+
 $('code-flip').addEventListener('click', () => {
   const showEditor = !document.body.classList.contains('show-editor');
   document.body.classList.toggle('show-editor', showEditor);
@@ -1906,6 +1945,7 @@ const CAPAS = [
   { abierta: () => !$('history-panel').hidden, cerrar: () => cierraHistorial() },
   { abierta: () => !$('settings-panel').hidden, cerrar: () => cierraAjustes() },
   { abierta: () => !$('view-overlay').hidden, cerrar: () => closeView({ foco: true }) },
+  { abierta: () => document.body.classList.contains('drawer-open'), cerrar: () => abreCajon(false) },
 ];
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
