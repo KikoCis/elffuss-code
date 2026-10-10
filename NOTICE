@@ -9,3 +9,11 @@ La vista «Arquitectura» (web/js/arch.js) está inspirada en CodeFlow
 (https://github.com/braedonsaunders/codeflow, MIT) — implementación nativa propia.
 La vista «Ciudad 3D» (web/js/city.js) está inspirada en VibeCodeViewer
 (https://github.com/Sendery/VibeCodeViewer, Apache-2.0) — implementación nativa propia.
+
+--- Extensiones de VS Code (crédito) ---
+Las gramáticas TextMate se aplican con vscode-textmate y vscode-oniguruma
+(Microsoft, MIT), que se cargan del CDN jsDelivr solo cuando hacen falta; no se
+incluyen en este repositorio. Los colores TextMate de los temas de serie
+(web/js/ext/themes.js) siguen los temas por defecto de VS Code (Microsoft, MIT).
+Las extensiones se buscan e instalan desde Open VSX (Eclipse Foundation), con la
+licencia que declara cada una.
