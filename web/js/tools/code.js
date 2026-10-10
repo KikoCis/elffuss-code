@@ -19,24 +19,54 @@ async function readIn(dir, path) {
   return (await (await dir.getFileHandle(name)).getFile()).text();
 }
 
-// Integración git SIN dependencias: parsea el .git directamente (rama + último
-// commit). Suficiente para orientar; commitear se le pide al agente/terminal.
+// Integración git SIN dependencias: parsea el .git directamente (rama, último
+// commit con su SHA y el remoto «origin»). Suficiente para orientar; commitear
+// se le pide al agente/terminal.
 export async function gitInfo() {
   if (!projectHandle) return { isRepo: false };
   let git;
   try { git = await projectHandle.getDirectoryHandle('.git'); }
   catch { return { isRepo: false }; }
-  const out = { isRepo: true, branch: '(detached)', lastCommit: null };
+  const out = { isRepo: true, branch: '(detached)', lastCommit: null, web: null };
   try {
     const head = (await readIn(git, 'HEAD')).trim();
     out.branch = head.match(/ref:\s*refs\/heads\/(.+)/)?.[1] || head.slice(0, 7);
   } catch { /* sin HEAD */ }
   try {
+    // «<viejo> <nuevo> Autor <correo> <ts> <tz>\t<mensaje>»: el SHA del commit
+    // es el SEGUNDO campo (antes se tiraba). El correo no se guarda: no se enseña.
     const last = (await readIn(git, 'logs/HEAD')).trim().split('\n').pop();
-    const m = last.match(/^\S+ \S+ (.+?) <[^>]*> (\d+)[^\t]*\t(.+)$/);
-    if (m) out.lastCommit = { author: m[1], when: new Date(+m[2] * 1000), msg: m[3] };
+    const m = last.match(/^\S+ (\S+) (.+?) <[^>]*> (\d+)[^\t]*\t(.+)$/);
+    if (m) out.lastCommit = { sha: /^[0-9a-f]{7,64}$/i.test(m[1]) ? m[1] : null, author: m[2], when: new Date(+m[3] * 1000), msg: m[4] };
   } catch { /* sin logs (repo recién creado) */ }
+  try { out.web = remoteWeb(await readIn(git, 'config')); } catch { /* sin config */ }
   return out;
+}
+
+// La URL web del remoto «origin», SIN credenciales (https://usuario:token@…
+// no puede acabar en un enlace) y con los enlaces de rama y commit según el
+// tipo de forja. null si no hay remoto o no es http(s)/ssh reconocible.
+export function remoteWeb(config) {
+  const sec = String(config || '').split(/^\s*\[/m).find(b => /^remote\s+"origin"\s*\]/.test(b));
+  const raw = sec?.match(/^\s*url\s*=\s*(\S+)/m)?.[1];
+  if (!raw) return null;
+  let host, path;
+  const ssh = raw.match(/^(?:ssh:\/\/)?[\w.-]+@([\w.-]+)(?::\d+)?[:/](.+)$/);
+  if (/^https?:\/\//i.test(raw)) {
+    try { const u = new URL(raw); host = u.hostname; path = u.pathname; } catch { return null; }
+  } else if (ssh) { host = ssh[1]; path = ssh[2]; }
+  else return null;
+  path = path.replace(/^\/+/, '').replace(/\.git\/?$/, '').replace(/\/+$/, '');
+  if (!host || !/^[\w.-]+\/[\w.\-/]+$/.test(path)) return null;
+  const base = `https://${host}/${path}`;
+  const kind = /(^|\.)github\.com$/i.test(host) ? 'github' : /(^|\.)gitlab\.com$/i.test(host) ? 'gitlab'
+    : /(^|\.)bitbucket\.org$/i.test(host) ? 'bitbucket' : 'gitea';
+  const enc = s => String(s).split('/').map(encodeURIComponent).join('/');
+  return {
+    base, kind,
+    branch: b => kind === 'gitea' ? `${base}/src/branch/${enc(b)}` : kind === 'bitbucket' ? `${base}/src/${enc(b)}` : kind === 'gitlab' ? `${base}/-/tree/${enc(b)}` : `${base}/tree/${enc(b)}`,
+    commit: sha => kind === 'bitbucket' ? `${base}/commits/${sha}` : kind === 'gitlab' ? `${base}/-/commit/${sha}` : `${base}/commit/${sha}`,
+  };
 }
 
 // Lista plana de archivos (para el command palette). Cacheada por proyecto.

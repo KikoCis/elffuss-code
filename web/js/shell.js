@@ -278,7 +278,8 @@ const CMDS = {
     if (!info.isRepo) return DIM('no es un repositorio git (no hay .git)');
     if (sub === 'branch' || !sub) return '* ' + GRN(info.branch);
     if (sub === 'status') return `En la rama ${GRN(info.branch)}\n` + (info.lastCommit ? DIM(`último commit: ${info.lastCommit.msg}`) : DIM('sin commits todavía')) + '\n' + DIM('(git de solo lectura aquí; commit/push reales no disponibles todavía)');
-    if (sub === 'log') return info.lastCommit ? `${YEL('commit ' + info.branch)}\nAutor: ${info.lastCommit.author}\nFecha: ${new Date(info.lastCommit.when).toLocaleString()}\n\n    ${info.lastCommit.msg}` : DIM('sin commits');
+    // El SHA de verdad (antes ponía «commit <rama>», que no es un commit).
+    if (sub === 'log') return info.lastCommit ? `${YEL('commit ' + (info.lastCommit.sha || '?'))} ${DIM('(' + info.branch + ')')}\nAutor: ${info.lastCommit.author}\nFecha: ${new Date(info.lastCommit.when).toLocaleString()}\n\n    ${info.lastCommit.msg}` : DIM('sin commits');
     return DIM(`git ${sub}: de solo lectura aquí (branch/status/log).`);
   },
 };
