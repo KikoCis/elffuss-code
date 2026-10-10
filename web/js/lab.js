@@ -24,6 +24,7 @@ const S = {
   ctx: {},                       // overrides sobre DEFAULTS
   bench: 'contexto',
   provider: null,
+  providerFor: null,             // qué cerebro es el que está cargado de verdad
   running: false, abort: false,
   aborter: null,                 // la parada de la corrida en curso (botón ■)
   run: null,                     // { bench, casos:[], métricas:{} } — la traza
@@ -187,15 +188,43 @@ async function loadBrain() {
       mod.configure(id.split(':')[1]);
     }
     if (mod.load) await mod.load(s => { $('#load-state').textContent = String(s).slice(0, 60); });
-    S.provider = mod;
-    setLed('#led-model', 'on', 'modelo: ' + id);
     $('#load-state').textContent = '';
-    log('cerebro listo: ' + id, 'a');
+    // Mientras cargaba se eligió otro en la lista: este no se usa.
+    if (S.brain !== id) log('cargado ' + id + ', pero ya está elegido «' + S.brain + '»: pulsa «Cargar cerebro» para ese', 'w');
+    else {
+      S.provider = mod;
+      S.providerFor = id;
+      setLed('#led-model', 'on', 'modelo: ' + id);
+      log('cerebro listo: ' + id, 'a');
+    }
   } catch (e) {
     setLed('#led-model', 'err', 'fallo al cargar');
     log('no se pudo cargar el cerebro: ' + e.message, 'e');
   }
   $('#btn-load').disabled = false;
+  pintarRun();
+}
+
+// ¿Hace falta un cerebro CARGADO para este banco? El de contexto mide el
+// compresor (sin modelo) y el SWE con «Reglas» usa un solucionador de guion.
+const necesitaCerebro = () => S.bench === 'juegos' || (S.bench === 'swe' && S.brain !== 'rules');
+// «Lanzar» solo se puede si el cerebro elegido es el que está cargado: antes
+// cambiar de cerebro en la lista no tocaba el proveedor cargado, y una corrida
+// «con onnx» se ejecutaba en realidad con Reglas (y se guardaba con esa
+// etiqueta en el ranking).
+function pintarRun() {
+  const falta = necesitaCerebro() && S.providerFor !== S.brain;
+  $('#btn-run').disabled = S.running || falta;
+  $('#run-hint').textContent = falta ? 'Carga el cerebro «' + S.brain + '» antes de lanzar este banco.' : '';
+}
+function elegirCerebro(id) {
+  S.brain = id;
+  $('#brain-tag').textContent = id;
+  if (S.providerFor !== id) {
+    S.provider = null; S.providerFor = null;
+    setLed('#led-model', '', 'modelo: sin cargar (' + id + ')');
+  }
+  pintarRun();
 }
 
 // ═══════════════ BANCO 1 · contexto (determinista, sin GPU) ═══════════════
@@ -486,13 +515,15 @@ async function run() {
   // «listo», y entraba en S.run: «Guardar» la puntuaba con el denominador
   // recortado (parar tras k tareas resueltas daba k/k = 100 %). Y la de juegos,
   // que para con una excepción, encendía el piloto rojo «con fallo». Lo medido
-  // se enseña como parcial, pero no se puede guardar en el ranking.
+  // se enseña como PARCIAL, pero no se puede guardar en el ranking: marcarla
+  // «parcial» en la tabla no basta, su porcentaje seguiría compitiendo con los
+  // de corridas completas.
   const parado = S.abort;
   S.ultimaParada = parado;
   if (out && parado) {
-    tiles(out.resumen);
+    tiles({ estado: { v: 'PARCIAL', warn: true }, ...out.resumen });
     S.run = null;
-    log('parcial (parado, no entra en el ranking): ' + JSON.stringify(out.resumen), 'w');
+    log('■ parado: resultado PARCIAL (' + out.filas.length + ' casos, no entra en el ranking) ' + JSON.stringify(out.resumen), 'w');
   } else if (out) {
     tiles(out.resumen);
     S.run = {
@@ -506,8 +537,9 @@ async function run() {
   }
   if (parado) setLed('#led-run', '', 'parado');   // piloto neutro, como en reposo
   else setLed('#led-run', error ? 'err' : 'on', error ? 'con fallo' : 'listo');
-  prog(1, 1, parado ? 'parado' : error ? 'abortado' : 'completado');
-  S.running = false; S.aborter = null; $('#btn-run').disabled = false; $('#btn-stop').disabled = true;
+  prog(1, 1, parado ? (out ? 'parado (parcial)' : 'parado') : error ? 'abortado' : 'completado');
+  S.running = false; S.aborter = null; $('#btn-stop').disabled = true;
+  pintarRun();
 }
 
 // ─────────────────── historial y ranking, en local ───────────────────
@@ -577,9 +609,11 @@ function borrarHistorial() {
 }
 
 // ─────────────────────────── arranque ───────────────────────────
-radio($('#brains'), BRAINS, S.brain, id => { S.brain = id; $('#brain-tag').textContent = id; });
+radio($('#brains'), BRAINS, S.brain, elegirCerebro);
 radio($('#algos'), ALGOS, S.algo, id => { S.algo = id; $('#algo-tag').textContent = id; algoKnobs(); });
-radio($('#benches'), BENCHES, S.bench, id => { S.bench = id; $('#bench-tag').textContent = id; });
+// Cambiar de banco repinta el ranking de ESE banco (antes seguía enseñando el
+// del anterior) y el estado de «Lanzar».
+radio($('#benches'), BENCHES, S.bench, id => { S.bench = id; $('#bench-tag').textContent = id; pintarRanking(); pintarRun(); });
 $('#brain-tag').textContent = S.brain;
 $('#bench-tag').textContent = S.bench;
 algoKnobs(); ctxUI();
@@ -595,17 +629,22 @@ $('#btn-stop').onclick = () => {
 $('#ctx-all').onclick = () => { CTX_KNOBS.flatMap(([, k]) => k).forEach(([k, t]) => { if (t === 'bool') S.ctx[k] = true; }); ctxUI(); };
 $('#ctx-none').onclick = () => { CTX_KNOBS.flatMap(([, k]) => k).forEach(([k, t]) => { if (t === 'bool') S.ctx[k] = false; }); ctxUI(); };
 $('#ctx-def').onclick = () => { S.ctx = {}; ctxUI(); };
+// Hace lo que dice el botón y nada más: abrir el IDE con ESTE cerebro (los ids
+// del Lab son ids del IDE). Antes se llamaba «Lanzar el IDE con esta
+// configuración» y guardaba también algoritmo y perillas en claves que el IDE
+// no lee nunca: la configuración no llegaba y el log decía que sí.
 $('#btn-launch').onclick = () => {
   localStorage.setItem('elffusscode.model', S.brain);
-  localStorage.setItem('elffusscode.ctxopts', JSON.stringify(S.ctx));
-  localStorage.setItem('elffusscode.algo', JSON.stringify({ algo: S.algo, opts: S.algoOpts }));
-  log('configuración guardada; abriendo el IDE', 'a');
+  localStorage.removeItem('elffusscode.ctxopts');
+  localStorage.removeItem('elffusscode.algo');
+  log('el IDE arrancará con el cerebro «' + S.brain + '»; el algoritmo y las perillas solo se aplican aquí, en el Lab', 'a');
   window.open('index.html', '_blank');
 };
 
 $('#btn-save').onclick = guardarCorrida;
 $('#btn-clear').onclick = borrarHistorial;
 pintarRanking();
+pintarRun();
 
 log('Elffuss Lab listo. Elige algoritmo, enciende o apaga la compresión y lanza un banco.', 'a');
 log('El banco de contexto no necesita GPU: mide el compresor y responde al instante.');

@@ -14,7 +14,7 @@
   <div class="sub">banco de pruebas · algoritmos y compresión de contexto</div>
   <div class="spacer"></div>
   <div class="led" id="led-model"><i></i><span>modelo: sin cargar</span></div>
-  <div class="led" id="led-run"><i></i><span>en reposo</span></div>
+  <div class="led" id="led-run" role="status"><i></i><span>en reposo</span></div>
   <a class="sub" href="index.html">← volver al IDE</a>
 </header>
 
@@ -55,7 +55,8 @@
         <div id="ctx-knobs"></div>
         <p class="hint">Cada perilla es la del motor real (<code>acer-core.js</code>).
         Lo que marques aquí es lo que se le pasa a <code>packHistoryACER</code>
-        en el banco de contexto y lo que se guarda al lanzar el IDE.</p>
+        en el banco de contexto. Se queda en el Lab: el IDE usa siempre su
+        configuración por defecto.</p>
       </div>
     </div>
   </section>
@@ -70,8 +71,9 @@
           <button class="btn primary" id="btn-run">▶ Lanzar benchmark</button>
           <button class="btn" id="btn-stop" disabled>■ Parar</button>
           <button class="btn" id="btn-save">★ Guardar en el ranking</button>
-          <button class="btn ghost" id="btn-launch">Lanzar el IDE con esta configuración</button>
+          <button class="btn ghost" id="btn-launch" title="Abre el IDE en otra pestaña con el cerebro elegido arriba">Abrir el IDE con este cerebro</button>
         </div>
+        <div class="sub" id="run-hint" role="status" style="margin-top:6px"></div>
         <div class="bar" style="margin-top:12px"><i id="prog"></i></div>
         <div class="sub" id="prog-txt" style="margin-top:6px">—</div>
       </div>

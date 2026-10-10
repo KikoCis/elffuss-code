@@ -88,7 +88,7 @@ await p.click('#btn-save');
 await p.waitForTimeout(200);
 const s = await estado();
 ok('SWE: la corrida parada termina, con la primera tarea ya contada', terminoSwe && /"resolved":"\d+\/1"/.test(s.log), '…' + s.log.slice(-160));
-ok('SWE parado: el progreso dice «parado» y el piloto «parado» (neutro)', s.prog === 'parado' && s.led.cls.trim() === 'led' && s.led.txt === 'parado', `${s.prog} · ${JSON.stringify(s.led)}`);
+ok('SWE parado: el progreso dice «parado (parcial)» y el piloto «parado» (neutro)', s.prog === 'parado (parcial)' && s.led.cls.trim() === 'led' && s.led.txt === 'parado', `${s.prog} · ${JSON.stringify(s.led)}`);
 ok('  …y no se anuncia como «✔ terminado»', !s.log.includes('✔ terminado'), '…' + s.log.slice(-120));
 ok('  …y «Guardar» no la mete en el ranking', s.ranking === rankingAntes && /no entra en el ranking/.test(s.log), `${rankingAntes} → ${s.ranking}`);
 

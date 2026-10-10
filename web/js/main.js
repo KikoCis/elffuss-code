@@ -2034,7 +2034,12 @@ const COMMANDS = [
   { label: t('pToggleExplorer'), run: () => $('act-files').click() },
   { label: t('pToggleTerm'), hint: 'Ctrl+`', run: () => { closePalette(); toggleTerminal(); } },
   { label: t('pSave', { k: atajo('S') }), run: () => saveActive() },
+  { label: t('mLab'), run: () => abrirLab() },
 ];
+// El banco de pruebas (lab.html) existía pero no había forma de llegar a él
+// desde el IDE: solo escribiendo la URL. Se abre en otra pestaña para no
+// dejar a medias lo que tengas aquí.
+function abrirLab() { window.open('lab.html', '_blank', 'noopener'); }
 
 function openPalette(prefix = '') {
   $('palette').hidden = false;
@@ -2141,6 +2146,7 @@ async function menuFor(which) {
     { label: t('tCity'), run: () => openView('city') },
     { label: t('mPalette'), hint: atajo('P', true), run: () => openPalette('>') },
     { label: 'Skills', run: () => openSkillsPanel() },
+    { label: t('mLab'), hint: '↗', run: () => abrirLab() },
     { label: t('mAbout'), hint: '↗', run: () => window.open('https://github.com/KikoCis/elffuss-code', '_blank', 'noopener') },
   ];
   if (which === 'git') {
