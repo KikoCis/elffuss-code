@@ -102,8 +102,9 @@ function enOrden(fn) {
 function persistConv(conv) { return enOrden(() => persistConvYa(conv)); }
 
 async function persistConvYa(conv) {
-  // Borrada desde la Historial mientras su guardado esperaba: no se resucita.
-  if (convs.get(conv.id) !== conv) return;
+  // Borrada desde la Historial (también mientras su guardado esperaba): no se
+  // vuelve a escribir, o resucitaría.
+  if (conv.borrada || convs.get(conv.id) !== conv) return;
   // NO tragarse el error de lectura: un fallo transitorio devolvía [] y el
   // db.set de abajo reescribía el store entero con UNA sola conversación,
   // borrando el resto. Distinguir «no existe aún» (undefined → []) de «no se
@@ -196,18 +197,37 @@ export async function appendMessage(id, role, content) {
 }
 
 // quita la pestaña de la vista — la conversación sigue viva en la Historial
+//
+// Si la pestaña cerrada era la ACTIVA, se avisa con 'switch' y no con 'tabs':
+// con 'tabs' la barra se repintaba pero el chat seguía enseñando la
+// conversación cerrada, y lo siguiente que escribías iba a parar a otra que no
+// estaba en pantalla.
 export function closeTab(id) {
+  const eraActiva = activeId === id;
   openTabIds = openTabIds.filter(x => x !== id);
-  if (activeId === id) activeId = openTabIds[openTabIds.length - 1] || null;
+  if (eraActiva) activeId = openTabIds[openTabIds.length - 1] || null;
   persistMeta();
-  if (!openTabIds.length) create(); else onChange('tabs');
+  if (!openTabIds.length) create();
+  else onChange(eraActiva ? 'switch' : 'tabs', activeId);
 }
 
 // borra la conversación de verdad (desde la Historial)
+//
+// Si estaba trabajando se para antes de borrarla: su turno, al terminar,
+// llamaba a persistConv y la volvía a escribir en IndexedDB, así que una
+// conversación borrada resucitaba en la Historial.
 export async function remove(id) {
+  const c = convs.get(id);
+  if (c) {
+    c.borrada = true;
+    c.queue.length = 0;
+    try { c.aborter?.abort(); } catch { /* */ }
+    try { c.agent.stop(); } catch { /* */ }
+  }
   convs.delete(id);
+  const eraActiva = activeId === id;
   openTabIds = openTabIds.filter(x => x !== id);
-  if (activeId === id) activeId = openTabIds[openTabIds.length - 1] || null;
+  if (eraActiva) activeId = openTabIds[openTabIds.length - 1] || null;
   // En la misma fila que los guardados: si no, un guardado en curso de esta
   // conversación la volvía a meter después de borrarla.
   await enOrden(async () => {
@@ -215,7 +235,8 @@ export async function remove(id) {
     await db.set('kv', 'conversations', all).catch(() => {});
   });
   persistMeta();
-  if (!openTabIds.length) create(); else onChange('tabs');
+  if (!openTabIds.length) create();
+  else onChange(eraActiva ? 'switch' : 'tabs', activeId);
 }
 
 export async function listAll() {
