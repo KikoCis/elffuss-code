@@ -2,6 +2,7 @@
 import * as code from './tools/code.js';
 import { fileIcon, folderIcon } from './icons.js';
 import { renderMarkdown } from './md.js';
+import { t } from './i18n.js';
 
 let editor = null;
 let monacoRef = null;
@@ -71,6 +72,9 @@ export function triggerEditor(actionId) {
   editor?.getAction(actionId)?.run();
 }
 export function hasEditor() { return !!editor; }
+// La ruta del fichero activo (o null): el menú la usa para no lanzar acciones
+// del editor que no hacen nada sin un fichero abierto.
+export function activeFile() { return active; }
 
 export async function openFile(path) {
   let tab = tabs.find(t => t.path === path);
@@ -85,7 +89,7 @@ export async function openFile(path) {
       const base = path.split('/').pop();
       const hits = await code.findByName?.(base, 2).catch(() => []) || [];
       if (hits.length === 1 && hits[0] !== path) return openFile(hits[0]);
-      return alertBar('No pude abrir ' + path + ': ' + e.message);
+      return alertBar(t('openFailed', { path, e: e.message }));
     }
     tab = { path, model: monacoRef.editor.createModel(content, langOf(path)), dirty: false, preview: false };
     tabs.push(tab);
@@ -194,18 +198,96 @@ async function togglePreview(path) {
   await applyView();
 }
 
-async function saveActive() {
-  const tab = tabs.find(t => t.path === active);
-  if (!tab) return;
-  await code.write({ path: tab.path, content: tab.model.getValue() });
+// Guardar lo que TÚ has escrito va directo al fichero, no por code.write: esa
+// es la vía del agente, con su aprobación («Elffuss quiere escribir…», que
+// salía al guardar tu propio fichero con Auto apagado) y sus guardas contra
+// reescrituras que recortan medio fichero, que bloqueaban un guardado tuyo
+// legítimo sin decir nada.
+async function writeOwn(path, content) {
+  const parts = path.split('/').filter(Boolean);
+  const name = parts.pop();
+  let dir = code.handle();
+  for (const s of parts) dir = await dir.getDirectoryHandle(s, { create: true });
+  const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+  await w.write(content);
+  await w.close();
+  code.invalidateFileList?.();
+}
+async function saveTab(tab) {
+  try {
+    await writeOwn(tab.path, tab.model.getValue());
+  } catch (e) {
+    alertBar(t('saveFailed', { path: tab.path, e: e?.message || e }));
+    return false;
+  }
   tab.dirty = false;
+  tab.deleted = false;
   renderTabs();
-  alertBar('💾 ' + tab.path + ' guardado');
+  alertBar(t('saved', { path: tab.path }));
+  return true;
+}
+// Exportada: la usan el menú File › Guardar y la paleta. Antes ellos lanzaban
+// la acción 'workbench.action.files.save', que no existe en el Monaco suelto,
+// y no pasaba nada.
+export async function saveActive() {
+  const tab = tabs.find(t => t.path === active);
+  if (!tab) { alertBar(t('noFileOpen')); return false; }
+  return saveTab(tab);
 }
 
+// Cerrar una pestaña con cambios sin guardar PREGUNTA: Guardar, No guardar o
+// Cancelar. Antes se cerraba y los cambios se perdían sin aviso.
+function askDirty(tab) {
+  return new Promise(resolve => {
+    const dlg = document.createElement('dialog');
+    dlg.id = 'dirty-dialog';
+    dlg.setAttribute('aria-labelledby', 'dirty-title');
+    const h = document.createElement('p'); h.id = 'dirty-title'; h.className = 'dd-title';
+    h.textContent = t('dirtyTitle', { name: baseOf(tab.path) });
+    const sub = document.createElement('p'); sub.className = 'dd-sub'; sub.textContent = t('dirtyBody');
+    const row = document.createElement('div'); row.className = 'dd-row';
+    let answer = 'cancel';
+    const mk = (label, val, cls) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.dataset.val = val;
+      if (cls) b.className = cls;
+      b.onclick = () => { answer = val; dlg.close(); };
+      row.appendChild(b); return b;
+    };
+    const save = mk(t('dirtySave'), 'save', 'dd-primary');
+    mk(t('dirtyDiscard'), 'discard');
+    mk(t('dirtyCancel'), 'cancel');
+    dlg.append(h, sub, row);
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(answer); }, { once: true });
+    document.body.appendChild(dlg);
+    dlg.showModal();
+    save.focus();
+  });
+}
+
+// Devuelve false si el usuario canceló (la pestaña sigue abierta).
 async function closeTab(path) {
   const i = tabs.findIndex(t => t.path === path);
-  if (i < 0) return;
+  if (i < 0) return true;
+  if (tabs[i].dirty) {
+    const r = await askDirty(tabs[i]);
+    if (r === 'cancel') return false;
+    if (r === 'save' && !(await saveTab(tabs[i]))) return false;
+  }
+  const j = tabs.findIndex(t => t.path === path);   // el diálogo es asíncrono
+  if (j < 0) return true;
+  closeTabNow(j);
+  renderTabs();
+  await applyView();
+  return true;
+}
+// Varias seguidas («Cerrar otras/todas»): se para en la primera que cancelas.
+async function closeTabs(paths) {
+  for (const p of paths) if (!(await closeTab(p))) return false;
+  return true;
+}
+
+function closeTabNow(i) {
+  const path = tabs[i].path;
   tabs[i].model.dispose();
   tabs.splice(i, 1);
   if (active === path) {
@@ -214,8 +296,6 @@ async function closeTab(path) {
     if (active) { editor.setModel(tabs.find(t => t.path === active).model); setEmptyState(false); }
     else { editor.setModel(monacoRef.editor.createModel('', 'plaintext')); setEmptyState(true); }
   }
-  renderTabs();
-  await applyView();
 }
 
 // Estado vacío: cuando no hay ningún fichero abierto, en vez de dejar el Monaco
@@ -225,7 +305,8 @@ export function setEmptyState(on) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'editor-empty';
-    el.innerHTML = '<img src="img/elffuss-code.svg" alt=""><p>Abre un fichero del explorador,<br>o pídele algo a la elfa.</p>';
+    el.innerHTML = '<img src="img/elffuss-code.svg" alt=""><p></p>';
+    el.querySelector('p').textContent = t('editorEmpty');
     $('editor').parentElement.appendChild(el);
   }
   el.style.display = on ? 'flex' : 'none';
@@ -234,60 +315,125 @@ export function setEmptyState(on) {
 function renderTabs() {
   const bar = $('tabs-bar');
   bar.replaceChildren();
-  for (const t of tabs) {
+  bar.setAttribute('role', 'tablist');
+  bar.setAttribute('aria-label', t('editorTabs'));
+  for (const tb of tabs) {
     const el = document.createElement('div');
-    el.className = 'tab' + (t.path === active ? ' active' : '') + (t.preview ? ' tab-preview' : '');
-    el.dataset.path = t.path;
+    const on = tb.path === active;
+    el.className = 'tab' + (on ? ' active' : '') + (tb.preview ? ' tab-preview' : '');
+    el.dataset.path = tb.path;
+    // Pestañas de verdad para el teclado y los lectores de pantalla: antes eran
+    // <div> sin foco. La activa entra con Tab; ←/→ se mueven entre ellas.
+    el.setAttribute('role', 'tab');
+    el.setAttribute('aria-selected', on ? 'true' : 'false');
+    el.tabIndex = on ? 0 : -1;
     const ico = document.createElement('span');
     ico.className = 'tab-ico';
-    ico.innerHTML = fileIcon(t.path.split('/').pop());
+    ico.innerHTML = fileIcon(tb.path.split('/').pop());
     const name = document.createElement('span');
     name.className = 'tab-name';
-    name.textContent = t.path.split('/').pop();
-    name.title = t.path;
-    // como VS Code: punto ● si hay cambios sin guardar; × al pasar el ratón
-    const x = document.createElement('b');
-    x.className = t.dirty ? 'dirty' : '';
-    x.textContent = t.dirty ? '●' : '×';
-    x.onclick = e => { e.stopPropagation(); closeTab(t.path); };
+    name.textContent = tb.path.split('/').pop();
+    name.title = tb.deleted ? tb.path + ' · ' + t('fileDeletedDirty') : tb.path;
+    if (tb.deleted) name.classList.add('deleted');
+    // como VS Code: punto ● si hay cambios sin guardar; × al pasar el ratón.
+    // Un <button> con nombre accesible (antes un <b> que no recibía el foco).
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'tab-x' + (tb.dirty ? ' dirty' : '');
+    x.textContent = tb.dirty ? '●' : '×';
+    x.tabIndex = -1;
+    x.setAttribute('aria-label', t(tb.dirty ? 'closeFileDirty' : 'closeFile', { name: baseOf(tb.path) }));
+    x.title = x.getAttribute('aria-label');
+    x.onclick = e => { e.stopPropagation(); closeTab(tb.path); };
     el.append(ico, name, x);
-    el.onclick = () => openFile(t.path);
-    el.oncontextmenu = e => { e.preventDefault(); openTabMenu(e.clientX, e.clientY, t.path); };
+    el.onclick = () => openFile(tb.path);
+    el.oncontextmenu = e => { e.preventDefault(); openTabMenu(e.clientX, e.clientY, tb.path); };
+    el.onkeydown = e => {
+      const i = tabs.indexOf(tb);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+        if (next) openFile(next.path).then(() => bar.querySelector('.tab.active')?.focus());
+      } else if (e.key === 'Delete' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w')) {
+        e.preventDefault(); closeTab(tb.path);
+      } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+        e.preventDefault(); const r = el.getBoundingClientRect(); openTabMenu(r.left, r.bottom, tb.path);
+      }
+    };
     bar.appendChild(el);
   }
+  markActive();
+}
+
+// ---------- menús contextuales (pestañas y árbol): teclado y Escape ----------
+// Escape los cierra y el foco vuelve a donde estaba; ↑/↓ recorren las opciones.
+function wireMenu(menu, returnFocus) {
+  menu.setAttribute('role', 'menu');
+  const items = () => [...menu.querySelectorAll('[role="menuitem"]')];
+  const close = () => { menu.remove(); document.removeEventListener('mousedown', outside); returnFocus?.focus?.(); };
+  const outside = ev => { if (!menu.contains(ev.target)) close(); };
+  menu.addEventListener('keydown', e => {
+    const list = items(), i = list.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); list[(i + 1) % list.length]?.focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); list[(i - 1 + list.length) % list.length]?.focus(); }
+  });
+  setTimeout(() => document.addEventListener('mousedown', outside), 0);
+  // dentro de la ventana aunque se abra pegado al borde
+  const r = menu.getBoundingClientRect();
+  if (r.right > innerWidth) menu.style.left = Math.max(4, innerWidth - r.width - 4) + 'px';
+  if (r.bottom > innerHeight) menu.style.top = Math.max(4, innerHeight - r.height - 4) + 'px';
+  items()[0]?.focus();
+  return close;
+}
+function menuButton(label, fn, cls) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'tm-item' + (cls ? ' ' + cls : '');
+  b.setAttribute('role', 'menuitem');
+  b.textContent = label;
+  b.dataset.run = '1';
+  b._run = fn;
+  return b;
 }
 
 // ---------- menú contextual de las pestañas (botón derecho, estilo VS Code) ----------
 function openTabMenu(x, y, path) {
   document.getElementById('tab-menu')?.remove();
+  const volver = document.activeElement;
   const menu = document.createElement('div');
   menu.id = 'tab-menu';
   menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:200`;
-  const i = tabs.findIndex(t => t.path === path);
+  const i = tabs.findIndex(tb => tb.path === path);
   const tab = tabs[i];
   const items = [];
-  items.push(['Cerrar', () => closeTab(path)]);
-  items.push(['Cerrar otras', () => { for (const t of tabs.filter(t => t.path !== path)) closeTab(t.path); }]);
-  const toTheRight = tabs.slice(i + 1).map(t => t.path);
-  if (toTheRight.length) items.push(['Cerrar las de la derecha', () => { for (const p of toTheRight) closeTab(p); }]);
-  items.push(['Cerrar todas', () => { for (const t of [...tabs]) closeTab(t.path); }]);
+  items.push([t('tmClose'), () => closeTab(path)]);
+  items.push([t('tmCloseOthers'), () => closeTabs(tabs.filter(tb => tb.path !== path).map(tb => tb.path))]);
+  const toTheRight = tabs.slice(i + 1).map(tb => tb.path);
+  if (toTheRight.length) items.push([t('tmCloseRight'), () => closeTabs(toTheRight)]);
+  items.push([t('tmCloseAll'), () => closeTabs(tabs.map(tb => tb.path))]);
   items.push(['sep']);
-  items.push(['Copiar ruta', () => navigator.clipboard?.writeText(path).catch(() => {})]);
+  items.push([t('tmCopyPath'), () => copyPath(path)]);
   if (PREVIEWABLE.has(langOf(path))) {
-    items.push([tab?.preview ? 'Ver código fuente' : 'Vista previa', () => togglePreview(path)]);
+    items.push([tab?.preview ? t('tmViewSource') : t('tmPreview'), () => togglePreview(path)]);
   }
+  let close = () => menu.remove();
   for (const item of items) {
-    if (item[0] === 'sep') { menu.appendChild(Object.assign(document.createElement('div'), { className: 'tm-sep' })); continue; }
+    if (item[0] === 'sep') { menu.appendChild(Object.assign(document.createElement('div'), { className: 'tm-sep', role: 'separator' })); continue; }
     const [label, fn] = item;
-    const b = document.createElement('button');
-    b.className = 'tm-item';
-    b.textContent = label;
-    b.onclick = () => { menu.remove(); fn(); };
+    const b = menuButton(label, fn);
+    b.onclick = () => { close(); fn(); };
     menu.appendChild(b);
   }
   document.body.appendChild(menu);
-  const close = ev => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', close); } };
-  setTimeout(() => document.addEventListener('mousedown', close), 0);
+  close = wireMenu(menu, volver);
+}
+
+// Copiar ruta: antes copiaba sin decir nada.
+function copyPath(path) {
+  const done = () => alertBar(t('pathCopied', { path }));
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(path).then(done, () => alertBar(t('pathCopyFailed')));
+  else alertBar(t('pathCopyFailed'));
 }
 
 let alertTimer;
@@ -301,14 +447,53 @@ function alertBar(msg) {
 // ---------- árbol lateral ----------
 const IGNORE = new Set(['node_modules', '.git', 'dist', 'build', 'target', '__pycache__', '.next', 'venv', '.venv', '.DS_Store']);
 
+// Carpetas abiertas, por ruta. refreshTree() reconstruye el árbol entero (cada
+// escritura del agente, cada orden del terminal que toca ficheros, crear,
+// renombrar o borrar) y antes lo dejaba TODO plegado: perdías el sitio tras
+// cada edición. Ahora se vuelven a abrir las que lo estaban.
+const openDirs = new Set();
+
 export async function refreshTree(handle = null) {
   const rootHandle = handle || window.__elffussProject;
   if (!rootHandle) return;
+  if (handle) openDirs.clear();               // otro proyecto: empieza plegado
   window.__elffussProject = rootHandle;
   const cont = $('tree');
-  cont.replaceChildren(await renderDir(rootHandle, ''));
+  const scroll = cont.scrollTop;
+  const conFoco = cont.contains(document.activeElement) ? document.activeElement.dataset?.path : null;
+  const ul = await renderDir(rootHandle, '');
+  ul.setAttribute('role', 'tree');
+  ul.setAttribute('aria-label', t('explorer'));
+  cont.replaceChildren(ul);
+  cont.scrollTop = scroll;
+  markActive();
+  if (conFoco != null) {
+    const f = cont.querySelector(`[data-path="${CSS.escape(conFoco)}"]`);
+    if (f) { setRoving(f); f.focus(); }
+  }
   setupTreeMenu();
 }
+
+// El fichero abierto se marca en el árbol (antes no había forma de saber cuál
+// era), y es la fila por la que entra el foco con Tab.
+function markActive() {
+  const cont = $('tree');
+  if (!cont) return;
+  let fila = null;
+  for (const f of cont.querySelectorAll('.file')) {
+    const on = f.dataset.path === active;
+    f.classList.toggle('active', on);
+    f.setAttribute('aria-selected', on ? 'true' : 'false');
+    if (on) fila = f;
+  }
+  if (!cont.querySelector('[tabindex="0"]') || fila) setRoving(fila || cont.querySelector('summary, .file'));
+}
+function setRoving(row) {
+  if (!row) return;
+  for (const r of $('tree').querySelectorAll('[tabindex="0"]')) if (r !== row) r.tabIndex = -1;
+  row.tabIndex = 0;
+}
+const visibleRows = () => [...$('tree').querySelectorAll('summary, .file')].filter(r => r.offsetParent !== null);
 
 // ---------- menú contextual del árbol (botón derecho, estilo VS Code) ----------
 let treeMenuWired = false;
@@ -323,6 +508,33 @@ function setupTreeMenu() {
     const kind = node ? node.dataset.kind : 'directory'; // vacío = raíz
     openTreeMenu(e.clientX, e.clientY, path, kind);
   });
+  // Teclado, como un árbol de verdad: ↑/↓ entre filas visibles, → abre una
+  // carpeta, ← la cierra (o sube a la carpeta madre), Enter abre el fichero,
+  // Shift+F10 o la tecla de menú abren el menú contextual. Antes las filas de
+  // fichero eran <span> sin foco y el árbol solo se usaba con el ratón.
+  tree.addEventListener('keydown', e => {
+    const row = e.target.closest?.('summary, .file');
+    if (!row) return;
+    const rows = visibleRows(), i = rows.indexOf(row);
+    const go = r => { if (r) { e.preventDefault(); setRoving(r); r.focus(); } };
+    const det = row.tagName === 'SUMMARY' ? row.parentElement : null;
+    if (e.key === 'ArrowDown') go(rows[i + 1]);
+    else if (e.key === 'ArrowUp') go(rows[i - 1]);
+    else if (e.key === 'Home') go(rows[0]);
+    else if (e.key === 'End') go(rows[rows.length - 1]);
+    else if (e.key === 'ArrowRight' && det) { e.preventDefault(); if (!det.open) det.open = true; else go(rows[i + 1]); }
+    else if (e.key === 'ArrowLeft') {
+      if (det && det.open) { e.preventDefault(); det.open = false; }
+      else go(row.closest('li')?.parentElement?.closest('details')?.querySelector(':scope > summary'));
+    }
+    else if (e.key === 'Enter' && !det) { e.preventDefault(); openFile(row.dataset.path); }
+    else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      const r = row.getBoundingClientRect();
+      openTreeMenu(r.left + 12, r.bottom, row.dataset.path, row.dataset.kind);
+    }
+  });
+  tree.addEventListener('focusin', e => { const row = e.target.closest?.('summary, .file'); if (row) setRoving(row); });
 }
 
 // resuelve el handle de un directorio por su ruta (segmentos desde la raíz)
@@ -343,16 +555,18 @@ async function fsDelete(path, kind) {
   const dir = await dirByPath(parentOf(path));
   await dir.removeEntry(baseOf(path), { recursive: kind === 'directory' });
 }
-// copia recursiva (la File System API no tiene rename nativo)
+// copia recursiva (la File System API no tiene rename nativo). El fichero se
+// copia como Blob, no como texto: pasarlo por .text() estropeaba cualquier
+// binario (una imagen, un .zip) al renombrarlo.
 async function fsCopy(srcDir, name, dstDir, newName) {
   const src = await (srcDir.getDirectoryHandle(name).catch(() => null));
   if (src) { // directorio
     const nd = await dstDir.getDirectoryHandle(newName, { create: true });
     for await (const e of src.values()) await fsCopy(src, e.name, nd, e.name);
   } else { // fichero
-    const text = await (await (await srcDir.getFileHandle(name)).getFile()).text();
+    const file = await (await srcDir.getFileHandle(name)).getFile();
     const fh = await dstDir.getFileHandle(newName, { create: true });
-    const w = await fh.createWritable(); await w.write(text); await w.close();
+    const w = await fh.createWritable(); await w.write(file); await w.close();
   }
 }
 async function fsRename(path, kind, newName) {
@@ -361,54 +575,93 @@ async function fsRename(path, kind, newName) {
   await parent.removeEntry(baseOf(path), { recursive: kind === 'directory' });
 }
 
+// Lo que cuelga de `path` (el fichero o todo lo que hay dentro de la carpeta).
+const under = (p, path, kind) => kind === 'directory' ? p.startsWith(path + '/') : p === path;
+
+// Renombrar mueve también las pestañas abiertas: antes seguían apuntando a la
+// ruta vieja, y guardar recreaba el fichero con el nombre antiguo.
+function renameTabs(path, nuevo, kind) {
+  for (const tb of tabs) if (under(tb.path, path, kind)) {
+    const np = kind === 'directory' ? nuevo + tb.path.slice(path.length) : nuevo;
+    if (active === tb.path) { active = np; code.setCurrentFile(np); }
+    tb.path = np;
+  }
+  for (const d of [...openDirs]) if (d === path || d.startsWith(path + '/')) { openDirs.delete(d); openDirs.add(nuevo + d.slice(path.length)); }
+  renderTabs();
+}
+// Borrar cierra sus pestañas. Si una tenía cambios sin guardar no se tira: se
+// queda abierta y marcada (guardarla vuelve a crear el fichero).
+function dropTabs(path, kind) {
+  for (let i = tabs.length - 1; i >= 0; i--) {
+    if (!under(tabs[i].path, path, kind)) continue;
+    if (tabs[i].dirty) tabs[i].deleted = true;
+    else closeTabNow(i);
+  }
+  for (const d of [...openDirs]) if (d === path || d.startsWith(path + '/')) openDirs.delete(d);
+  renderTabs();
+  applyView();
+}
+
 function openTreeMenu(x, y, path, kind) {
   document.getElementById('tree-menu')?.remove();
+  const volver = document.activeElement;
   const menu = document.createElement('div');
   menu.id = 'tree-menu';
   menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:200`;
   // en un fichero, el "aquí dentro" es su carpeta; en carpeta/raíz, ella misma
   const container = kind === 'file' ? parentOf(path) : path;
   const items = [];
-  items.push(['Nuevo archivo…', async () => {
-    const name = prompt('Nombre del nuevo archivo:'); if (!name) return;
+  items.push([t('tmNewFile'), async () => {
+    const name = prompt(t('promptNewFile')); if (!name?.trim()) return;
+    if (container) openDirs.add(container);
     await fsCreate(container, name.trim(), false); code.invalidateFileList?.();
     await refreshTree(); openFile(container ? container + '/' + name.trim() : name.trim());
   }]);
-  items.push(['Nueva carpeta…', async () => {
-    const name = prompt('Nombre de la nueva carpeta:'); if (!name) return;
+  items.push([t('tmNewFolder'), async () => {
+    const name = prompt(t('promptNewFolder')); if (!name?.trim()) return;
+    if (container) openDirs.add(container);
     await fsCreate(container, name.trim(), true); code.invalidateFileList?.(); await refreshTree();
+    alertBar(t('created', { name: name.trim() }));
   }]);
   if (path) {
-    if (kind === 'file') items.push(['Abrir', () => openFile(path)]);
-    if (kind === 'file' && PREVIEWABLE.has(langOf(path))) items.push(['Vista previa', () => togglePreview(path)]);
-    items.push(['Renombrar…', async () => {
-      const name = prompt('Nuevo nombre:', baseOf(path)); if (!name || name === baseOf(path)) return;
-      await fsRename(path, kind, name.trim()); code.invalidateFileList?.(); await refreshTree();
+    if (kind === 'file') items.push([t('tmOpen'), () => openFile(path)]);
+    if (kind === 'file' && PREVIEWABLE.has(langOf(path))) items.push([t('tmPreview'), () => togglePreview(path)]);
+    items.push([t('tmRename'), async () => {
+      const name = prompt(t('promptRename'), baseOf(path))?.trim(); if (!name || name === baseOf(path)) return;
+      const nuevo = (parentOf(path) ? parentOf(path) + '/' : '') + name;
+      await fsRename(path, kind, name); code.invalidateFileList?.();
+      renameTabs(path, nuevo, kind);
+      await refreshTree();
+      alertBar(t('renamed', { from: baseOf(path), to: name }));
     }]);
-    items.push(['Eliminar', async () => {
-      if (!confirm(`¿Eliminar «${baseOf(path)}»?`)) return;
-      await fsDelete(path, kind); code.invalidateFileList?.(); await refreshTree();
+    items.push([t('tmDelete'), async () => {
+      if (!confirm(t('confirmDelete', { name: baseOf(path) }))) return;
+      await fsDelete(path, kind); code.invalidateFileList?.();
+      dropTabs(path, kind);
+      await refreshTree();
+      alertBar(t('deleted', { name: baseOf(path) }));
     }, 'danger']);
   }
+  let close = () => menu.remove();
   for (const [label, fn, cls] of items) {
-    const b = document.createElement('button');
-    b.className = 'tm-item' + (cls ? ' ' + cls : '');
-    b.textContent = label;
-    b.onclick = async () => { menu.remove(); try { await fn(); } catch (err) { alert('No se pudo: ' + err.message); } };
+    const b = menuButton(label, fn, cls);
+    b.onclick = async () => { close(); try { await fn(); } catch (err) { alert(t('opFailed', { e: err.message })); } };
     menu.appendChild(b);
   }
   document.body.appendChild(menu);
-  const close = ev => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('mousedown', close); } };
-  setTimeout(() => document.addEventListener('mousedown', close), 0);
+  close = wireMenu(menu, volver);
 }
 
+const TREE_MAX_ENTRIES = 200;
 async function renderDir(dir, prefix) {
   const ul = document.createElement('ul');
+  if (prefix) ul.setAttribute('role', 'group');
   const entries = [];
   for await (const e of dir.values()) if (!IGNORE.has(e.name)) entries.push(e);
   entries.sort((a, b) => (a.kind !== b.kind) ? (a.kind === 'directory' ? -1 : 1) : a.name.localeCompare(b.name));
-  for (const e of entries.slice(0, 200)) {
+  for (const e of entries.slice(0, TREE_MAX_ENTRIES)) {
     const li = document.createElement('li');
+    li.setAttribute('role', 'none');
     const p = prefix ? prefix + '/' + e.name : e.name;
     if (e.kind === 'directory') {
       const det = document.createElement('details');
@@ -416,11 +669,24 @@ async function renderDir(dir, prefix) {
       sum.innerHTML = folderIcon();
       sum.appendChild(document.createTextNode(e.name));
       sum.dataset.path = p; sum.dataset.kind = 'directory';
+      sum.setAttribute('role', 'treeitem');
+      sum.setAttribute('aria-expanded', 'false');
+      sum.tabIndex = -1;
       det.appendChild(sum);
       det.addEventListener('toggle', async () => {
-        if (det.open && det.children.length === 1)
+        sum.setAttribute('aria-expanded', det.open ? 'true' : 'false');
+        if (det.open) openDirs.add(p); else openDirs.delete(p);
+        if (det.open && det.children.length === 1) {
           det.appendChild(await renderDir(e, p));
-      }, { once: false });
+          markActive();
+        }
+      });
+      // Estaba abierta antes del repintado: se reabre ya con su contenido.
+      if (openDirs.has(p)) {
+        det.appendChild(await renderDir(e, p));
+        det.open = true;
+        sum.setAttribute('aria-expanded', 'true');
+      }
       li.appendChild(det);
     } else {
       const a = document.createElement('span');
@@ -428,9 +694,19 @@ async function renderDir(dir, prefix) {
       a.innerHTML = fileIcon(e.name);
       a.appendChild(document.createTextNode(e.name));
       a.dataset.path = p; a.dataset.kind = 'file';
+      a.setAttribute('role', 'treeitem');
+      a.tabIndex = -1;
       a.onclick = () => openFile(p);
       li.appendChild(a);
     }
+    ul.appendChild(li);
+  }
+  // Una carpeta con más de 200 entradas se cortaba sin decirlo.
+  if (entries.length > TREE_MAX_ENTRIES) {
+    const li = document.createElement('li');
+    li.className = 'tree-more';
+    li.setAttribute('role', 'none');
+    li.textContent = t('treeMore', { n: entries.length - TREE_MAX_ENTRIES });
     ul.appendChild(li);
   }
   return ul;

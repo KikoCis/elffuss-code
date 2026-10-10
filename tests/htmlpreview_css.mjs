@@ -7,7 +7,7 @@ const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
 const b = await chromium.launch();
-const ctx = await b.newContext();
+const ctx = await b.newContext({ locale: 'es-ES' });  // los menús hablan el idioma del navegador; este test mira los textos en español
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage();
 await p.goto(BASE + '/', { waitUntil: 'domcontentloaded' });

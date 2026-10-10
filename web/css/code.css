@@ -112,6 +112,10 @@ body.hide-tree #sidebar { display: none; }
 #tree .chevron { transition: transform .12s; }
 #tree summary:hover, #tree .file:hover { color: #fff; background: #ffffff0a; border-radius: 4px; }
 #tree .file { cursor: pointer; display: flex; align-items: center; gap: 5px; padding: 2px 0 2px 16px; color: #b8c0d4; }
+#tree .file.active { color: #fff; background: #ffffff12; border-radius: 4px; }
+#tree summary:focus-visible, #tree .file:focus-visible { outline: 2px solid var(--accent2); outline-offset: -2px; border-radius: 4px; }
+#tree .tree-more { color: var(--muted); font-size: .74rem; padding: 2px 0 2px 16px; font-style: italic; }
+.tm-item:focus-visible { outline: 2px solid var(--accent2); outline-offset: -2px; }
 .fico { flex: 0 0 auto; vertical-align: -3px; }
 
 #editor-wrap { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
@@ -120,10 +124,22 @@ body.hide-tree #sidebar { display: none; }
 .tab.active { background: var(--bg); color: var(--fg); box-shadow: inset 0 2px 0 var(--accent); }
 .tab.tab-preview .tab-name { font-style: italic; }
 .tab .tab-ico { display: flex; }
-.tab b { cursor: pointer; opacity: .55; width: 14px; text-align: center; }
-.tab b:hover { opacity: 1; color: var(--accent); }
-.tab b.dirty { opacity: 1; color: var(--fg); }
+.tab b, .tab .tab-x { cursor: pointer; opacity: .55; width: 16px; text-align: center; }
+.tab .tab-x { background: none; border: none; color: inherit; padding: 0; font: inherit; line-height: 1; border-radius: 4px; }
+.tab b:hover, .tab .tab-x:hover { opacity: 1; color: var(--accent); }
+.tab b.dirty, .tab .tab-x.dirty { opacity: 1; color: var(--fg); }
 .tab b.dirty:hover::before { content: ''; }
+.tab:focus-visible, .tab .tab-x:focus-visible { outline: 2px solid var(--accent2); outline-offset: -2px; }
+.tab .tab-name.deleted { text-decoration: line-through; }
+/* «¿Guardar los cambios?» al cerrar una pestaña con cambios sin guardar */
+#dirty-dialog { background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; max-width: min(420px, 92vw); box-shadow: 0 18px 50px rgba(0,0,0,.6); }
+#dirty-dialog::backdrop { background: rgba(0,0,0,.45); }
+#dirty-dialog .dd-title { margin: 0 0 4px; font-weight: 600; }
+#dirty-dialog .dd-sub { margin: 0 0 14px; color: var(--muted); font-size: .85rem; }
+#dirty-dialog .dd-row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+#dirty-dialog button { background: var(--bg3); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; cursor: pointer; font: inherit; font-size: .85rem; }
+#dirty-dialog button.dd-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border: none; }
+#dirty-dialog button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
 #editor { flex: 1; min-height: 0; }
 #editor-empty { position: absolute; inset: 34px 0 22px 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--bg); color: var(--muted); z-index: 2; text-align: center; }
 #editor-empty img { width: 84px; opacity: .5; }

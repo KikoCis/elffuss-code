@@ -4,7 +4,7 @@ import * as rules from './providers/rules.js';
 import * as codeTools from './tools/code.js';
 import * as db from './db.js';
 import * as settings from './settings.js';
-import { initEditor, refreshTree, openFile, gotoLine, triggerEditor, hasEditor } from './ide.js';
+import { initEditor, refreshTree, openFile, gotoLine, triggerEditor, hasEditor, saveActive, activeFile } from './ide.js';
 import { ACTIVITY, UI } from './icons.js';
 import { renderMarkdown } from './md.js';
 import * as skills from './skills.js';
@@ -80,6 +80,14 @@ if (workspace.autosaveEnabled()) workspace.autosave({ enabled: true });
 import * as telemetry from './telemetry.js';
 
 const $ = id => document.getElementById(id);
+// Atajos tal y como se pulsan en ESTA máquina: en un Mac el editor guarda con
+// ⌘S y Ctrl+S no hace nada, así que anunciar «Ctrl+S» era mandar a pulsar algo
+// que no funciona.
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+const atajo = (k, shift = false) => IS_MAC ? '⌘' + (shift ? '⇧' : '') + k : 'Ctrl+' + (shift ? 'Shift+' : '') + k;
+// Acciones del editor que no hacen nada sin un fichero abierto: se dice en vez
+// de no hacer nada.
+const conFichero = fn => () => { if (!activeFile()) { $('statusbar').textContent = t('noFileOpen'); return; } fn(); };
 telemetry.init('elffuss-code'); // opt-in, apagado por defecto — ver Ajustes
 conv.setProvider(rules); // proveedor por defecto para cualquier conversación que se cree
 let activeModel = 'rules';
@@ -1968,7 +1976,7 @@ const COMMANDS = [
   { label: t('tActSettings'), run: () => { closePalette(); renderSettings(); } },
   { label: t('pToggleExplorer'), run: () => $('act-files').click() },
   { label: t('pToggleTerm'), hint: 'Ctrl+`', run: () => { closePalette(); toggleTerminal(); } },
-  { label: t('pSave'), run: () => triggerEditor('') || (hasEditor() && triggerEditor('workbench.action.files.save')) },
+  { label: t('pSave', { k: atajo('S') }), run: () => saveActive() },
 ];
 
 function openPalette(prefix = '') {
@@ -1998,9 +2006,11 @@ async function renderPalette() {
 
   if (raw.startsWith('>')) {                       // comandos
     const q = raw.slice(1).trim().toLowerCase();
-    palItems = COMMANDS.filter(c => c.label.toLowerCase().includes(q)).map(c => ({ label: c.label, hint: t('palCmd'), run: c.run }));
+    // Todo comando cierra la paleta al ejecutarse: «Nueva conversación», por
+    // ejemplo, la dejaba abierta encima.
+    palItems = COMMANDS.filter(c => c.label.toLowerCase().includes(q)).map(c => ({ label: c.label, hint: t('palCmd'), run: () => { closePalette(); c.run(); } }));
   } else if (raw.startsWith('@')) {                // símbolos del archivo abierto (Monaco)
-    palItems = [{ label: t('palGotoSym'), hint: '@', run: () => { closePalette(); triggerEditor('editor.action.quickOutline'); } }];
+    palItems = [{ label: t('palGotoSym'), hint: '@', run: () => { closePalette(); conFichero(() => triggerEditor('editor.action.quickOutline'))(); } }];
   } else {                                          // archivos (con :línea opcional)
     const [pathQ, lineQ] = raw.split(':');
     const files = await codeTools.fileList().catch(() => []);
@@ -2051,20 +2061,20 @@ document.addEventListener('click', e => {
 async function menuFor(which) {
   if (which === 'file') return [
     { label: t('mNewFile'), run: () => { const p = prompt(t('promptNewPath')); if (p) codeTools.write({ path: p, content: '' }).then(() => { openFile(p); refreshTree(); }); } },
-    { label: t('mSave'), hint: 'Ctrl+S', run: () => triggerEditor('workbench.action.files.save') },
+    { label: t('mSave'), hint: atajo('S'), run: () => saveActive() },
     { label: t('mOpenFolder'), run: async () => { try { await enterIDE(await window.showDirectoryPicker({ mode: 'readwrite' })); } catch {} } },
   ];
   if (which === 'edit') return [
     { label: t('mSearchCode'), run: () => { $('prompt').value = t('pSearch'); $('prompt').focus(); } },
-    { label: t('mGotoFile'), hint: 'Cmd+P', run: () => openPalette('') },
-    { label: t('mGotoSym'), run: () => triggerEditor('editor.action.quickOutline') },
+    { label: t('mGotoFile'), hint: atajo('P'), run: () => openPalette('') },
+    { label: t('mGotoSym'), run: conFichero(() => triggerEditor('editor.action.quickOutline')) },
   ];
   if (which === 'view') return [
     { label: t('tFiles'), run: () => $('act-files').click() },
     { label: t('mTerminal'), hint: 'Ctrl+`', run: () => toggleTerminal(true) },
     { label: t('mArch'), run: () => openView('arch') },
     { label: t('tCity'), run: () => openView('city') },
-    { label: 'Command Palette', hint: 'Cmd+Shift+P', run: () => openPalette('>') },
+    { label: t('mPalette'), hint: atajo('P', true), run: () => openPalette('>') },
     { label: 'Skills', run: () => openSkillsPanel() },
     { label: t('mAbout'), hint: '↗', run: () => window.open('https://github.com/KikoCis/elffuss-code', '_blank', 'noopener') },
   ];
