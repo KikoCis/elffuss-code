@@ -25,6 +25,7 @@ const S = {
   bench: 'contexto',
   provider: null,
   running: false, abort: false,
+  aborter: null,                 // la parada de la corrida en curso (botón ■)
   run: null,                     // { bench, casos:[], métricas:{} } — la traza
 };
 
@@ -331,7 +332,8 @@ async function benchSWE(onCase) {
       } else {
         const ag = new Agent(S.provider);
         await ag.handle(`${t.task}\n\nEl fichero a arreglar es ${t.target}. Usa code.read y code.edit.`,
-          ev => { if (ev.type === 'tool') pasos++; });
+          ev => { if (ev.type === 'tool') pasos++; }, { signal: S.aborter?.signal });
+        if (S.abort) break;   // parado a mitad de caso: ese caso no cuenta
       }
     } catch (e) { err = e.message; }
     const ok = err ? false : await pasaElTest(t);
@@ -346,11 +348,16 @@ async function benchSWE(onCase) {
 const BRIEF_JUEGO = 'Un juego tipo Flappy Bird: un pájaro que cae por gravedad, sube al pulsar espacio o click, ' +
   'tuberías que avanzan y hay que esquivar, colisiones, puntuación y pantalla de fin de partida.';
 
+// La parada del ■ entra en cada inferencia como 4º argumento de chat() (corta la
+// generación en curso) y, si ya se pulsó, la siguiente ni se lanza.
+function comprobarParada() { if (S.abort) throw new DOMException('Parado', 'AbortError'); }
+
 async function generarJuego() {
   const rlm = await import('./rlm.js').catch(() => null);
   if (!rlm) throw new Error('rlm.js no disponible en esta build');
   let inferencias = 0;
-  const contando = { chat: (...a) => { inferencias++; return S.provider.chat(...a); } };
+  const signal = S.aborter?.signal;
+  const contando = { chat: (h, s, cb) => { comprobarParada(); inferencias++; return S.provider.chat(h, s, cb, signal); } };
   const rondas = S.algo === 'rlm-deep' ? Math.max(1, S.algoOpts.rounds) : 0;
   const out = await rlm.deepCreate({ brief: BRIEF_JUEGO, provider: contando, rounds: rondas, onProgress: e => log('  ' + JSON.stringify(e)) });
   return { html: out.html, inferencias, trace: out.trace };
@@ -388,6 +395,7 @@ async function puntuarJuego(html) {
   let vivoMs = 0, puntos = 0;
   const t0 = performance.now();
   for (let i = 0; i < 20; i++) {
+    if (S.abort) break;   // ■ durante la partida: no seguir jugando
     c?.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     d.dispatchEvent(new w.KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true }));
     await esperar(300);
@@ -406,13 +414,20 @@ async function puntuarJuego(html) {
   return { criterios, errores, vivoSegs: +(vivoMs / 1000).toFixed(1), puntos, bytes: html.length };
 }
 
+// El ■ no hacía nada aquí: este banco no tiene casos entre los que mirar
+// S.abort, así que generaba el juego entero (varias inferencias) y lo puntuaba
+// igual. Ahora la parada corta la inferencia en curso y se comprueba antes de
+// cada fase.
 async function benchJuegos(onCase) {
   if (!S.provider || S.brain === 'rules') throw new Error('este banco necesita un modelo de verdad (Reglas no genera juegos)');
   const filas = [];
+  comprobarParada();
   log('generando el juego con «' + S.algo + '»… esto tarda', 'w');
   const g = await generarJuego();
+  comprobarParada();
   log(`generado: ${g.html.length} bytes en ${g.inferencias} inferencias`, 'a');
   const p = await puntuarJuego(g.html);
+  comprobarParada();
   Object.entries(p.criterios).forEach(([k, v], i) => {
     filas.push({ criterio: k, ok: v });
     onCase(filas[filas.length - 1], i, Object.keys(p.criterios).length);
@@ -431,7 +446,7 @@ async function benchJuegos(onCase) {
 // ─────────────────────────── orquestación ───────────────────────────
 async function run() {
   if (S.running) return;
-  S.running = true; S.abort = false;
+  S.running = true; S.abort = false; S.aborter = new AbortController();
   $('#btn-run').disabled = true; $('#btn-stop').disabled = false;
   setLed('#led-run', 'busy', 'ejecutando ' + S.bench);
   tiles({}); prog(0, 1, 'preparando…');
@@ -461,7 +476,10 @@ async function run() {
         prog(i + 1, n, `criterio ${i + 1} de ${n}`);
       });
     }
-  } catch (e) { error = e.message; log('fallo: ' + e.message, 'e'); }
+  } catch (e) {
+    error = e.message;
+    if (S.abort) log('parado', 'w'); else log('fallo: ' + e.message, 'e');
+  }
 
   if (out) {
     tiles(out.resumen);
@@ -474,7 +492,7 @@ async function run() {
   }
   setLed('#led-run', error ? 'err' : 'on', error ? 'con fallo' : 'listo');
   prog(1, 1, error ? 'abortado' : 'completado');
-  S.running = false; $('#btn-run').disabled = false; $('#btn-stop').disabled = true;
+  S.running = false; S.aborter = null; $('#btn-run').disabled = false; $('#btn-stop').disabled = true;
 }
 
 // ─────────────────── historial y ranking, en local ───────────────────
@@ -553,7 +571,12 @@ algoKnobs(); ctxUI();
 
 $('#btn-load').onclick = loadBrain;
 $('#btn-run').onclick = run;
-$('#btn-stop').onclick = () => { S.abort = true; log('parando tras el caso en curso…', 'w'); };
+$('#btn-stop').onclick = () => {
+  if (!S.running) return;
+  S.abort = true;
+  try { S.aborter?.abort(); } catch { /* */ }
+  log('parando…', 'w');
+};
 $('#ctx-all').onclick = () => { CTX_KNOBS.flatMap(([, k]) => k).forEach(([k, t]) => { if (t === 'bool') S.ctx[k] = true; }); ctxUI(); };
 $('#ctx-none').onclick = () => { CTX_KNOBS.flatMap(([, k]) => k).forEach(([k, t]) => { if (t === 'bool') S.ctx[k] = false; }); ctxUI(); };
 $('#ctx-def').onclick = () => { S.ctx = {}; ctxUI(); };
