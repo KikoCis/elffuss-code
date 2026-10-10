@@ -23,10 +23,13 @@ export function setEnabled(v) {
   if (enabled) hookGlobalErrors();
 }
 
+// Devuelve si el servidor lo aceptó DE VERDAD (respuesta 2xx). Antes no
+// devolvía nada y el panel de feedback decía «¡enviado!» aunque el servidor
+// contestara 404 o no hubiera red.
 async function post(kind, message, opts = {}) {
-  if (!enabled) return;
+  if (!enabled) return false;
   try {
-    await fetch('/proxy/report', {
+    const res = await fetch('/proxy/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -36,7 +39,8 @@ async function post(kind, message, opts = {}) {
         extra: String(opts.extra || '').slice(0, 2000),
       }),
     });
-  } catch { /* sin conexión o proxy caído: se descarta, no hay reintento */ }
+    return res.ok;
+  } catch { return false; /* sin conexión o proxy caído: se descarta, no hay reintento */ }
 }
 
 export function reportError(message, opts = {}) { return post('error', message, opts); }

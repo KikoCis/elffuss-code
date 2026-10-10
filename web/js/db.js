@@ -25,8 +25,18 @@ function tx(store, mode, fn) {
   }));
 }
 
+// Quien necesite saber que algo se escribió (el espacio de trabajo, que copia
+// conversaciones y skills a tu disco con «Guardar solo») se apunta aquí. Un
+// fallo de quien escucha nunca rompe la escritura.
+const oyentes = [];
+export function onWrite(fn) {
+  oyentes.push(fn);
+  return () => { const i = oyentes.indexOf(fn); if (i >= 0) oyentes.splice(i, 1); };
+}
+const avisa = (store, key) => (r) => { for (const f of oyentes) { try { f(store, key); } catch { /* */ } } return r; };
+
 export const get  = (store, key)      => tx(store, 'readonly',  s => s.get(key));
-export const set  = (store, key, val) => tx(store, 'readwrite', s => s.put(val, key));
-export const del  = (store, key)      => tx(store, 'readwrite', s => s.delete(key));
+export const set  = (store, key, val) => tx(store, 'readwrite', s => s.put(val, key)).then(avisa(store, key));
+export const del  = (store, key)      => tx(store, 'readwrite', s => s.delete(key)).then(avisa(store, key));
 export const keys = (store)           => tx(store, 'readonly',  s => s.getAllKeys());
 export const all  = (store)           => tx(store, 'readonly',  s => s.getAll());
