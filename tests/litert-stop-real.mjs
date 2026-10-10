@@ -64,12 +64,31 @@ const r = await p.evaluate(async () => {
   h.push({ role: 'user', content: 'Olvida lo anterior. Responde solo con la palabra: ADIOS' });
   let err2 = null, out2 = '';
   try { out2 = await m.chat(h, SYS, () => {}); } catch (e) { err2 = e.name + ': ' + e.message; }
-  return { trozos: trozos.length, trasParar, err1, parcial: String(parcial || '').slice(0, 80), err2, out2: String(out2 || '').slice(0, 200) };
+  // 3. Lo que el modelo YA contestó sobrevive a una parada: la conversación se
+  // rehace con los turnos de antes en el prefacio. El número solo está en su
+  // respuesta, no en ningún mensaje del usuario: si se rehiciera solo con los
+  // mensajes del usuario, no podría repetirlo.
+  const h3 = [{ role: 'user', content: 'Inventa un número de cuatro cifras al azar. Responde SOLO con el número.' }];
+  let num = '', err3 = null, out3 = '';
+  try {
+    num = await m.chat(h3, SYS, () => {});
+    h3.push({ role: 'assistant', content: num });
+    h3.push({ role: 'user', content: 'Escribe los números del 1 al 300 separados por comas, sin nada más.' });
+    const ac3 = new AbortController(); let k3 = 0;
+    await m.chat(h3, SYS, () => { if (++k3 === 6) ac3.abort(); }, ac3.signal);
+    h3.push({ role: 'user', content: '¿Qué número de cuatro cifras inventaste al principio? Responde SOLO con ese número.' });
+    out3 = await m.chat(h3, SYS, () => {});
+  } catch (e) { err3 = e.name + ': ' + e.message; }
+  return { trozos: trozos.length, trasParar, err1, parcial: String(parcial || '').slice(0, 80), err2, out2: String(out2 || '').slice(0, 200),
+    num: String(num || '').slice(0, 40), out3: String(out3 || '').slice(0, 80), err3 };
 });
 ok('parar a mitad no lanza (devuelve lo generado)', !r.err1, r.err1 || `«${r.parcial}»`);
 ok('  …y no entrega trozos tras parar', r.trasParar === 0, `${r.trozos} trozos, ${r.trasParar} tras parar`);
 ok('el turno siguiente funciona (el motor no se queda ocupado)', !r.err2 && r.out2.length > 0, r.err2 || `«${r.out2}»`);
 ok('  …y contesta a lo nuevo, sin seguir la lista parada', /adi[oó]s/i.test(r.out2) && !/\d+\s*,\s*\d+\s*,\s*\d+/.test(r.out2), `«${r.out2}»`);
+const n4 = (r.num.match(/\d{4}/) || [''])[0];
+ok('lo que el modelo contestó ANTES de la parada sigue en la conversación rehecha', !r.err3 && !!n4 && r.out3.includes(n4),
+  r.err3 || `inventó «${r.num}» · después de parar repite «${r.out3}»`);
 
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ LITERT REAL: parar a mitad y seguir funciona');
 await ctx.close();
