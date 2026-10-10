@@ -4,7 +4,7 @@ import * as rules from './providers/rules.js';
 import * as codeTools from './tools/code.js';
 import * as db from './db.js';
 import * as settings from './settings.js';
-import { initEditor, refreshTree, openFile, gotoLine, triggerEditor, hasEditor, saveActive, activeFile, focusEditor } from './ide.js';
+import { initEditor, refreshTree, openFile, gotoLine, triggerEditor, hasEditor, saveActive, activeFile, focusEditor, loadExt } from './ide.js';
 import { ACTIVITY, UI } from './icons.js';
 import { renderMarkdown } from './md.js';
 import * as skills from './skills.js';
@@ -16,7 +16,7 @@ import * as ceo from './ceo.js';
 import * as mind from './mind.js';
 import { buildCityAdapter, loadThoughtsAdapter } from './mind-adapter.js';
 import { humanizeStreamPreview } from './humanize.js';
-import { t, applyI18n } from './i18n.js';
+import { t, applyI18n, uiLang } from './i18n.js';
 import * as bridge from './bridge.js';
 import * as conv from './conversations.js';
 import { TASK_PREFIX } from './goal.js';
@@ -32,7 +32,10 @@ workspace.init({
     { id: 'skills', label: 'Skills', icon: '🧩', kind: 'idb-key', store: 'kv', key: 'skills',
       files: { ext: '.md', name: s => s.name, body: s => `---\nname: ${s.name}\ndescription: ${s.description || ''}\n---\n\n${s.content || ''}` } },
     { id: 'prefs', label: 'Preferencias', icon: '⚙️', kind: 'ls',
-      keys: ['elffusscode.model', 'elffusscode.autoedit', 'elffusscode.goalmode', 'elffuss.acer', 'elffuss.resumen', 'elffuss.semantic'] },
+      keys: ['elffusscode.model', 'elffusscode.autoedit', 'elffusscode.goalmode', 'elffuss.acer', 'elffuss.resumen', 'elffuss.semantic', 'elffusscode.theme'] },
+    // extensiones de VS Code instaladas: solo la lista (id, versión, activa);
+    // los paquetes viven en su propia base (js/ext/store.js)
+    { id: 'extensions', label: 'Extensiones', icon: '🧱', kind: 'idb-key', store: 'kv', key: 'extensions' },
   ],
 });
 workspace.restore().catch(() => {});
@@ -2495,6 +2498,8 @@ const COMMANDS = [
   { label: t('pToggleTerm'), hint: 'Ctrl+`', run: () => { closePalette(); toggleTerminal(); } },
   { label: t('pSave', { k: atajo('S') }), run: () => saveActive() },
   { label: t('mLab'), run: () => abrirLab() },
+  { label: extTexto('Extensiones…', 'Extensions…'), run: () => { closePalette(); openExtensions(); } },
+  { label: extTexto('Tema de color…', 'Color Theme…'), run: () => { closePalette(); openExtensions({ themes: true }); } },
 ];
 // El banco de pruebas (lab.html) existía pero no había forma de llegar a él
 // desde el IDE: solo escribiendo la URL. Se abre en otra pestaña para no
@@ -2790,6 +2795,18 @@ $('git-branch').addEventListener('click', () => document.querySelector('#menubar
 // icono de skills en la barra de actividad
 $('act-skills').innerHTML = UI.puzzle;
 $('act-skills').addEventListener('click', () => openSkillsPanel());
+
+// Extensiones de VS Code (temas, gramáticas, snippets, lenguajes): js/ext/.
+// Nada de eso se carga hasta que se usa; el panel y el host llegan al pulsar.
+function extTexto(es, en) { return uiLang() === 'es' ? es : en; }
+async function openExtensions(opts = {}) {
+  const host = await loadExt();
+  if (!host) { $('statusbar').textContent = t('openProjFirst'); return; }
+  (await import('./ext/panel.js')).open(host, opts);
+}
+$('act-ext').innerHTML = ACTIVITY.extensions;
+$('act-ext').title = extTexto('Extensiones (temas, gramáticas, snippets)', 'Extensions (themes, grammars, snippets)');
+$('act-ext').addEventListener('click', () => openExtensions());
 
 rebuildSelect();
 skills.initSkills();

@@ -64,4 +64,6 @@ export const ACTIVITY = {
     <circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/></svg>`,
   chat: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
     <path d="M4 5h16v11H9l-5 4z"/></svg>`,
+  extensions: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+    <path d="M3.5 9.5h6v6h-6zM3.5 15.5h6v6h-6zM9.5 15.5h6v6h-6z"/><path d="M14.2 6.2l4.3-4.3 4.3 4.3-4.3 4.3z"/></svg>`,
 };
