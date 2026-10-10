@@ -16,7 +16,7 @@ export const TOOLS = {
   'code.edit':   { desc: 'Editar PARTE de un fichero existente sin reescribirlo entero: sustituye "search" (copia literal de unas pocas líneas, con contexto suficiente para ser única en el fichero) por "replace". Preferible a code.write para cambios pequeños/medianos — más rápido y sin riesgo de perder el resto del fichero. Si falla (no encuentra el punto con confianza), relee el fichero y reintenta con un search más ajustado', params: { path: 'ruta', search: 'texto exacto a sustituir', replace: 'texto nuevo' }, run: a => code.edit(a) },
   'code.run':    { desc: 'EJECUTAR una expresión contra un módulo JS del proyecto y ver qué devuelve de verdad. Úsalo SIEMPRE después de arreglar algo, para comprobar que el arreglo funciona antes de darlo por bueno: code.run con path del fichero y expr como "max([])" — las funciones exportadas se llaman por su nombre a secas, sin import ni require (también valen como m.max). Corre aislado y con límite de tiempo', params: { path: 'ruta del .js', expr: 'expresión a evaluar, p.ej. m.suma(2,3)' }, run: a => code.run(a) },
   'code.search': { desc: 'Buscar texto en el proyecto (grep)', params: { query: 'texto', ext: 'filtro extensión (opcional)' }, run: a => code.search(a) },
-  'terminal.run': { desc: 'Ejecutar un comando de shell sobre los ficheros del proyecto (ls, cat, grep, find, mkdir, echo>fichero, git status…). node/npm/python REALES si el usuario tiene un Bridge local conectado (⚙ Ajustes → 🔌 Bridge local); si no está conectado, el propio resultado lo indica', params: { command: 'la línea de comando' }, run: async a => { const out = await shell.runForAgent(a.command || ''); onTerminalEcho(a.command || '', out); return out; } },
+  'terminal.run': { desc: 'Ejecutar un comando de shell sobre los ficheros del proyecto (ls, cat, grep, find, mkdir, echo>fichero, git status…). node/npm/python REALES si el usuario tiene un Bridge local conectado (⚙ Ajustes → 🔌 Bridge local); si no está conectado, el propio resultado lo indica', params: { command: 'la línea de comando' }, run: async (a, ctx = {}) => { const out = await shell.runForAgent(a.command || '', { signal: ctx.signal }); onTerminalEcho(a.command || '', out); return out; } },
   'web.search': { desc: 'Buscar en internet (docs, errores, APIs) — devuelve títulos, URLs y fragmentos', params: { query: 'qué buscar' }, run: a => web.search(a) },
   'web.fetch':  { desc: 'Leer el contenido de texto de una URL (documentación, referencia)', params: { url: 'https://…' }, run: a => web.fetchUrl(a) },
 };
@@ -26,10 +26,12 @@ export function toolHelp() {
     `- ${n}(${Object.keys(t.params).join(', ')}): ${t.desc}`).join('\n');
 }
 
-export async function runTool(name, args) {
+// `ctx` lo pone el agente: hoy, la señal de parada de su turno ({ signal }), que
+// terminal.run pasa al bridge para matar el comando si se para el agente.
+export async function runTool(name, args, ctx = {}) {
   const tool = TOOLS[name];
   if (!tool) throw new Error(`Herramienta desconocida: ${name}`);
-  return tool.run(args || {});
+  return tool.run(args || {}, ctx || {});
 }
 
 // La hora, TRUNCADA A LA HORA EN PUNTO, y el motivo no es estético.

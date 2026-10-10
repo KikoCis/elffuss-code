@@ -5,8 +5,9 @@
 //
 // Y PARAR: un comando largo se corta con la señal (resuelve en el acto con 130
 // y el proceso desaparece), cerrar el socket suelta los trabajos pendientes en
-// vez de dejarlos colgados para siempre, y Ctrl+C en el terminal corta el
-// comando en curso.
+// vez de dejarlos colgados para siempre, Ctrl+C en el terminal corta el
+// comando en curso, y parar a la elfa a mitad de un terminal.run mata el
+// comando.
 //
 // Necesita el puerto 8765 (el del bridge, fijo en bridge.js) y servir la web en
 // http://localhost:8799 (el único origen local que el bridge acepta).
@@ -146,6 +147,27 @@ try {
   await p.waitForTimeout(600);
   const rows2 = await p.locator('#terminal-host .xterm-rows').innerText().catch(() => '');
   ok('  …y el terminal vuelve a aceptar órdenes', /de-vuelta[\s\S]*de-vuelta/.test(rows2), rows2.replace(/\n+/g, ' | ').slice(-120));
+
+  // 4. La elfa parada a mitad de un terminal.run largo: la señal del turno llega
+  //    por runTool → shell → bridge y mata el proceso. Antes runTool no pasaba
+  //    nada a la herramienta y el turno esperaba al comando entero.
+  const MARK4 = 'AGENTE-' + Math.floor(Math.random() * 1e6);
+  const r4 = await p.evaluate(async (mark) => {
+    const { Agent } = await import('/js/agent.js');
+    let llamadas = 0;
+    const llamada = { tool: 'terminal.run', args: { command: `node -e "setTimeout(()=>{},30000)" ${mark}` } };
+    const ag = new Agent({ chat: async () => { llamadas++; return '```tool\n' + JSON.stringify(llamada) + '\n```'; } });
+    const tipos = [];
+    const run = ag.handle('lanza algo largo', ev => tipos.push(ev.type));
+    await new Promise(r => setTimeout(r, 1200));
+    ag.stop();
+    const fin = await Promise.race([run.then(() => 'terminó'), new Promise(r => setTimeout(() => r('SIGUE ESPERANDO'), 5000))]);
+    return { fin, tipos: [...new Set(tipos)], llamadas };
+  }, MARK4);
+  ok('la elfa parada a mitad de terminal.run: el turno termina sin esperar al comando', r4.fin === 'terminó' && r4.tipos.includes('aborted') && r4.llamadas === 1,
+    `${r4.fin} · ${r4.tipos.join(',')} · ${r4.llamadas} llamadas`);
+  await esperar(300);
+  ok('  …y el comando muere en la máquina', vivos(MARK4) === 0, `${vivos(MARK4)} procesos con la marca`);
 
   // origen NO permitido: el bridge debe rechazar conexiones de otro origen
   const originCheck = await fetch(`http://127.0.0.1:${PORT}/ping`, { headers: { Origin: 'https://evil.example' } }).then(r => r.status).catch(() => 'err');
