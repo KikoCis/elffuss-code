@@ -10,7 +10,9 @@
 //   5. El punto del modelo dice con palabras qué modelo y en qué estado, y es
 //      un botón que lleva a Ajustes.
 //   6. Al elegir un modelo, su tarjeta dice «cargando…» y, al terminar, queda
-//      resaltada (antes el resaltado se quedaba en el anterior).
+//      resaltada (antes el resaltado se quedaba en el anterior). Lo escrito en
+//      Ajustes mientras carga no se pierde y el foco no se va a <body>.
+//   5. El punto del modelo lleva el foco a la tarjeta del modelo activo.
 // El modelo es de mentira: page.route sirve un providers/onnx.js propio.
 //
 //   BASE=http://127.0.0.1:8898 node tests/settings-ux.mjs
@@ -72,9 +74,27 @@ await tarjetaQwen.click();
 await p.waitForTimeout(150);
 const durante = await p.evaluate(() => { const c = [...document.querySelectorAll('#settings-panel .model-card')].find(x => /Qwen3.5-0.8B/.test(x.textContent)); return { busy: c?.getAttribute('aria-busy'), txt: c?.textContent }; });
 ok('6 · al elegir un modelo, su tarjeta dice «cargando…» (aria-busy)', durante.busy === 'true' && /cargando/.test(durante.txt), JSON.stringify(durante));
+// …y mientras carga se puede seguir escribiendo en Ajustes: al terminar la carga
+// el panel ya no se rehace entero (antes se borraba el texto y el foco iba a <body>)
+await p.locator('#tel-feedback').fill('texto a medio escribir');
 await p.waitForTimeout(1500);
 const tras = await p.evaluate(() => { const c = [...document.querySelectorAll('#settings-panel .model-card')].find(x => /Qwen3.5-0.8B/.test(x.textContent)); return { activa: c?.classList.contains('active'), pressed: c?.getAttribute('aria-pressed') }; });
 ok('6 · al terminar, la tarjeta del modelo cargado queda resaltada', tras.activa && tras.pressed === 'true', JSON.stringify(tras));
+const escrito = await p.evaluate(() => ({ valor: document.getElementById('tel-feedback')?.value, foco: document.activeElement?.id || document.activeElement?.tagName }));
+ok('6 · lo escrito en Ajustes mientras cargaba sigue ahí, con el foco', escrito.valor === 'texto a medio escribir' && escrito.foco === 'tel-feedback', JSON.stringify(escrito));
+// Con el teclado: Enter en una tarjeta deja el foco en ELLA (antes, en <body>)
+const enfocada = () => p.evaluate(() => { const a = document.activeElement; return a?.classList.contains('model-card') ? a.querySelector('b')?.textContent : (a?.id || a?.tagName); });
+await p.locator('#settings-panel .model-card', { hasText: 'Básico' }).first().focus();
+await p.keyboard.press('Enter');
+await p.waitForTimeout(200);
+ok('6 · Enter en la tarjeta «Básico» deja el foco en esa tarjeta', /Básico/.test(await enfocada() || ''), await enfocada());
+await tarjetaQwen.focus();
+await p.keyboard.press('Enter');
+await p.waitForTimeout(150);
+const focoCargando = await enfocada();
+await p.waitForTimeout(1500);
+ok('6 · Enter en una tarjeta que carga: el foco sigue en ella durante y después de la carga', /Qwen3.5-0.8B/.test(focoCargando || '') && /Qwen3.5-0.8B/.test(await enfocada() || ''),
+  JSON.stringify({ focoCargando, despues: await enfocada() }));
 
 // 5 · el punto del modelo
 await p.click('#btn-settings');   // cierra
@@ -83,6 +103,9 @@ ok('5 · el punto del modelo es un botón que dice qué modelo y su estado', pun
 await p.click('#model-dot');
 await p.waitForTimeout(300);
 ok('5 · …y lleva a Ajustes', await p.evaluate(() => !document.getElementById('settings-panel').hidden && !!document.querySelector('#settings-panel .model-grid')));
+ok('5 · …con el foco en la tarjeta del modelo ACTIVO (no en la primera)', await p.evaluate(() =>
+  document.activeElement?.classList.contains('model-card') && document.activeElement.classList.contains('active') && /Qwen3.5-0.8B/.test(document.activeElement.textContent)),
+  await p.evaluate(() => document.activeElement?.textContent?.slice(0, 40)));
 await ctx.close();
 
 // 1 · Mac sin datos de arquitectura (Safari): las dos versiones

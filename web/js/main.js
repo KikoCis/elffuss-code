@@ -770,6 +770,8 @@ function errorHumano(e) {
 }
 
 let loadingId = null;
+// Lo pone renderSettings: repinta las tarjetas de modelo del panel abierto.
+let repintaTarjetasModelo = () => {};
 async function changeModel(id) {
   if (id === 'rules') {
     conv.setProvider(rules);
@@ -842,6 +844,7 @@ async function changeModel(id) {
     return false;
   } finally {
     loadingId = null;
+    repintaTarjetasModelo();       // Ajustes abierto: la activa y el «cargando…» al día
   }
 }
 let _fellBack = false;
@@ -1020,25 +1023,37 @@ function renderSettings() {
   const grid = el('div', 'model-grid');
   grid.setAttribute('role', 'group');
   grid.setAttribute('aria-label', t('setBrainTitle'));
+  // Cada tarjeta se pinta aquí y se REPINTA en su sitio (clases, aria-pressed,
+  // aria-busy y texto): la misma tarjeta, el mismo foco. Antes elegir un modelo
+  // rehacía el panel entero al empezar y otra vez al terminar la carga: lo que
+  // estuvieras escribiendo en Ajustes (el feedback, el token del bridge) se
+  // borraba y el foco caía a <body> (con Enter, al instante).
+  const pintaTarjeta = (card, m) => {
+    const cargando = loadingId === m.id;
+    card.className = 'model-card' + (activeModel === m.id ? ' active' : '') + (m.disabled ? ' disabled' : '') + (cargando ? ' loading' : '');
+    card.setAttribute('aria-pressed', activeModel === m.id ? 'true' : 'false');
+    if (cargando) card.setAttribute('aria-busy', 'true'); else card.removeAttribute('aria-busy');
+    card.innerHTML = `<b>${m.name}</b><span>${cargando ? escapeHtml(t('setModelLoadingCard')) : m.sub}</span>`;
+  };
+  const tarjetas = [];
   for (const m of LOCAL) {
     if (m.need === 'gpu' && !realGPU) continue;
-    const cargando = loadingId === m.id;
-    const card = el('button', 'model-card' + (activeModel === m.id ? ' active' : '') + (m.disabled ? ' disabled' : '') + (cargando ? ' loading' : ''));
+    const card = el('button', 'model-card');
+    card.dataset.model = m.id;
     if (m.disabled) card.disabled = true;
-    card.setAttribute('aria-pressed', activeModel === m.id ? 'true' : 'false');
-    if (cargando) card.setAttribute('aria-busy', 'true');
-    card.innerHTML = `<b>${m.name}</b><span>${cargando ? escapeHtml(t('setModelLoadingCard')) : m.sub}</span>`;
-    // La tarjeta dice «cargando…» mientras carga, y el panel se repinta cuando
-    // termina: antes se repintaba al instante y el resaltado se quedaba en el
-    // modelo anterior hasta reabrir Ajustes.
+    pintaTarjeta(card, m);
+    tarjetas.push([card, m]);
+    // La tarjeta dice «cargando…» mientras carga, y la activa cambia cuando
+    // termina (changeModel avisa: repintaTarjetasModelo).
     card.onclick = async () => {
       const p = changeModel(m.id);
-      renderSettings();
+      repintaTarjetasModelo();
       await p;
-      if (!$('settings-panel').hidden && $('settings-panel').querySelector('.model-grid')) renderSettings();
+      repintaTarjetasModelo();
     };
     grid.appendChild(card);
   }
+  repintaTarjetasModelo = () => { for (const [card, m] of tarjetas) if (card.isConnected) pintaTarjeta(card, m); };
   box.appendChild(grid);
 
   // --- Espacio de trabajo: guardar conversaciones/skills en disco ---
@@ -1589,7 +1604,12 @@ function anunciarEnvio(texto) {
   anuncioPendiente = setTimeout(() => { r.textContent = texto; }, 50);
 }
 $('model-select').addEventListener('change', e => changeModel(e.target.value));
-$('model-dot').addEventListener('click', () => { renderSettings(); requestAnimationFrame(() => $('settings-panel').querySelector('.model-card.active, .model-card')?.focus()); });
+// El foco va a la tarjeta del modelo ACTIVO (un selector con coma devolvía la
+// primera tarjeta en el orden del documento, no la activa).
+$('model-dot').addEventListener('click', () => {
+  renderSettings();
+  requestAnimationFrame(() => { const panel = $('settings-panel'); (panel.querySelector('.model-card.active') || panel.querySelector('.model-card'))?.focus(); });
+});
 pintaDot('off', 'rules');
 // móvil: conmutar chat ↔ editor
 // ☰ (solo en el móvil): cajón con el árbol de ficheros y la barra de
