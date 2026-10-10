@@ -63,6 +63,21 @@ ok('el feedback manual SÍ se manda aunque el automático esté apagado', report
 ok('tras mandar el feedback manual, el automático sigue apagado', await p.evaluate(async () => (await import('/js/telemetry.js')).isEnabled()) === false);
 ok('el textarea se limpia tras enviar', await p.locator('#tel-feedback').inputValue() === '');
 
+// 6) el informe no lleva la ruta de un fichero del proyecto (#/file/<ruta>:<línea>)
+await p.evaluate(async () => {
+  location.hash = '#/file/src/clientes-secretos.js:2';
+  await new Promise(r => setTimeout(r, 200));
+  const t = await import('/js/telemetry.js');
+  t.setEnabled(true);
+  await t.reportError('fallo con un fichero abierto');
+  await t.sendFeedback('feedback con un fichero abierto');
+  t.setEnabled(false);
+});
+await p.waitForTimeout(300);
+const conFichero = reports.filter(r => /con un fichero abierto/.test(r.message));
+ok('ni un error ni el feedback llevan la ruta del fichero (sin # ni búsqueda en url)', conFichero.length === 2
+  && conFichero.every(r => r.url === new URL(BASE).origin + '/' && !/clientes-secretos|#|\?/.test(r.url)), JSON.stringify(conFichero.map(r => r.url)));
+
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ TELEMETRÍA/FEEDBACK: opt-in real, nunca automático sin permiso, manual siempre disponible');
 await b.close();
 process.exit(fails ? 1 : 0);

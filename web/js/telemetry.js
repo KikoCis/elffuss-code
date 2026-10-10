@@ -35,7 +35,10 @@ async function post(kind, message, opts = {}) {
       body: JSON.stringify({
         app: appName, kind, message: String(message ?? '').slice(0, 2000),
         stack: String(opts.stack || '').slice(0, 4000),
-        url: location.href, userAgent: navigator.userAgent,
+        // Solo la página, sin búsqueda ni fragmento: #/file/<ruta>:<línea> (los
+        // enlaces a ficheros del chat) metía nombres de ficheros del proyecto en
+        // cada informe, y Ajustes promete que el proyecto nunca sale.
+        url: location.origin + location.pathname, userAgent: navigator.userAgent,
         extra: String(opts.extra || '').slice(0, 2000),
       }),
     });
