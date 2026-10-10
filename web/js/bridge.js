@@ -7,7 +7,13 @@ const HOST = '127.0.0.1:' + PORT;
 let ws = null, connected = false, authed = false;
 let pending = new Map(); // id → { onOut, onErr, sock, terminar }
 let nextId = 1;
-let onStatus = () => {};
+// Varios pueden querer saber si el bridge conecta o cae (Ajustes, la etiqueta
+// del terminal…). Antes había UN solo oyente y cada uno pisaba al anterior.
+const oyentes = new Set();
+const onStatus = (s) => { for (const f of oyentes) { try { f(s); } catch { /* */ } } };
+// «Desconectar» a propósito: la autodetección no vuelve a conectar sola hasta
+// que se pulse «Conectar» otra vez (antes reconectaba a los pocos segundos).
+let pausado = false;
 let savedFolder = '';
 try { savedFolder = localStorage.getItem('elffusscode.bridgeFolder') || ''; } catch { /* */ }
 let savedToken = '';
@@ -19,7 +25,8 @@ export function setFolder(f) {
   savedFolder = (f || '').trim();
   try { localStorage.setItem('elffusscode.bridgeFolder', savedFolder); } catch { /* */ }
 }
-export function onStatusChange(fn) { onStatus = fn; }
+// Devuelve la función para dejar de escuchar.
+export function onStatusChange(fn) { oyentes.add(fn); return () => oyentes.delete(fn); }
 
 // sondeo ligero: ¿hay un bridge escuchando en 127.0.0.1, aunque no nos hayamos
 // autenticado todavía? (para saber si mostrar «detectado» antes de conectar)
@@ -33,6 +40,7 @@ export async function probe() {
 }
 
 export function connect(token) {
+  pausado = false;
   return new Promise((resolve, reject) => {
     let sock;
     try { sock = ws = new WebSocket('ws://' + HOST + '/ws'); }
@@ -70,12 +78,28 @@ export function connect(token) {
   });
 }
 
-export function disconnect() { try { ws?.close(); } catch { /* */ } connected = false; authed = false; }
+export function disconnect() {
+  pausado = true;
+  try { ws?.close(); } catch { /* */ }
+  connected = false; authed = false;
+  onStatus('disconnected');
+}
+// Olvidar el token guardado: desconecta y ya no se reconecta solo.
+export function forgetToken() {
+  savedToken = '';
+  try { localStorage.removeItem('elffusscode.bridgeToken'); } catch { /* */ }
+  disconnect();
+}
+export function hasSavedToken() { return !!savedToken; }
+
+// Lo que conecta SOLO (al abrir, o al detectar el bridge) no lo hace si el
+// usuario desconectó a propósito; connect() a secas es el botón «Conectar».
+function connectAuto(token) { return pausado ? Promise.reject(new Error('pausado')) : connect(token); }
 
 // tratar de reconectar en silencio con el token guardado (al abrir la app)
 export async function tryAutoConnect() {
-  if (!savedToken) return false;
-  try { await connect(savedToken); return true; } catch { return false; }
+  if (!savedToken || pausado) return false;
+  try { await connectAuto(savedToken); return true; } catch { return false; }
 }
 
 // Detección continua en segundo plano: si el usuario arranca el bridge
@@ -86,10 +110,10 @@ let autoDetectTimer = null, connecting = false;
 export function startAutoDetect(intervalMs = 4000) {
   if (autoDetectTimer) return () => stopAutoDetect();
   autoDetectTimer = setInterval(async () => {
-    if (isConnected() || connecting || !savedToken) return;
+    if (isConnected() || connecting || !savedToken || pausado) return;
     if (!(await probe())) return;
     connecting = true;
-    try { await connect(savedToken); } catch { /* el usuario aún no ha pegado token válido, o cayó de nuevo */ }
+    try { await connectAuto(savedToken); } catch { /* el usuario aún no ha pegado token válido, o cayó de nuevo */ }
     finally { connecting = false; }
   }, intervalMs);
   return () => stopAutoDetect();
