@@ -216,6 +216,7 @@ async function writeOwn(path, content) {
   code.invalidateFileList?.();
 }
 async function saveTab(tab) {
+  const recreado = !!tab.deleted;
   try {
     await writeOwn(tab.path, tab.model.getValue());
   } catch (e) {
@@ -225,6 +226,10 @@ async function saveTab(tab) {
   tab.dirty = false;
   tab.deleted = false;
   renderTabs();
+  // Guardar una pestaña cuyo fichero se había borrado lo vuelve a crear, y el
+  // explorador tiene que enseñarlo: writeOwn no pasa por code.write, que era
+  // quien avisaba al árbol (onFileWritten → refreshTree).
+  if (recreado) await refreshTree();
   alertBar(t('saved', { path: tab.path }));
   return true;
 }
@@ -280,6 +285,20 @@ async function closeTab(path) {
   closeTabNow(j);
   renderTabs();
   await applyView();
+  return true;
+}
+// Cerrar desde la barra de pestañas (Supr, Cmd/Ctrl+W, la ✕, o «No guardar» en
+// el diálogo): el foco va a la pestaña que queda activa, o al aviso de «sin
+// ficheros abiertos» si no queda ninguna. Antes caía a <body> (las pestañas de
+// conversación ya lo hacían bien; las del editor no).
+async function closeTabYEnfoca(path) {
+  if (!(await closeTab(path))) return false;     // cancelado: el diálogo devuelve el foco a la pestaña
+  const activa = $('tabs-bar')?.querySelector('.tab.active');
+  if (activa) activa.focus();
+  else {
+    const vacio = document.getElementById('editor-empty');
+    if (vacio) { vacio.tabIndex = -1; vacio.focus(); } else editor?.focus();
+  }
   return true;
 }
 // Varias seguidas («Cerrar otras/todas»): se para en la primera que cancelas.
@@ -346,7 +365,7 @@ function renderTabs() {
     x.tabIndex = -1;
     x.setAttribute('aria-label', t(tb.dirty ? 'closeFileDirty' : 'closeFile', { name: baseOf(tb.path) }));
     x.title = x.getAttribute('aria-label');
-    x.onclick = e => { e.stopPropagation(); closeTab(tb.path); };
+    x.onclick = e => { e.stopPropagation(); closeTabYEnfoca(tb.path); };
     el.append(ico, name, x);
     el.onclick = () => openFile(tb.path);
     el.oncontextmenu = e => { e.preventDefault(); openTabMenu(e.clientX, e.clientY, tb.path); };
@@ -357,7 +376,7 @@ function renderTabs() {
         const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
         if (next) openFile(next.path).then(() => bar.querySelector('.tab.active')?.focus());
       } else if (e.key === 'Delete' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w')) {
-        e.preventDefault(); closeTab(tb.path);
+        e.preventDefault(); closeTabYEnfoca(tb.path);
       } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
         e.preventDefault(); const r = el.getBoundingClientRect(); openTabMenu(r.left, r.bottom, tb.path);
       }

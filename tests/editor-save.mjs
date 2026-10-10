@@ -14,6 +14,10 @@
 //      «Copiar ruta» lo dice.
 //   6. El árbol se usa con el teclado (↓ y Enter) y Escape cierra su menú.
 //   7. «Ir a símbolo» sin fichero abierto lo dice en vez de no hacer nada.
+//   8. Guardar una pestaña cuyo fichero se borró lo vuelve a crear Y el
+//      explorador lo enseña (antes quedaba fuera del árbol).
+//   9. Cerrar una pestaña con el teclado (Supr, o «No guardar») deja el foco en
+//      la pestaña que queda (antes caía a <body>).
 //
 //   BASE=http://127.0.0.1:8898 node tests/editor-save.mjs
 import { chromium } from 'playwright';
@@ -155,6 +159,38 @@ const menuAbierto = await p.locator('#tree-menu').count();
 await p.keyboard.press('Escape');
 await p.waitForTimeout(100);
 ok('6 · Shift+F10 abre el menú del árbol y Escape lo cierra', menuAbierto === 1 && await p.locator('#tree-menu').count() === 0);
+
+// 8 · guardar una pestaña cuyo fichero se borró lo vuelve a crear, y el árbol lo enseña
+await abre('notes/todo.md');
+await escribeEnEditor('- otra tarea\n');
+await p.locator('#tree .file[data-path="notes/todo.md"]').click({ button: 'right' });
+await p.locator('#tree-menu .tm-item', { hasText: 'Eliminar' }).click();
+await p.waitForTimeout(400);
+ok('8 · borrar un fichero con cambios deja su pestaña abierta (marcada)', (await pestañas()).some(t => t.path === 'notes/todo.md'), JSON.stringify(await pestañas()));
+await p.click('#menubar button[data-menu="file"]');
+await p.locator('#topmenu .menu-item', { hasText: 'Guardar' }).click();
+await p.waitForTimeout(400);
+ok('8 · guardarla lo vuelve a crear en disco…', (await disco('notes/todo.md'))?.includes('otra tarea'), String(await disco('notes/todo.md')));
+ok('8 · …y el explorador lo enseña otra vez', await p.locator('#tree .file[data-path="notes/todo.md"]').count() === 1);
+
+// 9 · cerrar una pestaña con el teclado deja el foco en la pestaña que queda
+await abre('README.md');
+await abre('src/app.js');
+await p.locator('#tabs-bar .tab.active').focus();
+await p.keyboard.press('Delete');
+await p.waitForTimeout(300);
+const foco9 = await p.evaluate(() => ({ tab: document.activeElement?.classList.contains('tab') ? document.activeElement.dataset.path : null, tag: document.activeElement?.tagName }));
+ok('9 · Supr en una pestaña la cierra y el foco pasa a la pestaña activa (no a <body>)', !!foco9.tab && foco9.tab !== 'src/app.js', JSON.stringify(foco9));
+await abre('src/app.js');
+await escribeEnEditor('// sin guardar\n');
+await p.locator('#tabs-bar .tab.active').focus();
+await p.keyboard.press('Delete');
+await p.waitForTimeout(200);
+await p.keyboard.press('Tab');                 // de «Guardar» a «No guardar»
+await p.keyboard.press('Enter');
+await p.waitForTimeout(300);
+const foco9b = await p.evaluate(() => ({ tab: document.activeElement?.classList.contains('tab') ? document.activeElement.dataset.path : null, tag: document.activeElement?.tagName }));
+ok('9 · …también tras «No guardar» en el diálogo de cambios', !!foco9b.tab && !(await pestañas()).some(t => t.path === 'src/app.js'), JSON.stringify(foco9b));
 
 // 7 · Ir a símbolo sin fichero abierto
 await p.evaluate(() => { for (const x of document.querySelectorAll('#tabs-bar .tab-x')) x.click(); });
