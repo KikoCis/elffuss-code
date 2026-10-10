@@ -11,21 +11,7 @@ import * as skills from './skills.js';
 import * as terminal from './terminal.js';
 import * as shell from './shell.js';
 import { setTerminalEcho } from './tools/index.js';
-import { ensureModelCache, cacheEstimate, clearModelCache } from './model-cache.js';
-// El almacén compartido vive en OTRO origen y `navigator.storage.estimate()` no
-// lo ve: hay que preguntárselo a él y SUMAR. Ver model-broker.js.
-import { sharedUsage, clearShared } from './runtime/model-broker.js';
-
-// Los origenes donde puede haber pesos salen del REGISTRO del motor, no de una
-// lista a mano: una copiada se queda vieja en cuanto un modelo cambia de host y
-// el contador vuelve a mirar donde no hay nada. Import perezoso porque el motor
-// puede no estar (modo ONNX); sin el, `sharedUsage` usa su defecto.
-async function origenesAlmacen() {
-  try {
-    const r = await import('./engine/registro.js');
-    return r.origenesAlmacen ? r.origenesAlmacen() : undefined;
-  } catch { return undefined; }
-}
+import { ensureModelCache, cacheEstimate, modelUsage, clearModels } from './model-cache.js';
 import * as ceo from './ceo.js';
 import * as mind from './mind.js';
 import { buildCityAdapter, loadThoughtsAdapter } from './mind-adapter.js';
@@ -76,6 +62,16 @@ addEventListener('beforeunload', (e) => {
   e.returnValue = '';   // Safari y navegadores viejos miran esto
 });
 if (workspace.autosaveEnabled()) workspace.autosave({ enabled: true });
+// «Guardar solo» guarda de verdad: cada escritura de un almacén que el espacio
+// de trabajo copia a disco se le avisa con touch(). Antes nada lo llamaba y el
+// autoguardado no escribía nunca, con la casilla marcada.
+db.onWrite((store, key) => {
+  if (store !== 'kv') return;
+  if (key === 'conversations') workspace.touch('conversations');
+  else if (key === 'skills') workspace.touch('skills');
+});
+// Las preferencias viven en localStorage: se avisa al cambiarlas.
+const guardaPref = (k, v) => { try { localStorage.setItem(k, v); } catch { /* lleno o bloqueado */ } workspace.touch('prefs'); };
 
 import * as telemetry from './telemetry.js';
 
@@ -626,7 +622,7 @@ async function changeModel(id) {
   if (id === 'rules') {
     conv.setProvider(rules);
     activeModel = 'rules';
-    localStorage.setItem('elffusscode.model', 'rules');
+    guardaPref('elffusscode.model', 'rules');
     $('model-dot').className = 'dot off';
     return true;
   }
@@ -664,7 +660,7 @@ async function changeModel(id) {
     try { if (typeof mod.contextTokens === 'function') setCtxBudget(mod.contextTokens()); }
     catch { /* el medidor no vale un fallo de carga */ }
     activeModel = id;
-    localStorage.setItem('elffusscode.model', id);
+    guardaPref('elffusscode.model', id);
     $('model-dot').className = 'dot on';
     showModelProgress(t('modelReadyBadge'), 100);
     setTimeout(() => showModelProgress(null), 2500);
@@ -884,27 +880,24 @@ function renderSettings() {
   const storeMuted = el('span', 'muted', ''); storeMuted.style.fontSize = '.72rem';
   const clearBtn = el('button', 'prov-use', t('setClear'));
   clearBtn.style.marginTop = '8px';
-  clearBtn.onclick = async () => { clearBtn.textContent = t('setClearing'); await clearModelCache(); await paintStorage(); clearBtn.textContent = t('setClear'); };
+  const clearMsg = el('div', 'muted'); clearMsg.setAttribute('role', 'status'); clearMsg.style.cssText = 'font-size:.72rem;margin-top:6px';
+  // La misma rutina que el chip 💾: confirma, vacía TODO lo que son modelos y
+  // dice cuánto se liberó (antes solo borraba una caché vieja y no decía nada).
+  clearBtn.onclick = async () => {
+    const r = await vaciarModelos(clearBtn);
+    if (r) clearMsg.textContent = r;
+    await paintStorage();
+  };
   const storeHead = el('div', 'prov-head'); storeHead.append(storeInfo);
-  storeCard.append(storeHead, storeMuted, clearBtn);
+  storeCard.append(storeHead, storeMuted, clearBtn, clearMsg);
   box.appendChild(storeCard);
   async function paintStorage() {
-    const { usage, quota, persisted } = await cacheEstimate();
-    // El modelo grande NO está en este origen: lo guarda el broker en el suyo, y
-    // `estimate()` solo ve el propio. Sumando los dos, el panel decía «0,82 GB»
-    // con 7,2 GB guardados al lado — justo sobre el modelo que más ocupa.
-    const compartido = await sharedUsage(await origenesAlmacen());
-    const total = usage + compartido.usage;
-    const gb = n => (n / 1073741824).toFixed(2) + ' GB';
-    storeInfo.textContent = total ? t('setCached', { gb: gb(total) }) : t('setNone');
-    // Si el broker no contesta se dice, en vez de dar un total que se queda
-    // corto sin avisar: un número incompleto que parece completo es peor que
-    // uno que admite lo que le falta.
+    const { quota, persisted } = await cacheEstimate();
+    const m = await modelUsage();
+    storeInfo.textContent = m.total ? t('setCached', { gb: tamano(m.total) }) : t('setNone');
     storeMuted.textContent = (persisted ? t('setPersist') : t('setNoPersist'))
-      + (quota ? t('setLimit', { gb: gb(quota) }) : '')
-      + (compartido.ok
-        ? (compartido.usage ? ` · incluye ${gb(compartido.usage)} del almacén compartido` : '')
-        : ' · no se pudo consultar el almacén compartido (puede haber más guardado)');
+      + (quota ? t('setLimit', { gb: tamano(quota) }) : '')
+      + (m.sharedOk ? '' : t('setSharedUnknown'));
   }
   paintStorage();
 
@@ -970,7 +963,7 @@ function renderSettings() {
   permCheckbox.checked = autoEdit;
   permCheckbox.onchange = () => {
     autoEdit = permCheckbox.checked;
-    localStorage.setItem('elffusscode.autoedit', autoEdit ? '1' : '0');
+    guardaPref('elffusscode.autoedit', autoEdit ? '1' : '0');
     paintAuto();
   };
 
@@ -988,7 +981,7 @@ function renderSettings() {
   goalCheckbox.checked = goalMode;
   goalCheckbox.onchange = () => {
     goalMode = goalCheckbox.checked;
-    localStorage.setItem('elffusscode.goalmode', goalMode ? '1' : '0');
+    guardaPref('elffusscode.goalmode', goalMode ? '1' : '0');
     paintGoal();
   };
 
@@ -1003,21 +996,33 @@ function renderSettings() {
     `<p class="muted" style="font-size:.7rem;margin:6px 0 10px">Apagado por defecto — tu código y el contenido de tus proyectos NUNCA se incluyen, solo el mensaje de error técnico, la pila y datos del navegador.</p>` +
     `<label class="muted" style="font-size:.68rem">O manda algo tú directamente (un fallo que viste, algo que eches en falta…)</label>` +
     `<textarea id="tel-feedback" rows="2" style="width:100%;margin-top:4px;resize:vertical;background:var(--bg2);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:6px 8px;font:inherit" placeholder="${t('setFeedbackPh')}"></textarea>` +
-    `<button id="tel-send" class="prov-use" style="margin-top:6px">Enviar</button>` +
-    `<span id="tel-msg" class="muted" style="font-size:.7rem;margin-left:8px"></span>`;
+    `<button id="tel-send" class="prov-use" style="margin-top:6px">${escapeHtml(t('setTelSend'))}</button>` +
+    `<span id="tel-msg" class="muted" role="status" aria-live="polite" style="font-size:.7rem;margin-left:8px"></span>`;
   box.appendChild(telCard);
   const telCheckbox = telCard.querySelector('#tel-enabled');
   telCheckbox.checked = telemetry.isEnabled();
   telCheckbox.onchange = () => telemetry.setEnabled(telCheckbox.checked);
+  // Solo dice «enviado» si el servidor lo aceptó. Antes lo decía siempre
+  // (también con un 404 o sin red) y además borraba el texto: el usuario
+  // creía haberlo mandado y lo había perdido.
   telCard.querySelector('#tel-send').onclick = async () => {
+    const btn = telCard.querySelector('#tel-send');
     const ta = telCard.querySelector('#tel-feedback');
     const msg = telCard.querySelector('#tel-msg');
     const text = ta.value.trim();
+    msg.style.color = '';
     if (!text) { msg.textContent = t("setTelEmpty"); return; }
+    btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+    msg.textContent = t('setTelSending');
     const wasEnabled = telemetry.isEnabled();
     if (!wasEnabled) telemetry.setEnabled(true); // el envío manual es explícito, se permite aunque el automático esté apagado
-    await telemetry.sendFeedback(text);
-    if (!wasEnabled) telemetry.setEnabled(false); // no activa el automático de fondo si no lo pidió
+    let enviado = false;
+    try { enviado = await telemetry.sendFeedback(text); }
+    finally {
+      if (!wasEnabled) telemetry.setEnabled(false); // no activa el automático de fondo si no lo pidió
+      btn.disabled = false; btn.removeAttribute('aria-busy');
+    }
+    if (!enviado) { msg.textContent = t('setTelFailed'); msg.style.color = '#ff6b8b'; return; }
     ta.value = '';
     msg.textContent = t("setTelThanks");
     setTimeout(() => { msg.textContent = ''; }, 4000);
@@ -1819,7 +1824,7 @@ function paintAuto() {
 }
 $('btn-autoedit').addEventListener('click', () => {
   autoEdit = !autoEdit;
-  localStorage.setItem('elffusscode.autoedit', autoEdit ? '1' : '0');
+  guardaPref('elffusscode.autoedit', autoEdit ? '1' : '0');
   paintAuto();
 });
 paintAuto();
@@ -1838,7 +1843,7 @@ function paintGoal() {
 }
 $('btn-goal').addEventListener('click', () => {
   goalMode = !goalMode;
-  localStorage.setItem('elffusscode.goalmode', goalMode ? '1' : '0');
+  guardaPref('elffusscode.goalmode', goalMode ? '1' : '0');
   paintGoal();
 });
 paintGoal();
@@ -2229,36 +2234,44 @@ function avisoMovil(tam, onAccept) {
   document.body.appendChild(box);
 }
 
+// Tamaño legible: MB por debajo de 1 GB.
+function tamano(n) { return n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : Math.round(n / 1048576) + ' MB'; }
+
+// Vaciar los modelos guardados: lo usan el chip 💾 y «Vaciar caché» de Ajustes.
+// Devuelve el mensaje con lo que pasó (o null si el usuario canceló).
+async function vaciarModelos(boton) {
+  const m = await modelUsage();
+  if (!confirm(t('clearModelsConfirm', { size: tamano(m.total) }) + (m.sharedOk ? '' : '\n\n' + t('clearModelsShared')))) return null;
+  const antes = boton.textContent;
+  boton.disabled = true; boton.setAttribute('aria-busy', 'true');
+  boton.textContent = t('setClearing');
+  let r;
+  try { r = await clearModels(); }
+  finally { boton.disabled = false; boton.removeAttribute('aria-busy'); boton.textContent = antes; }
+  let msg = t('clearModelsDone', { size: tamano(r.liberado) });
+  if (r.fallos.length) msg += ' ' + t('clearModelsFailed', { what: r.fallos.join(' · ') });
+  if (!r.sharedOk) msg += ' ' + t('clearModelsShared');
+  $('statusbar').textContent = msg;
+  return msg;
+}
+
+// Chip 💾: lo que ocupan los MODELOS (no el origen entero, que mezclaba
+// conversaciones y el proyecto de prueba) y un clic para vaciarlos.
 function mountDiskChip() {
   const chip = document.getElementById('disk-chip');
   if (!chip) return;
-  const gb = n => n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : Math.round(n / 1048576) + ' MB';
   async function paint() {
-    const { usage, quota } = await cacheEstimate();
-    const compartido = await sharedUsage(await origenesAlmacen());
-    const total = usage + compartido.usage;
-    if (!total) { chip.hidden = true; return; }
+    const { quota } = await cacheEstimate();
+    const m = await modelUsage();
+    if (!m.total) { chip.hidden = true; return; }
     chip.hidden = false;
-    chip.textContent = '💾 ' + gb(total);
-    chip.title = `Modelos guardados en este navegador: ${gb(total)}`
-      + (quota ? ` de ${gb(quota)} disponibles` : '') + '. Pulsa para vaciarlo.';
+    chip.textContent = '💾 ' + tamano(m.total);
+    chip.title = t('diskChipTitle', { size: tamano(m.total), quota: quota ? t('diskChipQuota', { quota: tamano(quota) }) : '' })
+      + (m.sharedOk ? '' : t('setSharedUnknown'));
   }
   chip.addEventListener('click', async () => {
-    const { usage } = await cacheEstimate();
-    const comp = await sharedUsage(await origenesAlmacen());
-    const total = usage + comp.usage;
-    if (!confirm(`Vas a borrar ${gb(total)} de modelos guardados en este navegador.\n\n`
-      + `No se pierde nada tuyo: solo los pesos descargados. La próxima vez habrá que bajarlos otra vez.\n\n¿Seguir?`)) return;
-    chip.textContent = '💾 …';
-    // LOS DOS almacenes. Vaciar solo el de este origen dejaba intacto el modelo
-    // grande —que es casi todo lo que ocupa— así que quien pulsaba para
-    // recuperar espacio no lo recuperaba y no se enteraba.
-    let fallo = null;
-    try { await clearModelCache(); } catch (e) { fallo = e.message || String(e); }
-    const r = await clearShared();
-    if (!r.ok && comp.usage) fallo = (fallo ? fallo + ' · ' : '') + 'el almacén compartido no se pudo vaciar';
-    if (fallo) alert('No se pudo vaciar del todo: ' + fallo);
-    paint();
+    const msg = await vaciarModelos(chip);
+    if (msg) await paint();
   });
   paint();
   setInterval(paint, 20000);
