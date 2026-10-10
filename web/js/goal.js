@@ -58,9 +58,9 @@ function extractJson(text) {
 // Llamada ÚNICA al modelo con el rol de planificador — no toca agent.history
 // (el plan resultante se guarda aparte; el objetivo en sí SÍ se añade al
 // historial en runGoal, para que las tareas puedan apoyarse en él).
-export async function planGoal(agent, goalText) {
+export async function planGoal(agent, goalText, signal = null) {
   const context = await snapshot().catch(() => '');
-  const raw = await agent.provider.chat([{ role: 'user', content: goalText }], plannerPrompt(goalText, context), () => {});
+  const raw = await agent.provider.chat([{ role: 'user', content: goalText }], plannerPrompt(goalText, context), () => {}, signal);
   const parsed = extractJson(raw);
   if (!parsed || !Array.isArray(parsed.tasks) || !parsed.tasks.length) {
     throw new Error('el planificador no devolvió una lista de tareas válida');
@@ -80,7 +80,18 @@ function clonePlan(plan) { return JSON.parse(JSON.stringify(plan)); }
 // normal (conversations.js lo conecta a onConvEvent) — los eventos de las
 // tareas (token/tool/tool_result/text/error) se reenvían tal cual, y además
 // se emiten 'plan' / 'plan_update' / 'plan_complete' para la tarjeta de plan.
-export async function runGoal(conv, goalText, onEvent) {
+//
+// PARAR: `signal` es la parada del turno (conversations.js) y `conv.stopped` la
+// marca que deja stopActive(). Antes parar dejaba las tareas que faltaban en
+// «pendiente» y el plan acababa en «completado»: un objetivo cortado a medias
+// se anunciaba como terminado. Y peor, la tarea interrumpida contaba como «no
+// usó ninguna herramienta» y se REINTENTABA, o sea que parar volvía a llamar al
+// modelo. Ahora la tarea en curso queda «parada», las siguientes «saltadas», no
+// se reintenta nada y el plan termina en 'stopped'.
+export async function runGoal(conv, goalText, onEvent, { signal = null } = {}) {
+  // Parado antes de empezar (p. ej. esperando turno): ni se apunta el objetivo
+  // en el historial ni se llama al planificador.
+  if (signal?.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
   conv.agent.history.push({ role: 'user', content: TASK_PREFIX + 'Objetivo: ' + goalText });
 
   const plan = {
@@ -90,10 +101,20 @@ export async function runGoal(conv, goalText, onEvent) {
   conv.plan = plan;
   onEvent({ type: 'plan', plan: clonePlan(plan) });
 
+  const parado = () => !!(signal?.aborted || conv.stopped);
+  let avisado = false;   // ¿ya salió un «(Parado.)» en el chat?
+  const terminarParado = () => {
+    plan.status = 'stopped';
+    plan.updatedAt = Date.now();
+    onEvent({ type: 'plan_complete', plan: clonePlan(plan) });
+    if (!avisado) onEvent({ type: 'aborted', text: '(Parado.)' });
+  };
+
   let parsed;
   try {
-    parsed = await planGoal(conv.agent, goalText);
+    parsed = await planGoal(conv.agent, goalText, signal);
   } catch (e) {
+    if (parado() || e?.name === 'AbortError') { terminarParado(); return; }
     plan.status = 'failed';
     plan.updatedAt = Date.now();
     onEvent({ type: 'plan_update', plan: clonePlan(plan) });
@@ -110,19 +131,22 @@ export async function runGoal(conv, goalText, onEvent) {
   plan.updatedAt = Date.now();
   onEvent({ type: 'plan_update', plan: clonePlan(plan) });
 
-  let cascadeFail = false;
+  let cascadeFail = false, detenido = false;
   for (const task of plan.tasks) {
-    if (conv.stopped) break;   // parado por el usuario: no seguir con el plan
-    if (cascadeFail) { task.status = 'skipped'; plan.updatedAt = Date.now(); onEvent({ type: 'plan_update', plan: clonePlan(plan) }); continue; }
+    // Lo que queda tras un fallo (cascada) o tras parar se SALTA, y se dice.
+    if (cascadeFail || parado()) {
+      if (!cascadeFail) detenido = true;
+      task.status = 'skipped'; plan.updatedAt = Date.now(); onEvent({ type: 'plan_update', plan: clonePlan(plan) }); continue;
+    }
 
     task.status = 'in-progress';
     plan.updatedAt = Date.now();
     onEvent({ type: 'plan_update', plan: clonePlan(plan) });
 
     const taskPrompt = `${TASK_PREFIX}Tarea ${task.id} del objetivo «${goalText}»: ${task.title}\n${task.description}`;
-    let done = false;
+    let done = false, interrumpida = false;
     while (!done && task.retries <= MAX_TASK_RETRIES) {
-      let sawError = false, errText = '', usoHerramientas = 0;
+      let sawError = false, errText = '', usoHerramientas = 0, abortada = false;
       await conv.agent.handle(taskPrompt, ev => {
         // Un fallo llega de tres formas y antes solo se miraba una: el modelo
         // reventando ('error'), una herramienta fallando ('tool_error') y
@@ -132,8 +156,11 @@ export async function runGoal(conv, goalText, onEvent) {
         if (ev.type === 'error' || ev.type === 'exhausted') { sawError = true; errText = ev.text; }
         if (ev.type === 'tool_error') { sawError = true; errText = `${ev.tool}: ${ev.text}`; }
         if (ev.type === 'tool') usoHerramientas++;
+        if (ev.type === 'aborted') { abortada = true; avisado = true; }
         onEvent(ev);
-      });
+      }, { signal });
+      // Parar no es fallar: ni se reintenta ni cuenta como fallo de la tarea.
+      if (abortada || parado()) { interrumpida = true; break; }
       // Una tarea de un PLAN es una acción, no una charla. Si el modelo
       // contestó sin usar ni una herramienta, no hizo nada: el agente termina
       // en el primer turno (no agota pasos), así que sin esta comprobación la
@@ -149,12 +176,14 @@ export async function runGoal(conv, goalText, onEvent) {
         if (task.retries > MAX_TASK_RETRIES) break;
       }
     }
-    task.status = done ? 'done' : 'failed';
+    if (interrumpida) detenido = true;
+    task.status = interrumpida ? 'stopped' : done ? 'done' : 'failed';
     plan.updatedAt = Date.now();
     onEvent({ type: 'plan_update', plan: clonePlan(plan) });
-    if (!done) cascadeFail = true; // el resto se saltan, igual que la cascada de dependencias fallidas en clonagent
+    if (!done && !interrumpida) cascadeFail = true; // el resto se saltan, igual que la cascada de dependencias fallidas en clonagent
   }
 
+  if (detenido) { terminarParado(); return; }
   plan.status = plan.tasks.some(t => t.status === 'failed') ? 'failed' : 'done';
   plan.updatedAt = Date.now();
   onEvent({ type: 'plan_complete', plan: clonePlan(plan) });

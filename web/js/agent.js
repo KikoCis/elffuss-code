@@ -342,9 +342,23 @@ export class Agent {
   // que reciben la señal la cortan) y hace que el bucle no dé más pasos.
   stop() { try { this._aborter?.abort(); } catch { /* */ } }
 
-  async handle(userText, onEvent) {
+  // `signal` (opcional) es la parada de QUIEN LLAMA: la conversación, el modo
+  // Objetivo o el cerebro CEO. Antes solo existía stop(), que aborta el turno
+  // en curso y nada más: una parada que llegaba antes de que el turno empezara
+  // (esperando el cerrojo de inferencia, entre dos tareas de un plan) no tenía
+  // nada que abortar y el turno arrancaba igual.
+  async handle(userText, onEvent, { signal: externa = null } = {}) {
     const aborter = (this._aborter = new AbortController());
-    const signal = aborter.signal;
+    // Ya parado antes de empezar: ni se apunta el mensaje en el historial ni se
+    // llama al modelo.
+    if (externa?.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
+    const enlazar = () => aborter.abort();
+    externa?.addEventListener('abort', enlazar, { once: true });
+    try { return await this._turno(userText, onEvent, aborter.signal); }
+    finally { externa?.removeEventListener('abort', enlazar); }
+  }
+
+  async _turno(userText, onEvent, signal) {
     // La marca temporal se pone AL AÑADIR, que es el único momento en que se
     // sabe: el gestor de contexto resuelve «ayer» con la fecha del turno en que
     // se dijo, no con la de ahora (ver annotateDates en acer-core.js). Sin esto
@@ -355,6 +369,7 @@ export class Agent {
       try {
         if (signal.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
         const context = await snapshot().catch(() => '');
+        if (signal.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
         // Se le PREGUNTA al proveedor si quiere prompt corto en vez de deducirlo
         // por tamaño de contexto: al 27B le cabría y aun así no debe recibirlo.
         // Quien no declare `prefiereCompacto` —todos los demás— recibe
@@ -363,6 +378,10 @@ export class Agent {
           systemPrompt(''),
           t => onEvent({ type: 'token', text: t }), signal);
       } catch (e) {
+        // Parar no es un fallo del modelo. Los proveedores que cortan de verdad
+        // (fetch abortado, generación interrumpida) LANZAN un AbortError, y esto
+        // lo pintaba como «El modelo falló» y lo mandaba a telemetría como error.
+        if (signal.aborted || e?.name === 'AbortError') { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
         telemetry.reportError('agent.handle: ' + e.message, { stack: e.stack || '' });
         onEvent({ type: 'error', text: 'El modelo falló: ' + e.message });
         return;
@@ -384,8 +403,13 @@ export class Agent {
         if (signal.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
         onEvent({ type: 'tool', call });
         let result;
-        try { result = await runTool(call.tool, call.args); }
-        catch (e) { result = 'ERROR: ' + e.message; onEvent({ type: 'tool_error', tool: call.tool, text: e.message }); }
+        // La señal llega también a la herramienta: un comando largo en el bridge
+        // (npm install, un servidor…) se para con el turno en vez de seguir solo.
+        try { result = await runTool(call.tool, call.args, { signal }); }
+        catch (e) {
+          if (signal.aborted) { onEvent({ type: 'aborted', text: '(Parado.)' }); return; }
+          result = 'ERROR: ' + e.message; onEvent({ type: 'tool_error', tool: call.tool, text: e.message });
+        }
         const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
         onEvent({ type: 'tool_result', tool: call.tool, result: resultStr });
         const pista = resultStr.startsWith('ERROR')
