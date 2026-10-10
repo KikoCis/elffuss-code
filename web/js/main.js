@@ -617,18 +617,31 @@ function showModelProgress(text, pct = null) {
   }
 }
 
+// El punto de estado del modelo dice con palabras qué modelo es y cómo está
+// (antes era solo un color, con el título «modelo» siempre), y es un botón que
+// lleva a Ajustes → Cerebro.
+function pintaDot(estado, id) {
+  const d = $('model-dot');
+  if (!d) return;
+  d.className = 'dot ' + (estado === 'error' ? 'off' : estado);
+  const nombre = (modelOptions().find(o => o.id === id)?.label || id || '').replace(/\s*★$/, '');
+  const txt = id === 'rules' ? t('modelDotBasic') : t('modelDot', { name: nombre, state: t('modelState_' + estado) });
+  d.title = txt;
+  d.setAttribute('aria-label', txt);
+}
+
 let loadingId = null;
 async function changeModel(id) {
   if (id === 'rules') {
     conv.setProvider(rules);
     activeModel = 'rules';
     guardaPref('elffusscode.model', 'rules');
-    $('model-dot').className = 'dot off';
+    pintaDot('off', 'rules');
     return true;
   }
   if (loadingId === id || activeModel === id) return true; // un solo modelo, una sola carga
   loadingId = id;
-  $('model-dot').className = 'dot loading';
+  pintaDot('loading', id);
   showModelProgress(t("stModelLoadingAI"), 4);
   try {
     const mod = await resolveProvider(id);
@@ -661,7 +674,7 @@ async function changeModel(id) {
     catch { /* el medidor no vale un fallo de carga */ }
     activeModel = id;
     guardaPref('elffusscode.model', id);
-    $('model-dot').className = 'dot on';
+    pintaDot('on', id);
     showModelProgress(t('modelReadyBadge'), 100);
     setTimeout(() => showModelProgress(null), 2500);
     $('statusbar').textContent = t('modelReady');
@@ -681,7 +694,7 @@ async function changeModel(id) {
     }
     conv.setProvider(rules);
     activeModel = 'rules';
-    $('model-dot').className = 'dot off';
+    pintaDot('error', id);
     showModelProgress('⚠️ No pude cargar el modelo: ' + (e?.message || e));
     setTimeout(() => showModelProgress(null), 6000);
     rebuildSelect();
@@ -742,9 +755,47 @@ function settingsShell(title) {
 
 function showBridgeMsg(card, text, isErr) {
   let el2 = card.querySelector('.br-msg');
-  if (!el2) { el2 = document.createElement('div'); el2.className = 'br-msg muted'; el2.style.cssText = 'font-size:.7rem;margin-top:6px'; card.appendChild(el2); }
+  if (!el2) { el2 = document.createElement('div'); el2.className = 'br-msg muted'; el2.setAttribute('role', 'status'); el2.style.cssText = 'font-size:.7rem;margin-top:6px'; card.appendChild(el2); }
   el2.textContent = text;
   el2.style.color = isErr ? '#ff6b8b' : '';
+}
+
+// Qué bridge descargar. Todos los Mac dicen «MacIntel» en navigator.platform,
+// también los Apple Silicon, y por eso a un Mac ARM se le ofrecía la versión
+// Intel. Se pregunta la arquitectura a userAgentData (Chrome/Edge) y, si no se
+// puede saber (Safari), se ofrecen las DOS versiones de Mac en vez de adivinar.
+async function bridgeParaEstaMaquina() {
+  const ua = navigator.userAgent;
+  let arch = '';
+  try { arch = (await navigator.userAgentData?.getHighEntropyValues?.(['architecture']))?.architecture || ''; } catch { /* sin datos */ }
+  if (/Mac/.test(ua)) {
+    if (arch === 'arm') return ['elffuss-bridge-mac-arm64'];
+    if (arch === 'x86') return ['elffuss-bridge-mac-intel'];
+    return ['elffuss-bridge-mac-arm64', 'elffuss-bridge-mac-intel'];
+  }
+  if (/Win/.test(ua)) return ['elffuss-bridge-windows.exe'];
+  if (/Linux/.test(ua)) return [arch === 'arm' || /aarch64|arm64/i.test(ua) ? 'elffuss-bridge-linux-arm64' : 'elffuss-bridge-linux'];
+  return ['elffuss-bridge-mac-arm64', 'elffuss-bridge-mac-intel'];
+}
+async function pintaDescargasBridge(card, NOMBRES) {
+  const principales = await bridgeParaEstaMaquina();
+  const host = card.querySelector('#br-dl'), otros = card.querySelector('#br-dl-other');
+  if (!host || !otros) return;
+  const enlace = (f, principal) => {
+    const a = document.createElement('a');
+    a.href = 'bridge-dl/' + f; a.setAttribute('download', '');
+    a.dataset.file = f;
+    if (principal) { a.className = 'prov-use'; a.style.cssText = 'text-decoration:none;display:inline-block;margin:0 6px 6px 0'; a.textContent = t('setBridgeDownload', { os: NOMBRES[f] }); }
+    else { a.style.cssText = 'color:var(--accent2);font-size:.72rem'; a.textContent = NOMBRES[f]; }
+    // El tamaño, para saber qué se baja (una petición HEAD, sin descargar).
+    fetch(a.href, { method: 'HEAD' }).then(r => {
+      const n = +r.headers.get('content-length');
+      if (r.ok && n) a.textContent += ` (${(n / 1048576).toFixed(1)} MB)`;
+    }).catch(() => {});
+    return a;
+  };
+  host.replaceChildren(...principales.map(f => enlace(f, true)));
+  otros.replaceChildren(...Object.keys(NOMBRES).filter(f => !principales.includes(f)).map(f => { const d = document.createElement('div'); d.appendChild(enlace(f, false)); return d; }));
 }
 
 // pequeño estallido de fuegos artificiales (canvas, un par de segundos) para
@@ -808,12 +859,25 @@ function renderSettings() {
     };
   });
   const grid = el('div', 'model-grid');
+  grid.setAttribute('role', 'group');
+  grid.setAttribute('aria-label', t('setBrainTitle'));
   for (const m of LOCAL) {
     if (m.need === 'gpu' && !realGPU) continue;
-    const card = el('button', 'model-card' + (activeModel === m.id ? ' active' : '') + (m.disabled ? ' disabled' : ''));
+    const cargando = loadingId === m.id;
+    const card = el('button', 'model-card' + (activeModel === m.id ? ' active' : '') + (m.disabled ? ' disabled' : '') + (cargando ? ' loading' : ''));
     if (m.disabled) card.disabled = true;
-    card.innerHTML = `<b>${m.name}</b><span>${m.sub}</span>`;
-    card.onclick = () => { changeModel(m.id); renderSettings(); };
+    card.setAttribute('aria-pressed', activeModel === m.id ? 'true' : 'false');
+    if (cargando) card.setAttribute('aria-busy', 'true');
+    card.innerHTML = `<b>${m.name}</b><span>${cargando ? escapeHtml(t('setModelLoadingCard')) : m.sub}</span>`;
+    // La tarjeta dice «cargando…» mientras carga, y el panel se repinta cuando
+    // termina: antes se repintaba al instante y el resaltado se quedaba en el
+    // modelo anterior hasta reabrir Ajustes.
+    card.onclick = async () => {
+      const p = changeModel(m.id);
+      renderSettings();
+      await p;
+      if (!$('settings-panel').hidden && $('settings-panel').querySelector('.model-grid')) renderSettings();
+    };
     grid.appendChild(card);
   }
   box.appendChild(grid);
@@ -904,40 +968,36 @@ function renderSettings() {
   // --- Bridge local (ejecución REAL en tu máquina: node, npm, python…) ---
   box.append(el('div', 'sk-h', t("setBridgeTitle")));
   const brCard = el('div', 'prov-card bridge-card');
-  const guessOS = () => {
-    const ua = navigator.userAgent;
-    if (/Mac/.test(ua)) return /Intel/.test(navigator.platform) && !/arm/i.test(ua) ? 'elffuss-bridge-mac-intel' : 'elffuss-bridge-mac-arm64';
-    if (/Win/.test(ua)) return 'elffuss-bridge-windows.exe';
-    if (/Linux/.test(ua)) return /aarch64|arm64/i.test(ua) ? 'elffuss-bridge-linux-arm64' : 'elffuss-bridge-linux';
-    return 'elffuss-bridge-mac-arm64';
-  };
   const OTHER = { 'elffuss-bridge-mac-arm64': 'Mac (Apple Silicon)', 'elffuss-bridge-mac-intel': 'Mac (Intel)', 'elffuss-bridge-windows.exe': 'Windows', 'elffuss-bridge-linux': 'Linux (x64)', 'elffuss-bridge-linux-arm64': 'Linux (ARM)' };
-  const primary = guessOS();
+  // Etiquetas ASOCIADAS a sus campos (for/id) y mensajes en una región viva.
   brCard.innerHTML =
-    `<div class="prov-head"><span id="br-dot" class="dot off"></span><b>Bridge local</b><span id="br-status" class="muted" style="margin-left:auto;font-size:.72rem">desconectado</span></div>` +
+    `<div class="prov-head"><span id="br-dot" class="dot off" aria-hidden="true"></span><b>${escapeHtml(t('setBridgeName'))}</b><span id="br-status" class="muted" role="status" style="margin-left:auto;font-size:.72rem">${escapeHtml(t('setBridgeDisconnected'))}</span></div>` +
     `<p class="muted" style="font-size:.72rem;margin:6px 0">${t('setBridgeDesc')}</p>` +
     `<p class="muted" style="font-size:.7rem;margin:0 0 6px">${t('setBridgeOld')}</p>` +
-    `<a class="prov-use" style="text-decoration:none;display:inline-block" href="bridge-dl/${primary}" download>${t('setBridgeDownload',{os:OTHER[primary]})}</a>` +
-    `<details style="margin-top:6px"><summary class="muted" style="font-size:.7rem;cursor:pointer">${t('setBridgeOtherOS')}</summary>` +
-    Object.entries(OTHER).filter(([f]) => f !== primary).map(([f, label]) => `<div><a href="bridge-dl/${f}" download style="color:var(--accent2);font-size:.72rem">${label}</a></div>`).join('') +
-    `</details>` +
-    `<div class="field" style="margin-top:8px"><label class="muted" style="font-size:.68rem">${t('setBrToken')}</label><input id="br-token" placeholder="${t('brTokenPh')}"></div>` +
-    `<div class="field" style="margin-top:6px"><label class="muted" style="font-size:.68rem">${t('setBridgeFolderLabel')}</label><input id="br-folder" placeholder="${t('setBridgeFolderPh')}"></div>` +
-    `<button id="br-connect" class="prov-use" style="margin-top:8px">${t('setBridgeConnect')}</button>`;
+    `<div id="br-dl"></div>` +
+    `<details style="margin-top:6px"><summary class="muted" style="font-size:.7rem;cursor:pointer">${t('setBridgeOtherOS')}</summary><div id="br-dl-other"></div></details>` +
+    `<p class="muted" style="font-size:.7rem;margin:6px 0 0"><a href="https://github.com/KikoCis/elffuss-code/tree/main/bridge" target="_blank" rel="noopener noreferrer" style="color:var(--accent2)">${escapeHtml(t('setBridgeSource'))} ↗</a></p>` +
+    `<div class="field" style="margin-top:8px"><label for="br-token" class="muted" style="font-size:.68rem">${t('setBrToken')}</label><input id="br-token" type="password" autocomplete="off" placeholder="${t('brTokenPh')}"></div>` +
+    `<div class="field" style="margin-top:6px"><label for="br-folder" class="muted" style="font-size:.68rem">${t('setBridgeFolderLabel')}</label><input id="br-folder" placeholder="${t('setBridgeFolderPh')}"></div>` +
+    `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button id="br-connect" class="prov-use">${t('setBridgeConnect')}</button>` +
+    `<button id="br-disconnect" class="prov-use" hidden>${escapeHtml(t('setBridgeDisconnect'))}</button>` +
+    `<button id="br-forget" class="prov-use" hidden>${escapeHtml(t('setBridgeForget'))}</button></div>`;
   box.appendChild(brCard);
+  pintaDescargasBridge(brCard, OTHER);
   brCard.querySelector('#br-folder').value = bridge.getFolder();
   brCard.querySelector('#br-token').value = localStorage.getItem('elffusscode.bridgeToken') || '';
   const paintBridge = () => {
-    // el panel puede haberse cerrado entre sondeos de fondo — si ya no está
-    // en el DOM, nos desuscribimos en vez de tocar nodos huérfanos.
-    if (!document.body.contains(brCard)) { bridge.onStatusChange(() => {}); return; }
     const on = bridge.isConnected();
     brCard.querySelector('#br-dot').className = 'dot ' + (on ? 'on' : 'off');
     brCard.querySelector('#br-status').textContent = on ? t("setBridgeOnStatus") : t("setBridgeDisconnected");
     if (on) brCard.querySelector('#br-token').value = localStorage.getItem('elffusscode.bridgeToken') || '';
+    brCard.querySelector('#br-disconnect').hidden = !on;
+    brCard.querySelector('#br-forget').hidden = !bridge.hasSavedToken();
   };
   paintBridge();
-  bridge.onStatusChange(paintBridge); // repinta solo si el bridge conecta/cae mientras Ajustes está abierto
+  // repinta si el bridge conecta/cae mientras Ajustes está abierto; al cerrarse
+  // el panel se deja de escuchar
+  const dejar = bridge.onStatusChange(() => { if (!document.body.contains(brCard)) return dejar(); paintBridge(); });
   brCard.querySelector('#br-connect').onclick = async () => {
     const btn = brCard.querySelector('#br-connect');
     bridge.setFolder(brCard.querySelector('#br-folder').value);
@@ -948,16 +1008,27 @@ function renderSettings() {
     catch (e) { showBridgeMsg(brCard, '⚠️ ' + e.message, true); }
     finally { btn.disabled = false; btn.textContent = t("setBridgeConnect"); }
   };
+  // Antes no había forma de desconectar (la función existía y nadie la usaba)
+  // ni de que el navegador olvidara el token guardado.
+  brCard.querySelector('#br-disconnect').onclick = () => { bridge.disconnect(); paintBridge(); showBridgeMsg(brCard, t('setBridgeDisconnectedMsg')); };
+  brCard.querySelector('#br-forget').onclick = () => {
+    bridge.forgetToken();
+    brCard.querySelector('#br-token').value = '';
+    paintBridge();
+    showBridgeMsg(brCard, t('setBridgeForgotMsg'));
+  };
 
   // --- Permisos de ejecución (mismo interruptor que </> Auto de la barra) ---
   box.append(el('div', 'sk-h', t("setPermTitle")));
   const permCard = el('div', 'prov-card');
   permCard.innerHTML =
+    // Lo que de verdad controla: escribir/editar ficheros. Decía «y comandos de
+    // terminal», y la nota de debajo contaba que terminal.run no pregunta nunca.
     `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
     `<input type="checkbox" id="perm-autoedit"> ` +
-    `<span>Ejecutar todo automáticamente (escribir/editar ficheros y comandos de terminal), sin pedir confirmación</span>` +
+    `<span>${escapeHtml(t('setPermLabel'))}</span>` +
     `</label>` +
-    `<p class="muted" style="font-size:.7rem;margin:6px 0 0">terminal.run ya se ejecuta siempre sin preguntar. Esto controla solo la escritura de ficheros (code.write/code.edit) — desmárcalo si prefieres revisar cada cambio antes de aplicarlo.</p>`;
+    `<p class="muted" style="font-size:.7rem;margin:6px 0 0">${escapeHtml(t('setPermNote'))}</p>`;
   box.appendChild(permCard);
   const permCheckbox = permCard.querySelector('#perm-autoedit');
   permCheckbox.checked = autoEdit;
@@ -1034,6 +1105,7 @@ function renderSettings() {
     const card = el('div', 'prov-card' + (c.enabled ? ' on' : ''));
     const head = el('div', 'prov-head');
     const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = c.enabled;
+    toggle.setAttribute('aria-label', t('provToggle', { name: c.label }));
     const title = el('b', null, c.label);
     const use = el('button', 'prov-use', t("setProvUse"));
     use.hidden = !c.enabled || activeModel === 'ext:' + id;
@@ -1341,6 +1413,8 @@ function anunciarEnvio(texto) {
   anuncioPendiente = setTimeout(() => { r.textContent = texto; }, 50);
 }
 $('model-select').addEventListener('change', e => changeModel(e.target.value));
+$('model-dot').addEventListener('click', () => { $('settings-panel').hidden = false; renderSettings(); $('settings-panel').querySelector('.model-card')?.focus(); });
+pintaDot('off', 'rules');
 // móvil: conmutar chat ↔ editor
 $('code-flip').addEventListener('click', () => {
   const showEditor = !document.body.classList.contains('show-editor');
@@ -1538,12 +1612,18 @@ async function toggleTerminal(force) {
   $('terminal-panel').hidden = !show;
   $('act-term').classList.toggle('on', show);
   if (show) {
-    const cap = shell.capabilities();
-    $('term-caps').textContent = cap.bridge ? t("termCapsBridge") : t("termCapsNoBridge");
+    pintaCapacidades();
     await terminal.mount($('terminal-host'));
     terminal.refit();
   }
 }
+// La etiqueta del terminal sigue al bridge: antes solo se pintaba al abrir el
+// panel y se quedaba vieja si el bridge conectaba o caía con él abierto.
+function pintaCapacidades() {
+  const cap = shell.capabilities();
+  $('term-caps').textContent = cap.bridge ? t("termCapsBridge") : t("termCapsNoBridge");
+}
+bridge.onStatusChange(() => { if (!$('terminal-panel').hidden) pintaCapacidades(); });
 $('act-term').addEventListener('click', () => toggleTerminal());
 $('term-close').addEventListener('click', () => toggleTerminal(false));
 $('term-clear').addEventListener('click', () => terminal.clearScreen());

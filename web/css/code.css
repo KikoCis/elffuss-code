@@ -72,6 +72,9 @@ header {
 .controls { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
 select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; }
+/* el punto del modelo es un botón (lleva a Ajustes → Cerebro) */
+button.dot { border: none; padding: 0; cursor: pointer; flex: 0 0 auto; }
+button.dot:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
 .dot.off { background: #4a5062; } .dot.on { background: #3fb970; }
 .dot.loading { background: #e5a53a; animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
@@ -551,6 +554,8 @@ header { position: relative; }
 button.wide { width: 100%; padding: 9px; border-radius: 8px; }
 
 .model-card.disabled { opacity: .5; cursor: not-allowed; }
+.model-card.loading { border-color: #e5a53a; }
+.model-card:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1px; }
 .model-card.disabled:hover { border-color: var(--line); }
 
 /* ---------- vistas Arquitectura / Ciudad 3D (overlay sobre el editor) ---------- */
