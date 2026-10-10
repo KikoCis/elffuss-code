@@ -481,7 +481,19 @@ async function run() {
     if (S.abort) log('parado', 'w'); else log('fallo: ' + e.message, 'e');
   }
 
-  if (out) {
+  // Parada con ■: ni completada ni fallida. Antes una corrida de SWE parada a
+  // mitad devolvía lo que llevaba y salía como «✔ terminado» / «completado» /
+  // «listo», y entraba en S.run: «Guardar» la puntuaba con el denominador
+  // recortado (parar tras k tareas resueltas daba k/k = 100 %). Y la de juegos,
+  // que para con una excepción, encendía el piloto rojo «con fallo». Lo medido
+  // se enseña como parcial, pero no se puede guardar en el ranking.
+  const parado = S.abort;
+  S.ultimaParada = parado;
+  if (out && parado) {
+    tiles(out.resumen);
+    S.run = null;
+    log('parcial (parado, no entra en el ranking): ' + JSON.stringify(out.resumen), 'w');
+  } else if (out) {
     tiles(out.resumen);
     S.run = {
       bench: S.bench, algo: S.algo, algoOpts: { ...S.algoOpts }, brain: S.brain,
@@ -489,9 +501,12 @@ async function run() {
       duracionSegs: Math.round((Date.now() - t0) / 1000), cuando: new Date().toISOString(),
     };
     log('✔ terminado: ' + JSON.stringify(out.resumen), 'a');
+  } else if (parado) {
+    S.run = null;
   }
-  setLed('#led-run', error ? 'err' : 'on', error ? 'con fallo' : 'listo');
-  prog(1, 1, error ? 'abortado' : 'completado');
+  if (parado) setLed('#led-run', '', 'parado');   // piloto neutro, como en reposo
+  else setLed('#led-run', error ? 'err' : 'on', error ? 'con fallo' : 'listo');
+  prog(1, 1, parado ? 'parado' : error ? 'abortado' : 'completado');
   S.running = false; S.aborter = null; $('#btn-run').disabled = false; $('#btn-stop').disabled = true;
 }
 
@@ -518,7 +533,7 @@ function huella(r) {
 }
 const leerRuns = () => { try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch { return []; } };
 function guardarCorrida() {
-  if (!S.run) return log('todavía no hay ninguna corrida que guardar', 'w');
+  if (!S.run) return log(S.ultimaParada ? 'la última corrida se paró a medias: no entra en el ranking' : 'todavía no hay ninguna corrida que guardar', 'w');
   const runs = leerRuns();
   runs.push({ ...S.run, score: puntuar(S.run), id: (S.run.cuando || '') + '·' + Math.round(performance.now()) });
   localStorage.setItem(STORE, JSON.stringify(runs.slice(-MAX_GUARDADAS)));
