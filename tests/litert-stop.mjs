@@ -73,6 +73,25 @@ const SISTEMA = 'Eres Elffuss: '.padEnd(200, '·') + '\nreglas…';
     JSON.stringify(m.conversaciones[1]?.enviados));
 }
 
+// 1b. Un mismo trozo con varios textos: parar en el primero no deja salir el resto.
+{
+  const m = motor(); L.__usarMotor(m, 4096);
+  m.createConversation = (crear => async cfg => {
+    const c = await crear(cfg);
+    c.sendMessageStreaming = function (texto) {
+      this.enviados.push(texto);
+      return (async function* () {
+        yield { content: [{ type: 'text', text: 'uno ' }, { type: 'text', text: 'dos ' }, { type: 'text', text: 'tres' }] };
+      })();
+    };
+    return c;
+  })(m.createConversation.bind(m));
+  const ac = new AbortController();
+  const trozos = [];
+  const out = await L.chat([{ role: 'user', content: 'hola' }], SISTEMA, t => { trozos.push(t); ac.abort(); }, ac.signal);
+  ok('varios textos en un mismo trozo: tras parar no sale ni uno más', trozos.length === 1 && out === 'uno', `${trozos.length} textos · ${JSON.stringify(out)}`);
+}
+
 // 2. Señal ya abortada: ni crea conversación ni manda nada.
 {
   const m = motor(); L.__usarMotor(m, 4096);

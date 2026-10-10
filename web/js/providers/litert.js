@@ -205,8 +205,10 @@ export async function chat(history, system, onToken = () => {}, signal = null) {
   const enviar = async t => {
     for await (const chunk of conversation.sendMessageStreaming(t)) {
       if (signal?.aborted) break;   // parar: se devuelve lo generado hasta aquí
-      for (const item of (chunk.content || []))
+      for (const item of (chunk.content || [])) {
+        if (signal?.aborted) break;   // un trozo puede traer varios textos: ni uno más tras parar
         if (item.type === 'text') { out += item.text; onToken(item.text); }
+      }
     }
   };
   try {
