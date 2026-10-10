@@ -289,6 +289,10 @@ body.hide-tree #sidebar { display: none; }
 #model-progress span { font-size: .82rem; color: var(--fg); }
 #model-progress .track { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
 #model-bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .25s; }
+#model-progress .mp-acciones { display: flex; gap: 6px; }
+#model-progress .mp-acciones button { background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; font: inherit; font-size: .78rem; cursor: pointer; }
+.sk-msg { font-size: .74rem; }
+.sk-msg.err { color: #ff8fb0; }
 
 /* ---------- chat ---------- */
 #chat { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg2); min-height: 0; }

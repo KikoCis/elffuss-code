@@ -719,12 +719,24 @@ function rebuildSelect() {
   sel.value = activeModel;
 }
 
-// progreso del modelo: píldora prominente visible sobre landing e IDE
-function showModelProgress(text, pct = null) {
+// progreso del modelo: píldora prominente visible sobre landing e IDE.
+// Es una región viva (role=status en el HTML). Con `reintentar`, un fallo deja
+// un botón para volver a intentarlo y otro para cerrar, y no se esconde solo.
+function showModelProgress(text, pct = null, { reintentar = null } = {}) {
   const box = $('model-progress');
+  box.querySelector('.mp-acciones')?.remove();
   if (text == null) { box.hidden = true; return; }
   box.hidden = false;
   $('model-progress-text').textContent = text;
+  if (reintentar) {
+    const acc = document.createElement('div'); acc.className = 'mp-acciones';
+    const r = document.createElement('button'); r.type = 'button'; r.textContent = t('retry');
+    r.onclick = () => { acc.remove(); reintentar(); };
+    const x = document.createElement('button'); x.type = 'button'; x.textContent = '✕'; x.setAttribute('aria-label', t('close'));
+    x.onclick = () => showModelProgress(null);
+    acc.append(r, x);
+    box.querySelector('.mp-body').appendChild(acc);
+  }
   const bar = $('model-bar');
   if (pct == null) {
     bar.classList.add('indet');      // sin % conocido → barra animada
@@ -746,6 +758,15 @@ function pintaDot(estado, id) {
   const txt = id === 'rules' ? t('modelDotBasic') : t('modelDot', { name: nombre, state: t('modelState_' + estado) });
   d.title = txt;
   d.setAttribute('aria-label', txt);
+}
+
+function errorHumano(e) {
+  const m = String(e?.message || e || '');
+  if (/Failed to fetch|NetworkError|network|ERR_/i.test(m)) return t('errNet');
+  if (/adaptador WebGPU|No available adapters|webgpu|requestAdapter/i.test(m)) return t('errGpu');
+  if (/quota|QuotaExceeded/i.test(m)) return t('errQuota');
+  if (/out of memory|memory|OOM|Aborted/i.test(m)) return t('errMem');
+  return m || t('errUnknown');
 }
 
 let loadingId = null;
@@ -813,8 +834,10 @@ async function changeModel(id) {
     conv.setProvider(rules);
     activeModel = 'rules';
     pintaDot('error', id);
-    showModelProgress('⚠️ No pude cargar el modelo: ' + (e?.message || e));
-    setTimeout(() => showModelProgress(null), 6000);
+    // En palabras de persona («sin conexión», «sin GPU», «sin espacio»…), con
+    // el detalle técnico en la consola, y un botón para reintentar.
+    showModelProgress(t('modelLoadFailed', { e: errorHumano(e) }), null, { reintentar: () => changeModel(id) });
+    $('model-bar').classList.remove('indet');
     rebuildSelect();
     return false;
   } finally {
@@ -1180,9 +1203,9 @@ function renderSettings() {
   goalCard.innerHTML =
     `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
     `<input type="checkbox" id="perm-goalmode"> ` +
-    `<span>Tratar el próximo mensaje como un objetivo: lo descompone en tareas y las ejecuta una a una</span>` +
+    `<span>${escapeHtml(t('setGoalLabel'))}</span>` +
     `</label>` +
-    `<p class="muted" style="font-size:.7rem;margin:6px 0 0">Igual que el botón 🎯 Goal de la barra — un planificador crea la lista de tareas y un ejecutor las va cumpliendo, marcando cada una como hecha o fallida (si una falla, las siguientes se saltan en vez de seguir a ciegas).</p>`;
+    `<p class="muted" style="font-size:.7rem;margin:6px 0 0">${escapeHtml(t('setGoalNote'))}</p>`;
   box.appendChild(goalCard);
   const goalCheckbox = goalCard.querySelector('#perm-goalmode');
   goalCheckbox.checked = goalMode;
@@ -1198,10 +1221,10 @@ function renderSettings() {
   telCard.innerHTML =
     `<label style="display:flex;align-items:center;gap:8px;cursor:pointer">` +
     `<input type="checkbox" id="tel-enabled"> ` +
-    `<span>Enviar automáticamente los errores técnicos que ocurran, para poder arreglarlos</span>` +
+    `<span>${escapeHtml(t('setTelAuto'))}</span>` +
     `</label>` +
-    `<p class="muted" style="font-size:.7rem;margin:6px 0 10px">Apagado por defecto — tu código y el contenido de tus proyectos NUNCA se incluyen, solo el mensaje de error técnico, la pila y datos del navegador.</p>` +
-    `<label class="muted" style="font-size:.68rem">O manda algo tú directamente (un fallo que viste, algo que eches en falta…)</label>` +
+    `<p class="muted" style="font-size:.7rem;margin:6px 0 10px">${escapeHtml(t('setTelNote'))}</p>` +
+    `<label for="tel-feedback" class="muted" style="font-size:.68rem">${escapeHtml(t('setTelManual'))}</label>` +
     `<textarea id="tel-feedback" rows="2" style="width:100%;margin-top:4px;resize:vertical;background:var(--bg2);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:6px 8px;font:inherit" placeholder="${t('setFeedbackPh')}"></textarea>` +
     `<button id="tel-send" class="prov-use" style="margin-top:6px">${escapeHtml(t('setTelSend'))}</button>` +
     `<span id="tel-msg" class="muted" role="status" aria-live="polite" style="font-size:.7rem;margin-left:8px"></span>`;
@@ -1293,6 +1316,16 @@ async function enterIDE(handle) {
   renderActiveLog();
   addMsg('sys', t('welcome', { name }));
   abreDesdeHash();
+  // Abierto desde una notificación con la app cerrada (sw.js → ?notif=…):
+  // la propuesta está en la Mente, que se abre ya con el proyecto cargado.
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.has('notif')) {
+      u.searchParams.delete('notif');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+      mind.openMind();
+    }
+  } catch { /* — */ }
   refreshGit();
   preloadModel(); // por si el arranque en la landing no llegó a dispararse
 }
@@ -1577,7 +1610,8 @@ async function openView(kind) {
   // nueva no cargaba bien). Ambas, no solo la del mismo tipo.
   try { (await import('./city.js')).disposeCity(); } catch { /* */ }
   try { (await import('./arch.js')).disposeArch(); } catch { /* */ }
-  body.innerHTML = '<div class="view-loading">Construyendo…</div>';
+  body.innerHTML = '<div class="view-loading" role="status"></div>';
+  body.firstChild.textContent = t('viewBuilding');
   overlay.hidden = false;
   document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-' + kind));
   // esperar a que el layout dé tamaño real al overlay (si no, canvas 0×0/mal aspect)
@@ -1586,7 +1620,7 @@ async function openView(kind) {
   try {
     if (kind === 'arch') { const m = await import('./arch.js'); await m.renderArchitecture(body, p => { closeView(); openFile(p); }); }
     else { const m = await import('./city.js'); await m.renderCity(body, p => { closeView(); openFile(p); }); }
-  } catch (e) { body.innerHTML = '<div class="view-loading">No pude construir la vista: ' + (e?.message || e) + '</div>'; }
+  } catch (e) { body.innerHTML = '<div class="view-loading" role="status"></div>'; body.firstChild.textContent = t('viewFailed', { e: e?.message || e }); }
 }
 function closeView({ foco = false } = {}) {
   const abierta = [...document.querySelectorAll('#act-arch.on, #act-city.on')][0];
@@ -1811,7 +1845,7 @@ $('btn-settings').innerHTML = UI.gear;
 $('btn-send').innerHTML = UI.send;
 $('btn-plus').innerHTML = UI.add;
 $('btn-slash').innerHTML = UI.slash;
-const paintFlip = editor => { $('code-flip').innerHTML = (editor ? UI.chat : UI.editor) + `<span>${editor ? 'Chat' : 'Editor'}</span>`; };
+const paintFlip = editor => { $('code-flip').innerHTML = (editor ? UI.chat : UI.editor) + `<span>${editor ? t('flipChat') : t('flipEditor')}</span>`; };
 paintFlip(false);
 
 // barra de actividad estilo VS Code
@@ -2256,46 +2290,48 @@ send = async (text) => {
 };
 
 // ---------- panel de skills (transparente: repo + lista + SKILL.md) ----------
+// Mismo diálogo que Ajustes. Los fallos se dicen DENTRO del panel, en palabras
+// de persona y con «Reintentar» (antes: «⚠️ FAILED TO FETCH» en mayúsculas, y
+// un alert() del navegador al añadir un repo que no valía o al instalar).
 async function openSkillsPanel() {
-  const box = $('settings-panel');
-  box.hidden = false;
-  box.replaceChildren();
-  const close = document.createElement('button');
-  close.id = 'settings-close'; close.textContent = '✕'; close.onclick = () => { box.hidden = true; };
-  box.appendChild(close);
-
+  const box = settingsShell(t('skTitle'));
   const wrap = document.createElement('div');
   wrap.className = 'skills-panel';
-  wrap.innerHTML = `<h3>🧩 Skills de Claude Code</h3>
-    <p class="muted">Instala instrucciones especializadas (formato SKILL.md) desde repos públicos.
-    Todo se guarda en tu navegador. Se ve el repo y lo que se inyecta.</p>`;
+  const intro = document.createElement('p');
+  intro.className = 'muted';
+  intro.textContent = t('skIntro');
+  wrap.appendChild(intro);
   box.appendChild(wrap);
 
   // instaladas
   const inst = skills.installed();
   const instBox = document.createElement('div');
-  instBox.innerHTML = `<div class="sk-h">Instaladas (${inst.length})</div>`;
+  instBox.append(el('div', 'sk-h', t('skInstalled', { n: inst.length })));
   for (const s of inst) {
     const row = document.createElement('div');
     row.className = 'sk-row';
-    row.innerHTML = `<b>${s.name}</b><span class="muted">${s.repo || 'local'}</span>`;
+    row.append(el('b', null, s.name), el('span', 'muted', s.repo || 'local'));
     const rm = document.createElement('button');
     rm.className = 'ghost'; rm.textContent = t("skRemove");
+    rm.setAttribute('aria-label', t('skRemoveNamed', { name: s.name }));
     rm.onclick = async () => { await skills.remove(s.name); openSkillsPanel(); };
     row.appendChild(rm);
     instBox.appendChild(row);
   }
-  if (!inst.length) instBox.innerHTML += '<p class="muted">Ninguna todavía.</p>';
+  if (!inst.length) instBox.append(el('p', 'muted', t('skNone')));
   box.appendChild(instBox);
 
   // fuentes + añadir repo
   const srcs = await skills.sources();
   const srcBox = document.createElement('div');
-  srcBox.innerHTML = `<div class="sk-h">Catálogos (repos)</div>`;
+  srcBox.append(el('div', 'sk-h', t('skCatalogs')));
   for (const s of srcs) {
     const row = document.createElement('div');
     row.className = 'sk-row';
-    row.innerHTML = `<b>${s.label}</b><a href="https://github.com/${s.repo}" target="_blank" rel="noopener">${s.repo} ↗</a>`;
+    const a = document.createElement('a');
+    a.href = `https://github.com/${s.repo}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.textContent = s.repo + ' ↗';
+    row.append(el('b', null, s.label), a);
     const browse = document.createElement('button');
     browse.className = 'primary'; browse.textContent = t("skBrowse");
     browse.onclick = () => browseRepo(s.repo, box);
@@ -2303,6 +2339,7 @@ async function openSkillsPanel() {
     if (!s.official) {
       const rm = document.createElement('button');
       rm.className = 'ghost'; rm.textContent = '🗑';
+      rm.setAttribute('aria-label', t('skRemoveRepo', { repo: s.repo }));
       rm.onclick = async () => { await skills.removeSource(s.repo); openSkillsPanel(); };
       row.appendChild(rm);
     }
@@ -2312,46 +2349,64 @@ async function openSkillsPanel() {
   addRow.className = 'sk-row';
   const inp = document.createElement('input');
   inp.placeholder = t("skAddRepoPh");
+  inp.setAttribute('aria-label', t('skAddRepo'));
   const add = document.createElement('button');
   add.className = 'primary'; add.textContent = t("skAddRepo");
+  const addMsg2 = el('div', 'muted sk-msg'); addMsg2.setAttribute('role', 'status');
   add.onclick = async () => {
+    addMsg2.textContent = '';
     try { await skills.addSource(inp.value); openSkillsPanel(); }
-    catch (e) { alert(e.message); }
+    catch (e) { addMsg2.textContent = '⚠️ ' + (e?.message || e); addMsg2.classList.add('err'); inp.focus(); }
   };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') add.click(); });
   addRow.append(inp, add);
-  srcBox.appendChild(addRow);
+  srcBox.append(addRow, addMsg2);
   box.appendChild(srcBox);
 }
 
 async function browseRepo(repo, box) {
+  box.querySelector(`.sk-browse[data-repo="${CSS.escape(repo)}"]`)?.remove();
   const list = document.createElement('div');
-  list.innerHTML = `<div class="sk-h">Cargando ${repo}…</div>`;
+  list.className = 'sk-browse';
+  list.dataset.repo = repo;
+  list.setAttribute('aria-live', 'polite');
+  list.append(el('div', 'sk-h', t('skLoading', { repo })));
   box.appendChild(list);
   try {
     const found = await skills.listFromRepo(repo);
-    list.innerHTML = `<div class="sk-h">${repo} — ${found.length} skills</div>`;
+    list.replaceChildren(el('div', 'sk-h', t('skFound', { repo, n: found.length })));
     for (const sk of found.slice(0, 120)) {
       const row = document.createElement('div');
       row.className = 'sk-row';
-      row.innerHTML = `<b>${sk.name}</b><span class="muted">${sk.dir}</span>`;
+      row.append(el('b', null, sk.name), el('span', 'muted', sk.dir));
       const btn = document.createElement('button');
       const on = skills.isInstalled(sk.repo, sk.path);
       btn.className = on ? 'ghost' : 'primary';
-      btn.textContent = on ? 'Instalada ✓' : 'Instalar';
+      btn.textContent = on ? t('skInstalledOne') : t('skInstall');
+      btn.setAttribute('aria-label', (on ? t('skInstalledOne') : t('skInstall')) + ': ' + sk.name);
       btn.onclick = async () => {
-        btn.textContent = '…';
+        btn.textContent = '…'; btn.disabled = true;
         try {
           const entry = await skills.installFromRepo(sk);
-          btn.textContent = 'Instalada ✓'; btn.className = 'ghost';
-          $('settings-panel').hidden = true;            // cierra el panel
-          addMsg('assistant', skills.usageMessage(entry)); // «cómo usarla» en el chat
-        } catch (e) { btn.textContent = 'Instalar'; alert(e.message); }
+          btn.textContent = t('skInstalledOne'); btn.className = 'ghost';
+          cierraAjustes();                                  // cierra el panel
+          addMsg('assistant', skills.usageMessage(entry));  // «cómo usarla» en el chat
+        } catch (e) {
+          btn.textContent = t('skInstall'); btn.disabled = false;
+          row.append(el('span', 'muted sk-msg err', '⚠️ ' + (e?.message || e)));
+        }
       };
       row.appendChild(btn);
       list.appendChild(row);
     }
   } catch (e) {
-    list.innerHTML = `<div class="sk-h">⚠️ ${e.message}</div>`;
+    const msg = /Failed to fetch|NetworkError|network/i.test(String(e?.message)) ? t('skNoNet', { repo }) : t('skLoadFailed', { repo, e: e?.message || e });
+    const retry = document.createElement('button');
+    retry.className = 'primary'; retry.textContent = t('retry');
+    retry.onclick = () => browseRepo(repo, box);
+    const fila = el('div', 'sk-row');
+    fila.append(el('span', 'sk-msg err', '⚠️ ' + msg), retry);
+    list.replaceChildren(el('div', 'sk-h', repo), fila);
   }
 }
 

@@ -207,6 +207,21 @@ const L = {
     ctxFull: "Contexto casi lleno ({pct}%). Los mensajes viejos se comprimen solos; para empezar limpio, abre una conversación nueva con «+».",
     ctxUse: "Contexto: {tok} de ~{max} tokens ({free}% libre)",
     openPathTitle: "abrir {path} en el editor", proposalSent: "▶ enviado a la cola…",
+    retry: "Reintentar",
+    modelLoadFailed: "⚠️ No pude cargar el modelo: {e}",
+    errNet: "no se pudo descargar (¿sin conexión, o un bloqueador?)", errGpu: "este navegador no da acceso a una GPU (WebGPU); prueba el modelo ligero o el modo Básico",
+    errQuota: "no queda espacio en el navegador para guardarlo (libera con 💾)", errMem: "no cabe en la memoria de esta máquina; prueba uno más pequeño", errUnknown: "error desconocido",
+    skTitle: "🧩 Skills de Claude Code", skIntro: "Instala instrucciones especializadas (formato SKILL.md) desde repos públicos. Todo se guarda en tu navegador. Se ve el repo y lo que se inyecta.",
+    skInstalled: "Instaladas ({n})", skNone: "Ninguna todavía.", skCatalogs: "Catálogos (repos)", skRemoveNamed: "Quitar {name}", skRemoveRepo: "Quitar el catálogo {repo}",
+    skLoading: "Cargando {repo}…", skFound: "{repo} — {n} skills", skInstall: "Instalar", skInstalledOne: "Instalada ✓",
+    skNoNet: "No pude consultar {repo}: sin conexión con GitHub (o límite de peticiones). Prueba otra vez en un momento.", skLoadFailed: "No pude listar {repo}: {e}",
+    setGoalLabel: "Tratar el próximo mensaje como un objetivo: lo descompone en tareas y las ejecuta una a una",
+    setGoalNote: "Igual que 🎯 Goal en «Modos»: un planificador crea la lista de tareas y un ejecutor las va cumpliendo, marcando cada una como hecha o fallida (si una falla, las siguientes se saltan en vez de seguir a ciegas).",
+    setTelAuto: "Enviar automáticamente los errores técnicos que ocurran, para poder arreglarlos",
+    setTelNote: "Apagado por defecto — tu código y el contenido de tus proyectos NUNCA se incluyen, solo el mensaje de error técnico, la pila y datos del navegador.",
+    setTelManual: "O manda algo tú directamente (un fallo que viste, algo que eches en falta…)",
+    viewBuilding: "Construyendo…", viewFailed: "No pude construir la vista: {e}", flipChat: "Chat", flipEditor: "Editor",
+    termClear: "limpiar", tTermClear: "limpiar la pantalla del terminal",
     clearModelsConfirm: "Vas a borrar {size} de modelos guardados en este navegador.\n\nNo se pierde nada tuyo: solo los pesos descargados. La próxima vez habrá que bajarlos otra vez.\n\n¿Seguir?",
     clearModelsShared: "Ojo: el almacén compartido de Elffuss no se pudo consultar desde aquí; puede quedar algo guardado ahí.",
     clearModelsDone: "💾 Liberados {size}.", clearModelsFailed: "No se pudo vaciar: {what}.",
@@ -415,6 +430,21 @@ const L = {
     ctxFull: "Context almost full ({pct}%). Old messages are compressed automatically; to start clean, open a new conversation with “+”.",
     ctxUse: "Context: {tok} of ~{max} tokens ({free}% free)",
     openPathTitle: "open {path} in the editor", proposalSent: "▶ sent to the queue…",
+    retry: "Retry",
+    modelLoadFailed: "⚠️ Couldn't load the model: {e}",
+    errNet: "it couldn't be downloaded (offline, or a blocker?)", errGpu: "this browser gives no access to a GPU (WebGPU); try the light model or Basic mode",
+    errQuota: "there is no room left in the browser to store it (free some with 💾)", errMem: "it doesn't fit in this machine's memory; try a smaller one", errUnknown: "unknown error",
+    skTitle: "🧩 Claude Code skills", skIntro: "Install specialised instructions (SKILL.md format) from public repos. Everything is stored in your browser. You can see the repo and what gets injected.",
+    skInstalled: "Installed ({n})", skNone: "None yet.", skCatalogs: "Catalogs (repos)", skRemoveNamed: "Remove {name}", skRemoveRepo: "Remove the {repo} catalog",
+    skLoading: "Loading {repo}…", skFound: "{repo} — {n} skills", skInstall: "Install", skInstalledOne: "Installed ✓",
+    skNoNet: "Couldn't reach {repo}: no connection to GitHub (or rate limited). Try again in a moment.", skLoadFailed: "Couldn't list {repo}: {e}",
+    setGoalLabel: "Treat the next message as a goal: break it into tasks and run them one by one",
+    setGoalNote: "Same as 🎯 Goal under “Modes”: a planner writes the task list and an executor works through it, marking each one done or failed (if one fails, the next ones are skipped instead of carrying on blindly).",
+    setTelAuto: "Automatically send technical errors when they happen, so they can be fixed",
+    setTelNote: "Off by default — your code and your projects' content are NEVER included, only the technical error message, the stack and browser data.",
+    setTelManual: "Or send something yourself (a bug you saw, something you miss…)",
+    viewBuilding: "Building…", viewFailed: "Couldn't build the view: {e}", flipChat: "Chat", flipEditor: "Editor",
+    termClear: "clear", tTermClear: "clear the terminal screen",
     clearModelsConfirm: "You are about to delete {size} of models stored in this browser.\n\nNothing of yours is lost: only the downloaded weights. Next time they will be downloaded again.\n\nContinue?",
     clearModelsShared: "Note: Elffuss's shared store could not be checked from here; something may remain stored there.",
     clearModelsDone: "💾 Freed {size}.", clearModelsFailed: "Couldn't clear: {what}.",
@@ -450,6 +480,7 @@ export function applyI18n() {
   set('#clone-btn', 'textContent', 'cloneOpen');
   set('#clone-url', 'placeholder', 'clonePh');
   set('#try-browser', 'textContent', 'tryBrowser');
+  set('#term-clear', 'textContent', 'termClear');
   set('#pal-input', 'placeholder', 'searchPh');
   const titles = {
     '#act-files': 'tFiles', '#act-search': 'tSearch', '#act-arch': 'tArch', '#act-city': 'tCity',
@@ -459,6 +490,7 @@ export function applyI18n() {
     '#btn-plus': 'tPlus', '#btn-autoedit': 'tAutoedit', '#btn-goal': 'tGoal',
     '#btn-hardwork': 'tHardwork',
     '#code-flip': 'tFlip', '#btn-slash': 'tSlash', '#btn-send': 'send',
+    '#term-clear': 'tTermClear',
   };
   for (const [sel, key] of Object.entries(titles)) set(sel, 'title', key);
 }

@@ -114,7 +114,7 @@
         <div id="term-head">
           <span class="term-title">TERMINAL</span>
           <span id="term-caps"></span>
-          <button id="term-clear" class="term-btn" title="limpiar">limpiar</button>
+          <button id="term-clear" class="term-btn" title="limpiar la pantalla del terminal">limpiar</button>
           <button id="term-close" class="term-btn" title="cerrar (Ctrl+`)">✕</button>
         </div>
         <div id="terminal-host"></div>
@@ -154,7 +154,7 @@
 
 <button id="code-flip" title="cambiar entre chat y editor"></button>
 
-<div id="model-progress" hidden>
+<div id="model-progress" role="status" aria-live="polite" hidden>
   <img src="img/elffuss-code.svg" alt="">
   <div class="mp-body">
     <span id="model-progress-text">Preparando el cerebro local…</span>
