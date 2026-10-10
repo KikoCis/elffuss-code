@@ -4,12 +4,13 @@
 // El shell importado en page.evaluate es el MISMO singleton que usa la app
 // (los módulos ES se cachean por realm) → comparte el proyecto abierto.
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0;
 const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
-const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS] });
 const ctx = await b.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage({ viewport: { width: 1500, height: 900 } });

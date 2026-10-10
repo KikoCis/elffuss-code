@@ -1,8 +1,9 @@
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const BASE = process.env.BASE || 'https://code.elffuss.com';
 const PROFILE = (process.env.SCRATCH || '/tmp/elffuss-test') + '/profile-code-gemma';
 const ctx = await chromium.launchPersistentContext(PROFILE, {
-  args: ['--autoplay-policy=no-user-gesture-required', '--enable-unsafe-webgpu', '--use-angle=metal'],
+  args: ['--autoplay-policy=no-user-gesture-required', '--enable-unsafe-webgpu', ...CHROME_ARGS],
   viewport: { width: 1440, height: 900 },
 });
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'litert:gemma-e2b'); } catch {} });

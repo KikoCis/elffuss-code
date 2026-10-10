@@ -2,11 +2,12 @@
 // code.write debe escribir TODOS los ficheros con su contenido. Inyectamos un
 // proveedor falso (sin modelo real) y comprobamos el contenido en OPFS.
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0;
 const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
-const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS] });
 const ctx = await b.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage();

@@ -1,7 +1,8 @@
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const VDIR=(process.env.SCRATCH || '/tmp/elffuss-test') + '/vid';
 const BASE = process.env.BASE || 'http://localhost:8799';
-const b=await chromium.launch({args:['--enable-unsafe-webgpu','--use-angle=metal','--autoplay-policy=no-user-gesture-required']});
+const b=await chromium.launch({args:['--enable-unsafe-webgpu',...CHROME_ARGS,'--autoplay-policy=no-user-gesture-required']});
 const ctx=await b.newContext({viewport:{width:1280,height:720},recordVideo:{dir:VDIR,size:{width:1280,height:720}}});
 await ctx.addInitScript(()=>{try{localStorage.setItem('elffusscode.model','rules')}catch{}});
 const p=await ctx.newPage();

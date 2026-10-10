@@ -1,10 +1,11 @@
 // Mente v2: mundo audio-reactivo + consolas flotantes + nodos clicables +
 // config de cerebro + persistencia (música/animación) + reporte al chat.
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n,c,e='')=>{console.log((c?'✅':'❌')+' '+n+(e?'  — '+e:''));if(!c)fails++};
-const b = await chromium.launch({ args:['--enable-unsafe-webgpu','--use-angle=metal','--autoplay-policy=no-user-gesture-required'] });
+const b = await chromium.launch({ args:['--enable-unsafe-webgpu',...CHROME_ARGS,'--autoplay-policy=no-user-gesture-required'] });
 const ctx = await b.newContext(); await ctx.addInitScript(()=>{try{localStorage.setItem('elffusscode.model','rules')}catch{}});
 const p = await ctx.newPage({ viewport:{width:1500,height:900} });
 p.on('console', m=>{ if(m.type()==='error' && !/allow-same-origin|soundcloud|widget|encrypted-media|permissions policy/i.test(m.text())) console.log('   err:', m.text().slice(0,140)); });

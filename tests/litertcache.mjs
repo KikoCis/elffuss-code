@@ -2,6 +2,7 @@
 // (persistente) y en la 2ª llamada devuelve el blob SIN red (offline). Usa un
 // fixture .litertlm determinista (no baja los GB reales).
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 import { writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -14,7 +15,7 @@ writeFileSync(FIXP, Buffer.from(Array.from({length:SIZE},(_,i)=>i%256)));
 process.on('exit', ()=>{ try{rmSync(FIXP)}catch{} });
 const FIX = BASE + '/__litert_fixture.litertlm';
 
-const b = await chromium.launch({args:['--enable-unsafe-webgpu','--use-angle=metal']});
+const b = await chromium.launch({args:['--enable-unsafe-webgpu',...CHROME_ARGS]});
 const ctx = await b.newContext();
 const p = await ctx.newPage();
 await p.goto(BASE+'/', {waitUntil:'domcontentloaded'});

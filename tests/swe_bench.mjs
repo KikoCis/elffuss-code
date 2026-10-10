@@ -10,13 +10,14 @@
 //
 // Salida estilo results.tsv de agentic-install + score final resolved/N.
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 import { TASKS } from './swe/tasks.js';
 const BASE = process.env.BASE || 'http://localhost:8799';
 const SOLVER = process.env.SOLVER || 'scripted';
 const MODEL = process.env.M || 'rules';
 const TIMEOUT = +(process.env.TIMEOUT || (SOLVER === 'model' ? 180000 : 15000));
 
-const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS] });
 const ctx = await b.newContext();
 await ctx.addInitScript(m => { try { localStorage.setItem('elffusscode.model', m); } catch {} }, SOLVER === 'model' ? MODEL : 'rules');
 const p = await ctx.newPage();

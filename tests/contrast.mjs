@@ -1,6 +1,7 @@
 // Verifica el contraste de las tarjetas de modelo (CEREBRO) tras el fix.
 // Abre Ajustes, mide luminancia de título+subtítulo vs fondo y captura.
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
 const BASE = process.env.BASE || 'http://localhost:8799';
 
@@ -8,7 +9,7 @@ const lum = ([r, g, b]) => { const f = c => { c /= 255; return c <= 0.03928 ? c 
 const ratio = (a, b) => { const [x, y] = [lum(a) + 0.05, lum(b) + 0.05]; return (Math.max(x, y) / Math.min(x, y)); };
 const parse = s => s.match(/\d+/g).slice(0, 3).map(Number);
 
-const br = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const br = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS] });
 const ctx = await br.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage({ viewport: { width: 1200, height: 820 } });

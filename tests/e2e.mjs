@@ -4,12 +4,13 @@
 //
 //   BASE=https://code.elffuss.com node e2e.mjs
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 
 const BASE = process.env.BASE || 'https://code.elffuss.com';
 let fails = 0;
 const ok = (name, cond, extra = '') => { console.log((cond ? '✅' : '❌') + ' ' + name + (extra ? '  — ' + extra : '')); if (!cond) fails++; };
 
-const browser = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const browser = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS] });
 
 // siembra un proyecto en OPFS y entra al IDE
 async function ide() {

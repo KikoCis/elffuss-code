@@ -2,6 +2,7 @@
 // desde Cache Storage (incluso OFFLINE) y soporta range requests. Usa un fixture
 // .litertlm determinista (byte[i] = i%256) para no bajar los GB reales.
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 import { writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -18,7 +19,7 @@ writeFileSync(FIXPATH, Buffer.from(Array.from({ length: SIZE }, (_, i) => i % 25
 const cleanup = () => { try { rmSync(FIXPATH); } catch {} };
 process.on('exit', cleanup);
 
-const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS] });
 const ctx = await b.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage({ viewport: { width: 1200, height: 800 } });

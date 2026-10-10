@@ -1,7 +1,8 @@
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const BASE = process.env.BASE || 'https://code.elffuss.com';
 const MODEL = process.env.M || 'litert:gemma-e2b';
-const b = await chromium.launch({ args: ['--enable-unsafe-webgpu','--use-angle=metal'] });
+const b = await chromium.launch({ args: ['--enable-unsafe-webgpu',...CHROME_ARGS] });
 const ctx = await b.newContext();
 await ctx.addInitScript(m => { try { localStorage.setItem('elffusscode.model', m) } catch {} }, MODEL);
 const p = await ctx.newPage();

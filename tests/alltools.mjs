@@ -3,11 +3,12 @@
 // ejecuta varias tool-calls de un mensaje. web.search/web.fetch usan internet
 // real (proxy del servidor) → correr con BASE=https://code.elffuss.com.
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const BASE = process.env.BASE || 'https://code.elffuss.com';
 let fails = 0;
 const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + String(e).replace(/\n/g, ' ').slice(0, 90) : '')); if (!c) fails++; };
 
-const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS] });
 const ctx = await b.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage();

@@ -14,6 +14,7 @@
 //
 //   E4B_URL=http://localhost:8790/__e4b.litertlm PROFILE=/tmp/elf-e4b node litert-stop-real.mjs
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,7 +30,7 @@ const log = (...a) => console.log('· ' + a.join(' '));
 
 const ctx = await chromium.launchPersistentContext(PROFILE, {
   channel: process.env.CHANNEL || 'chrome',
-  args: ['--enable-unsafe-webgpu', '--use-angle=metal'],
+  args: ['--enable-unsafe-webgpu', ...CHROME_ARGS],
   timeout: 120000,
 });
 const p = await ctx.newPage();
@@ -37,7 +38,7 @@ p.on('pageerror', e => log('PAGEERROR:', e.message.slice(0, 160)));
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1500);
 
-log('cargando E4B (~3 GB a la GPU), puede tardar varios minutos…');
+log('cargando E4B…');
 const load = await p.evaluate(async (url) => {
   const m = await import('/js/providers/litert.js');
   m.MODELS['gemma-e4b'].url = url;

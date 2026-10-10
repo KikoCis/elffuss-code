@@ -6,11 +6,12 @@
 // Requisitos (por eso no está en run-tools.sh, que es determinista y rápido):
 //   · adaptador WebGPU real
 //   · perfil PERSISTENTE — en el contexto efímero de Playwright, Cache Storage
-//     es de memoria y no traga GB (verificado: 1 GB ya falla ahí)
+//     vive en memoria y no aguanta un modelo entero (verificado)
 //   · el .litertlm servido en local (E4B_URL) para no bajar 3 GB en cada corrida
 //
 //   E4B_URL=http://localhost:8790/__e4b.litertlm PROFILE=/tmp/elf-e4b node e4b_live.mjs
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,12 +25,12 @@ let fails = 0;
 const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 const log = (...a) => console.log('· ' + a.join(' '));
 
-// OJO: el Chromium que trae Playwright MUERE cargando E4B (2,97 GB) — medido:
-// 3 intentos, 3 muertes del navegador, >18 min cada una. Con el Chrome REAL
-// instalado, lo mismo tarda ~90 s y funciona. Por eso el canal es 'chrome'.
+// OJO: el Chromium que trae Playwright MUERE cargando E4B: 3 intentos, 3
+// muertes del navegador. Con el Chrome REAL instalado funciona. Por eso el
+// canal es 'chrome'.
 const ctx = await chromium.launchPersistentContext(PROFILE, {
   channel: process.env.CHANNEL || 'chrome',
-  args: ['--enable-unsafe-webgpu', '--use-angle=metal'],
+  args: ['--enable-unsafe-webgpu', ...CHROME_ARGS],
   timeout: 120000,
 });
 const p = await ctx.newPage();
@@ -39,7 +40,7 @@ await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1500);
 
 // ---------- 1 · carga real del modelo ----------
-log('cargando E4B (~3 GB a la GPU), puede tardar varios minutos…');
+log('cargando E4B…');
 const load = await p.evaluate(async (url) => {
   const m = await import('/js/providers/litert.js');
   m.MODELS['gemma-e4b'].url = url;             // apuntamos a la copia local

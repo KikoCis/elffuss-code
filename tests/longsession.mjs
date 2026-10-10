@@ -8,12 +8,13 @@
 //     SEMANTIC=on node tests/longsession.mjs     → BM25 + embeddings
 // La segunda descarga el modelo de embeddings la primera vez que se corre.
 import { chromium } from 'playwright';
+import { CHROME_ARGS } from './chrome-args.mjs';
 const BASE = process.env.BASE || 'http://localhost:8799';
 const SEM = process.env.SEMANTIC === 'on';
 let fails = 0;
 const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
-const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', '--use-angle=metal'] });
+const b = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_ARGS] });
 const ctx = await b.newContext();
 await ctx.addInitScript(sem => {
   try {
