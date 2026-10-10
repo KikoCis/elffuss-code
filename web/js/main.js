@@ -90,17 +90,44 @@ let activeModel = 'rules';
 
 // ---------- chat ----------
 // Los `paths` entre backticks del chat (README.md, .elffuss/soul/x.md…) se
-// vuelven clicables → abren el fichero en el editor directamente, sin tener
-// que ir a buscarlos a mano.
+// vuelven ENLACES que abren el fichero en el editor (y en su línea si viene
+// «ruta:línea»). Son <a href="#/file/ruta:línea">: se llega con Tab, se abren
+// con Enter, y el enlace sirve para volver a ese sitio (ver abreDesdeHash).
+// Antes eran <code> con un onclick: solo ratón y sin línea.
+const RUTA_RE = /^([\w.-]+(?:\/[\w.-]+)*\.[a-z0-9]{1,10})(?::(\d+))?$/i;
+function enlaceFichero(path, line, texto) {
+  const a = document.createElement('a');
+  a.className = 'file-link';
+  a.href = '#/file/' + encodeURI(path) + (line ? ':' + line : '');
+  a.textContent = texto;
+  a.title = t('openPathTitle', { path: path + (line ? ':' + line : '') });
+  a.onclick = e => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;   // pestaña nueva: que lo abra el navegador
+    e.preventDefault();
+    openFile(path).then(() => { if (line) gotoLine(+line); });
+  };
+  return a;
+}
 function linkifyFilePaths(root) {
   root.querySelectorAll('code').forEach(el => {
-    const t = el.textContent.trim();
-    if (!/^[\w.-]+(\/[\w.-]+)*\.[a-z0-9]{1,10}$/i.test(t) || /[{}()<>]/.test(t)) return;
+    if (el.closest('pre')) return;
+    const txt = el.textContent.trim();
+    const m = txt.match(RUTA_RE);
+    if (!m || /[{}()<>]/.test(txt)) return;
     el.classList.add('file-link');
-    el.title = 'abrir ' + t;
-    el.onclick = () => openFile(t);
+    el.replaceChildren(enlaceFichero(m[1], m[2], txt));
   });
 }
+// #/file/ruta[:línea] abre ese fichero: lo usan los enlaces de arriba (abrir
+// en otra pestaña) y sirve para volver al mismo sitio tras recargar.
+function abreDesdeHash() {
+  let h = location.hash;
+  try { h = decodeURI(h); } catch { /* — */ }
+  const m = h.match(/^#\/file\/(.+?)(?::(\d+))?$/);
+  if (!m || !codeTools.handle()) return;
+  openFile(m[1]).then(() => { if (m[2]) gotoLine(+m[2]); });
+}
+addEventListener('hashchange', abreDesdeHash);
 
 // Todo lo que pinta el chat entra por aquí. Lo que se escribió mientras la elfa
 // trabajaba espera AL FINAL, marcado «en cola» (⏳): lo que va llegando del turno
@@ -144,7 +171,10 @@ function addTool(tool, arg) {
   if (arg) {
     const a = document.createElement('span');
     a.className = 'targ';
-    a.textContent = String(arg).slice(0, 60);
+    const txt = String(arg).slice(0, 60);
+    // «● code.read src/app.js»: la ruta se abre con un clic (o Enter)
+    const m = String(arg).match(RUTA_RE);
+    if (m) a.appendChild(enlaceFichero(m[1], m[2], txt)); else a.textContent = txt;
     div.appendChild(a);
   }
   appendLog(div);
@@ -159,7 +189,12 @@ function addToolResult(result) {
   const sum = document.createElement('summary');
   sum.textContent = (err ? '⚠️ ' : '') + result.split('\n')[0].slice(0, 90);
   const pre = document.createElement('pre');
-  pre.textContent = result.slice(0, 1500);
+  // Los resultados de búsqueda («ruta:línea: texto») enlazan cada acierto.
+  for (const linea of result.slice(0, 1500).split('\n')) {
+    const m = linea.match(/^([\w.-]+(?:\/[\w.-]+)*\.[a-z0-9]{1,10}):(\d+):(.*)$/i);
+    if (m) pre.append(enlaceFichero(m[1], m[2], `${m[1]}:${m[2]}`), ':' + m[3] + '\n');
+    else pre.append(linea + '\n');
+  }
   det.append(sum, pre);
   appendLog(det);
   $('chat-log').scrollTop = $('chat-log').scrollHeight;
@@ -252,7 +287,10 @@ function renderActiveLog() {
     } else {
       const call = parseToolCall(m.content);
       if (call) addTool(call.tool, call.args?.path || call.args?.query || '');
-      else addMsg('assistant', m.content);
+      else {
+        const div = addMsg('assistant', m.content);
+        if (m.propuesta) botonPropuesta(div, m.propuesta);
+      }
     }
   }
   if (active.pumping) activeThinking = thinkingBubble();
@@ -1254,6 +1292,7 @@ async function enterIDE(handle) {
   renderTabsBar();
   renderActiveLog();
   addMsg('sys', t('welcome', { name }));
+  abreDesdeHash();
   refreshGit();
   preloadModel(); // por si el arranque en la landing no llegó a dispararse
 }
@@ -1634,6 +1673,15 @@ export function isNoteworthy(ev) {
 // del chat — usado tanto por el botón del chat como por el de la notificación.
 function executeProposal(md) { send(t('pProposal') + md); }
 
+// Botón REAL para ejecutar la propuesta desde el propio chat.
+function botonPropuesta(div, md) {
+  const btn = document.createElement('button');
+  btn.className = 'proposal-exec-btn';
+  btn.textContent = t('mindExec');
+  btn.onclick = () => { btn.disabled = true; btn.textContent = t('proposalSent'); executeProposal(md); };
+  div.appendChild(btn);
+}
+
 export function reportImprovements(ev) {
   const props = ev.proposals || [];
   if (!props.length) return;
@@ -1643,19 +1691,13 @@ export function reportImprovements(ev) {
     (ev.path ? `\n\n_Guardado en \`${ev.path}\`. Dale a la elfa para verlo en la Mente, o ábrelo en el editor._` : '');
   const div = addMsg('assistant', body);
   // se guarda en el historial REAL de la conversación activa — si no, el
-  // aviso vive solo en el DOM y desaparece al cambiar de pestaña o recargar
-  const active = conv.getActive();
-  if (active) conv.appendMessage(active.id, 'assistant', body);
-  // botón REAL para ejecutar la propuesta desde el propio chat (antes solo
-  // se podía desde el panel de la Mente, había que ir a buscarlo)
+  // aviso vive solo en el DOM y desaparece al cambiar de pestaña o recargar.
+  // Con la propuesta al lado: el botón «▶ Ejecutar» se vuelve a pintar al
+  // repintar el chat (antes solo existía en el DOM del momento).
   const md = ev.md || body;
-  if (div) {
-    const btn = document.createElement('button');
-    btn.className = 'proposal-exec-btn';
-    btn.textContent = '▶ Ejecutar esta propuesta';
-    btn.onclick = () => { btn.disabled = true; btn.textContent = '▶ enviado a la cola…'; executeProposal(md); };
-    div.appendChild(btn);
-  }
+  const active = conv.getActive();
+  if (active) conv.appendMessage(active.id, 'assistant', body, { propuesta: md });
+  if (div) botonPropuesta(div, md);
   if (isNoteworthy(ev)) notify(`Elffuss encontró ${props.length} mejora${props.length === 1 ? '' : 's'}`, props.map(p => p.dept).join(' · '), md);
 }
 // SOLO notifica si el permiso YA está concedido. Nunca pide permiso aquí:

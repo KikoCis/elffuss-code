@@ -378,6 +378,9 @@ body.hide-tree #sidebar { display: none; }
 }
 .msg.md code.file-link { cursor: pointer; color: var(--accent2); border-color: var(--accent2); text-decoration: underline dotted; }
 .msg.md code.file-link:hover { background: rgba(124,92,255,.18); }
+a.file-link { color: var(--accent2); text-decoration: underline dotted; }
+.msg.md code.file-link a.file-link { color: inherit; text-decoration: inherit; }
+a.file-link:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1px; border-radius: 3px; }
 .msg.md pre.codeblock {
   position: relative; background: #0d1117; border: 1px solid var(--line);
   border-radius: 8px; padding: 10px 12px; margin: 8px 0; overflow-x: auto;

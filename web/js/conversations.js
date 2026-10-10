@@ -188,10 +188,12 @@ export function switchTo(id) {
 // añade un mensaje fuera del ciclo normal de envío (p.ej. el informe
 // autónomo del cerebro CEO) al historial REAL de una conversación — si no,
 // solo viviría en el DOM y desaparecería al cambiar de pestaña o recargar.
-export async function appendMessage(id, role, content) {
+// `extra` se guarda junto al mensaje (p. ej. la propuesta que acompaña al
+// informe del cerebro, para volver a pintar su botón al recargar).
+export async function appendMessage(id, role, content, extra = {}) {
   const c = convs.get(id);
   if (!c) return;
-  c.agent.history.push({ role, content, ts: Date.now() });
+  c.agent.history.push({ ...extra, role, content, ts: Date.now() });
   c.updatedAt = Date.now();
   await persistConv(c);
 }
