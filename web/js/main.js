@@ -1400,8 +1400,12 @@ async function boot() {
     if (navigator.storage?.getDirectory) {
       const probar = $('try-browser');
       probar.hidden = false;
+      // Una carpeta PROPIA dentro del almacenamiento del navegador, no su raíz: en
+      // la raíz viven también los pesos de los modelos (elffuss-models), y abierta
+      // como proyecto el explorador, la paleta, la búsqueda y las herramientas del
+      // agente los enseñaban y podían editarlos o borrarlos.
       probar.onclick = async () => {
-        try { await enterIDE(await navigator.storage.getDirectory()); }
+        try { await enterIDE(await (await navigator.storage.getDirectory()).getDirectoryHandle('elffuss-code', { create: true })); }
         catch (e) { avisaFalloApertura(e); }
       };
     }

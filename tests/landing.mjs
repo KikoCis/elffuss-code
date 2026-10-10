@@ -11,7 +11,8 @@
 //      se dice en la landing.
 //   5. Sin File System Access (Firefox, Safari): los botones que no pueden
 //      funcionar se desactivan con el motivo, y se ofrece probar en la carpeta
-//      privada del navegador.
+//      privada del navegador: una carpeta propia, donde no se ven ni se tocan
+//      los pesos de los modelos (que viven en la raíz de ese almacenamiento).
 // Nada sale a la red: el selector de carpetas va de mentira y nunca se llega a
 // listar un repo.
 //
@@ -95,6 +96,12 @@ await ctx.close();
 
 // 5 · navegador sin File System Access
 ({ ctx, p } = await nueva({ sinSelector: true }));
+// pesos de modelo de mentira donde los guarda runtime/model-store.js: la raíz del OPFS
+await p.goto(BASE + '/manifest.json');
+await p.evaluate(async () => {
+  const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('elffuss-models', { create: true });
+  for (const n of ['abc123.bin', 'abc123.bin.done']) { const w = await (await dir.getFileHandle(n, { create: true })).createWritable(); await w.write('x'); await w.close(); }
+});
 await p.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1200);
 const sinFS = await p.evaluate(() => ({
@@ -106,6 +113,17 @@ ok('5 · …y se ofrece probar en el navegador', sinFS.probar);
 await p.click('#try-browser');
 await p.waitForFunction(() => !document.getElementById('ide').hidden, null, { timeout: 30000 }).catch(() => {});
 ok('5 · «Probar en el navegador» abre el IDE', await p.evaluate(() => !document.getElementById('ide').hidden));
+await p.waitForTimeout(800);
+const visto = await p.evaluate(async () => ({
+  arbol: [...document.querySelectorAll('#tree [data-path]')].map(e => e.dataset.path),
+  lista: await (await import('/js/tools/code.js')).tree({ path: '' }).catch(e => 'error: ' + e.message),
+  ficheros: await (await import('/js/tools/code.js')).fileList().catch(e => 'error: ' + e.message),
+}));
+ok('5 · …en su propia carpeta: ni el explorador ni las herramientas ven los pesos de los modelos',
+  !visto.arbol.some(x => /elffuss-models/.test(x)) && !/elffuss-models/.test(JSON.stringify([visto.lista, visto.ficheros])), JSON.stringify(visto));
+ok('5 · …y los pesos siguen intactos', await p.evaluate(async () => {
+  try { await (await (await navigator.storage.getDirectory()).getDirectoryHandle('elffuss-models')).getFileHandle('abc123.bin'); return true; } catch { return false; }
+}));
 await ctx.close();
 
 console.log('\n  errores JS:', errs[0] || 'ninguno');
