@@ -168,6 +168,7 @@ export async function unload() {
 
 export async function chat(history, system, onToken = () => {}, signal = null) {
   if (!engine) throw new Error('Modelo no cargado');
+  if (signal?.aborted) return '';   // parado antes de empezar: ni se toca la conversación
   // Comparar solo la parte estática del prompt: el CONTEXTO AHORA va al final
   // y cambia cada turno — recrear la conversación tiraría el KV-cache.
   const sysKey = system.slice(0, 200);
@@ -211,11 +212,12 @@ export async function chat(history, system, onToken = () => {}, signal = null) {
   try {
     await enviar(text);
   } catch (e) {
+    if (signal?.aborted) { olvidarConversacion(); throw e; }
     // Si falla ANTES de escribir nada, lo normal es que no cupiera (la cuenta de
     // caracteres por token se quedó corta): se rehace compactada, se recorta a la
     // mitad de lo libre y se intenta UNA vez más. Si ya había escrito algo,
     // reintentar lo duplicaría: se deja subir el error.
-    if (out || signal?.aborted) throw e;
+    if (out) throw e;
     console.warn(`[litert] el envío falló sin respuesta (usados ${antes} · ${text.length} caracteres); ` +
       `rehago la conversación compactada y reintento una vez: ${e?.message || e}`);
     await rehacerCompactada(history, sentCount, system, nuevos);
@@ -224,6 +226,12 @@ export async function chat(history, system, onToken = () => {}, signal = null) {
     console.warn(`[litert] reintento: usados ${antes} · se mandan ${text.length} caracteres`);
     await enviar(text);
   }
+  // Parado a media respuesta: se devuelve lo generado, pero la conversación de
+  // LiteRT se TIRA. Ya lleva dentro ese trozo de respuesta, y el agente no lo
+  // guarda en su historial (un turno parado no deja respuesta): seguir con ella
+  // haría que el turno siguiente heredara una respuesta a medias que el usuario
+  // nunca vio terminar. La próxima llamada la rehace desde el historial.
+  if (signal?.aborted) { olvidarConversacion(); return out.trim(); }
   // Se marca como enviado DESPUÉS de enviarlo. Antes se marcaba al principio, y
   // un envío fallido dejaba el mensaje por enviado sin haber llegado nunca.
   sentCount = history.length;
@@ -232,6 +240,8 @@ export async function chat(history, system, onToken = () => {}, signal = null) {
     charsPorToken = Math.min(2, Math.max(1.2, (text.length + out.length) / (despues - antes)));
   return out.trim();
 }
+
+function olvidarConversacion() { conversation = null; sentCount = 0; }
 
 function crearConversacion(system) {
   return engine.createConversation({
