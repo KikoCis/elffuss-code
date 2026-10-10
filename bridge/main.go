@@ -28,15 +28,17 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
-const version = "1.1.1"
+const version = "1.1.2"
 
 // Tope de salida por comando: evita que un proceso que escupe sin fin inunde el
 // WebSocket (DoS de memoria). Al superarlo se corta y se avisa.
@@ -105,13 +107,26 @@ type outMsg struct {
 }
 
 type session struct {
-	conn     *websocket.Conn
-	writeMu  sync.Mutex
-	authed   bool
-	root     string // carpeta raíz permitida (absoluta), "" = sin restricción
-	procsMu  sync.Mutex
-	procs    map[string]*exec.Cmd
+	conn       *websocket.Conn
+	writeMu    sync.Mutex
+	authed     bool
+	root       string // carpeta raíz permitida (absoluta), "" = sin restricción
+	procsMu    sync.Mutex
+	procs      map[string]*job
+	earlyStops map[string]bool // «stop» de un id que aún no había llegado
 }
+
+// Un comando de la sesión. Se apunta en cuanto llega el «exec», ANTES de
+// arrancar el proceso: antes solo se apuntaba tras Start(), en su goroutine, y
+// un «stop» que llegaba en ese hueco no encontraba nada y se perdía. El cliente
+// ya había dado el comando por parado y el comando corría hasta el final.
+type job struct {
+	cmd     *exec.Cmd // nil hasta que arranca
+	stopped bool      // se pidió pararlo (antes o después de arrancar)
+}
+
+// Máximo de «stop» adelantados que se recuerdan; solo protege la memoria.
+const maxEarlyStops = 256
 
 func (s *session) send(m outMsg) {
 	s.writeMu.Lock()
@@ -120,10 +135,14 @@ func (s *session) send(m outMsg) {
 }
 
 func shellFor(cmdline string) *exec.Cmd {
+	var c *exec.Cmd
 	if runtime.GOOS == "windows" {
-		return exec.Command("cmd", "/C", cmdline)
+		c = exec.Command("cmd", "/C", cmdline)
+	} else {
+		c = exec.Command("sh", "-c", cmdline)
 	}
-	return exec.Command("sh", "-c", cmdline)
+	prepareTree(c) // su propio grupo de procesos, para poder matar el árbol entero
+	return c
 }
 
 // resolveCwd valida el directorio de trabajo pedido contra la raíz permitida.
@@ -153,16 +172,58 @@ func (s *session) resolveCwd(reqCwd string) (string, string) {
 	return abs, ""
 }
 
+// Código de salida de un comando parado antes de arrancar: el mismo que da una
+// shell con Ctrl+C (128 + SIGINT), el que el cliente ya usa para «parado».
+const exitStopped = 130
+
+// reserve apunta el comando en cuanto llega su «exec», en el mismo bucle de
+// lectura que luego procesa su «stop»: así un «stop» siempre lo encuentra.
+func (s *session) reserve(id string) {
+	s.procsMu.Lock()
+	defer s.procsMu.Unlock()
+	j := s.procs[id]
+	if j == nil {
+		j = &job{}
+		s.procs[id] = j
+	}
+	if s.earlyStops[id] {
+		j.stopped = true
+		delete(s.earlyStops, id)
+	}
+}
+
+func (s *session) forget(id string) {
+	s.procsMu.Lock()
+	delete(s.procs, id)
+	s.procsMu.Unlock()
+}
+
 func (s *session) runExec(m inMsg) {
 	if strings.TrimSpace(m.Cmd) == "" {
+		s.forget(m.ID)
 		s.send(outMsg{Type: "error", ID: m.ID, Data: "comando vacío"})
 		s.send(outMsg{Type: "exit", ID: m.ID, Code: -1})
 		return
 	}
 	cwd, why := s.resolveCwd(strings.TrimSpace(m.Cwd))
 	if why != "" {
+		s.forget(m.ID)
 		s.send(outMsg{Type: "error", ID: m.ID, Data: why})
 		s.send(outMsg{Type: "exit", ID: m.ID, Code: -1})
+		return
+	}
+	s.procsMu.Lock()
+	j := s.procs[m.ID]
+	if j == nil { // llamado sin reserve(): se apunta aquí
+		j = &job{}
+		s.procs[m.ID] = j
+	}
+	stoppedEarly := j.stopped
+	s.procsMu.Unlock()
+	if stoppedEarly {
+		// Parado antes de arrancar: no se arranca.
+		s.forget(m.ID)
+		s.send(outMsg{Type: "exit", ID: m.ID, Code: exitStopped})
 		return
 	}
 	c := shellFor(m.Cmd)
@@ -170,16 +231,22 @@ func (s *session) runExec(m inMsg) {
 	stdout, err1 := c.StdoutPipe()
 	stderr, err2 := c.StderrPipe()
 	if err1 != nil || err2 != nil {
+		s.forget(m.ID)
 		s.send(outMsg{Type: "error", ID: m.ID, Data: "no pude preparar el proceso"})
 		return
 	}
 	if err := c.Start(); err != nil {
+		s.forget(m.ID)
 		s.send(outMsg{Type: "error", ID: m.ID, Data: "no pude arrancar: " + err.Error()})
 		return
 	}
 	s.procsMu.Lock()
-	s.procs[m.ID] = c
+	j.cmd = c
+	stopNow := j.stopped // el «stop» llegó mientras arrancaba
 	s.procsMu.Unlock()
+	if stopNow {
+		killTree(c)
+	}
 
 	var sent int64
 	var sentMu sync.Mutex
@@ -222,19 +289,102 @@ func (s *session) runExec(m inMsg) {
 			code = -1
 		}
 	}
-	s.procsMu.Lock()
-	delete(s.procs, m.ID)
-	s.procsMu.Unlock()
+	s.forget(m.ID)
 	s.send(outMsg{Type: "exit", ID: m.ID, Code: code})
 }
 
+// stop mata el comando con TODO lo que haya lanzado. Antes mataba solo el
+// «sh -c» que arranca el bridge: lo que ese sh hubiera lanzado (el node de un
+// `npm run dev`, la segunda mitad de `a; b`, los hijos de `npm install`) seguía
+// vivo, con su puerto, mientras la web lo daba por parado.
 func (s *session) stop(id string) {
 	s.procsMu.Lock()
-	c := s.procs[id]
-	s.procsMu.Unlock()
-	if c != nil && c.Process != nil {
-		_ = c.Process.Kill()
+	j := s.procs[id]
+	if j == nil {
+		// Aún no había llegado su «exec»: se recuerda para cuando llegue.
+		if len(s.earlyStops) < maxEarlyStops {
+			s.earlyStops[id] = true
+		}
+		s.procsMu.Unlock()
+		return
 	}
+	j.stopped = true
+	c := j.cmd
+	s.procsMu.Unlock()
+	if c != nil {
+		killTree(c)
+	}
+}
+
+// stopAll mata todo lo de la sesión: al cerrarse el socket ya no queda nadie
+// para pararlo, y el cliente ya lo ha dado por terminado («[bridge
+// desconectado]»). Antes seguía corriendo.
+func (s *session) stopAll() {
+	for _, c := range s.running(true) {
+		killTree(c)
+	}
+}
+
+// running devuelve los procesos arrancados de la sesión (y los marca parados
+// si se pide).
+func (s *session) running(markStopped bool) []*exec.Cmd {
+	s.procsMu.Lock()
+	defer s.procsMu.Unlock()
+	var cmds []*exec.Cmd
+	for _, j := range s.procs {
+		if markStopped {
+			j.stopped = true
+		}
+		if j.cmd != nil {
+			cmds = append(cmds, j.cmd)
+		}
+	}
+	return cmds
+}
+
+// Las sesiones abiertas, para pararlo todo cuando se cierra el bridge.
+var (
+	sessionsMu sync.Mutex
+	sessions   = map[*session]bool{}
+)
+
+// stopOnShutdown: cada comando corre en su propio grupo de procesos, así que el
+// Ctrl+C de la ventana del bridge ya no les llega (antes compartían el grupo
+// del bridge y caían con él). Al recibir la señal de cierre el bridge para
+// todos los comandos, les da el margen para terminar por las buenas, remata lo
+// que quede y sale.
+func stopOnShutdown() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, shutdownSignals...)
+	go func() {
+		<-sigs
+		sessionsMu.Lock()
+		var all []*session
+		for s := range sessions {
+			all = append(all, s)
+		}
+		sessionsMu.Unlock()
+		for _, s := range all {
+			s.stopAll()
+		}
+		quedan := func() bool {
+			for _, s := range all {
+				if len(s.running(false)) > 0 {
+					return true
+				}
+			}
+			return false
+		}
+		for limite := time.Now().Add(killGrace); quedan() && time.Now().Before(limite); {
+			time.Sleep(50 * time.Millisecond)
+		}
+		for _, s := range all {
+			for _, c := range s.running(false) {
+				forceKill(c)
+			}
+		}
+		os.Exit(130)
+	}()
 }
 
 func serveWS(token, root string) http.HandlerFunc {
@@ -251,7 +401,16 @@ func serveWS(token, root string) http.HandlerFunc {
 			return
 		}
 		defer conn.Close()
-		s := &session{conn: conn, procs: map[string]*exec.Cmd{}, root: root}
+		s := &session{conn: conn, procs: map[string]*job{}, earlyStops: map[string]bool{}, root: root}
+		sessionsMu.Lock()
+		sessions[s] = true
+		sessionsMu.Unlock()
+		defer func() {
+			s.stopAll()
+			sessionsMu.Lock()
+			delete(sessions, s)
+			sessionsMu.Unlock()
+		}()
 		log.Println("nueva conexión desde", r.RemoteAddr, "origin:", r.Header.Get("Origin"))
 		attempts := 0
 		for {
@@ -277,6 +436,7 @@ func serveWS(token, root string) http.HandlerFunc {
 					s.send(outMsg{Type: "error", ID: m.ID, Data: "no autenticado"})
 					continue
 				}
+				s.reserve(m.ID)
 				go s.runExec(m)
 			case "stop":
 				if s.authed {
@@ -330,6 +490,8 @@ func main() {
 	fmt.Println("   " + token)
 	fmt.Println()
 	fmt.Println("   Ctrl+C para parar. Deja esta ventana abierta mientras lo uses.")
+
+	stopOnShutdown()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", serveWS(token, root))

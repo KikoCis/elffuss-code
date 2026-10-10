@@ -7,13 +7,16 @@
 // y el proceso desaparece), cerrar el socket suelta los trabajos pendientes en
 // vez de dejarlos colgados para siempre, Ctrl+C en el terminal corta el
 // comando en curso, y parar a la elfa a mitad de un terminal.run mata el
-// comando.
+// comando. Lo que muere es el ÁRBOL: un `npm run dev`, un `a; b` o lo que siga
+// corriendo al cerrar el socket. Se comprueba con `pgrep -f <marca>`, porque
+// `pgrep -P` solo ve hijos directos del bridge y un huérfano deja de serlo. Y un
+// «stop» que sale justo detrás del «exec» no se pierde.
 //
 // Necesita el puerto 8765 (el del bridge, fijo en bridge.js) y servir la web en
 // http://localhost:8799 (el único origen local que el bridge acepta).
 import { chromium } from 'playwright';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const BASE = process.env.BASE || 'http://localhost:8799';
@@ -106,6 +109,62 @@ try {
   await esperar(500);
   ok('  …y el bridge mató el proceso (ya no es hijo suyo)', hijosDelBridge().length === 0, `${hijosDelBridge().length} hijos vivos`);
 
+  // 1b. Una cadena `a; b`: el sh lanza node y espera. Parar mata los dos (antes
+  //     solo el sh: node seguía vivo y el «; echo» no importaba).
+  const MARK_CADENA = 'CADENA-' + Math.floor(Math.random() * 1e6);
+  const r1b = await p.evaluate(async (mark) => {
+    const br = await import('/js/bridge.js');
+    const ac = new AbortController();
+    let out = '';
+    const prom = br.exec(`node -e "setTimeout(()=>{},30000)" ${mark}; echo despues-${mark}`, { signal: ac.signal, onOut: t => { out += t; } });
+    await new Promise(r => setTimeout(r, 900));
+    ac.abort();
+    const code = await prom;
+    await new Promise(r => setTimeout(r, 600));
+    return { code, out };
+  }, MARK_CADENA);
+  await esperar(1500);
+  ok('`node …; echo` parado: resuelve con 130', r1b.code === 130, String(r1b.code));
+  ok('  …y node, que lanzó el sh, también muere', vivos(MARK_CADENA) === 0, `${vivos(MARK_CADENA)} procesos con la marca`);
+  ok('  …y la segunda mitad de la cadena no llega a correr', !r1b.out.includes('despues-'), JSON.stringify(r1b.out));
+
+  // 1c. `npm run dev` (la línea exacta que arma shell.js) con un script que
+  //     lanza node: parar mata el node del script, no solo el npm.
+  const MARK_NPM = 'NPMDEV-' + Math.floor(Math.random() * 1e6);
+  writeFileSync(join(ROOT, 'package.json'), JSON.stringify({ name: 'parar-npm', version: '1.0.0', scripts: { dev: `node -e "setTimeout(()=>{},30000)" ${MARK_NPM}` } }));
+  const r1c = p.evaluate(async () => {
+    const br = await import('/js/bridge.js');
+    window.__acNpm = new AbortController();
+    return br.exec(`npm 'run' 'dev'`, { signal: window.__acNpm.signal });
+  });
+  let antesNpm = 0;
+  for (let i = 0; i < 40 && !antesNpm; i++) { await esperar(250); antesNpm = vivos(MARK_NPM); }
+  await p.evaluate(() => window.__acNpm.abort());
+  const codeNpm = await r1c;
+  await esperar(2500);
+  ok('`npm run dev` corría de verdad (su node tenía la marca)', antesNpm >= 1, `${antesNpm} procesos con la marca`);
+  ok('  …parado: resuelve con 130 y el node del script muere', codeNpm === 130 && vivos(MARK_NPM) === 0, `código ${codeNpm} · ${vivos(MARK_NPM)} procesos con la marca`);
+
+  // 1d. Un «stop» justo detrás del «exec» (en el mismo tick, o uno después):
+  //     antes el bridge aún no había apuntado el proceso, ignoraba el «stop» y el
+  //     comando corría entero aunque la web ya lo diera por parado.
+  const r1d = await p.evaluate(async (root) => {
+    const br = await import('/js/bridge.js');
+    const codes = [];
+    for (let i = 0; i < 12; i++) {
+      const ac = new AbortController();
+      const prom = br.exec(`sleep 1; touch '${root}/pronto-${i}'`, { signal: ac.signal });
+      if (i % 2) await new Promise(r => setTimeout(r, 0));   // uno de cada dos, con un turno de por medio
+      ac.abort();
+      codes.push(await prom);
+    }
+    return codes;
+  }, ROOT);
+  await esperar(2000);
+  const corrieron = Array.from({ length: 12 }, (_, i) => i).filter(i => existsSync(join(ROOT, `pronto-${i}`)));
+  ok('«stop» justo detrás del «exec»: ninguno de los 12 comandos llega a terminar', r1d.every(c => c === 130) && corrieron.length === 0,
+    `códigos ${[...new Set(r1d)].join(',')} · terminaron ${corrieron.length}`);
+
   // 2. Cerrar el socket con un comando en marcha: el trabajo se resuelve (-1) y
   //    se avisa, en vez de quedarse pendiente para siempre.
   const r2 = await p.evaluate(async () => {
@@ -119,6 +178,19 @@ try {
   });
   ok('cerrar el socket suelta el trabajo pendiente (resuelve con -1)', r2.code === -1, String(r2.code));
   ok('  …y lo dice: «[bridge desconectado]»', /\[bridge desconectado\]/.test(r2.err), JSON.stringify(r2.err));
+  // 2b. …y el bridge mata lo que corría por ese socket, con lo que haya lanzado.
+  const reconecta2 = await p.evaluate(async (tok) => { const br = await import('/js/bridge.js'); try { await br.connect(tok); return br.isConnected(); } catch (e) { return e.message; } }, TOKEN);
+  const MARK_SOCK = 'SOCKET-' + Math.floor(Math.random() * 1e6);
+  const r2b = await p.evaluate(async (mark) => {
+    const br = await import('/js/bridge.js');
+    const prom = br.exec(`node -e "setTimeout(()=>{},30000)" ${mark}; true`);
+    await new Promise(r => setTimeout(r, 900));
+    br.disconnect();
+    return prom;
+  }, MARK_SOCK);
+  await esperar(1500);
+  ok('cerrar el socket mata el comando en marcha y lo que lanzó', reconecta2 === true && r2b === -1 && vivos(MARK_SOCK) === 0,
+    `reconectado ${reconecta2} · código ${r2b} · ${vivos(MARK_SOCK)} procesos con la marca`);
   // reconectar para lo que sigue
   const reconecta = await p.evaluate(async (tok) => { const br = await import('/js/bridge.js'); try { await br.connect(tok); return br.isConnected(); } catch (e) { return e.message; } }, TOKEN);
   ok('se vuelve a conectar tras el corte', reconecta === true, String(reconecta));
@@ -172,6 +244,21 @@ try {
   // origen NO permitido: el bridge debe rechazar conexiones de otro origen
   const originCheck = await fetch(`http://127.0.0.1:${PORT}/ping`, { headers: { Origin: 'https://evil.example' } }).then(r => r.status).catch(() => 'err');
   ok('el bridge RECHAZA orígenes no permitidos (seguridad)', originCheck === 403, `status ${originCheck}`);
+
+  // Cerrar el BRIDGE (Ctrl+C en su ventana) con un comando en marcha: cada
+  // comando va en su propio grupo de procesos y la señal ya no le llega sola,
+  // así que es el bridge el que los para antes de salir. Va al final: después
+  // ya no hay bridge.
+  const MARK_CIERRE = 'CIERRE-' + Math.floor(Math.random() * 1e6);
+  await p.evaluate(async (mark) => { const br = await import('/js/bridge.js'); br.exec(`node -e "setTimeout(()=>{},30000)" ${mark}; true`); }, MARK_CIERRE);
+  let antesCierre = 0;
+  for (let i = 0; i < 20 && !antesCierre; i++) { await esperar(200); antesCierre = vivos(MARK_CIERRE); }
+  const salio = new Promise(r => bp.once('exit', () => r(true)));
+  process.kill(bp.pid, 'SIGINT');   // solo al bridge, como el Ctrl+C de su ventana
+  const bridgeSalio = await Promise.race([salio, esperar(6000).then(() => false)]);
+  await esperar(500);
+  ok('Ctrl+C al bridge con un comando en marcha: el bridge sale y el comando muere',
+    antesCierre >= 1 && bridgeSalio && vivos(MARK_CIERRE) === 0, `antes ${antesCierre} · salió ${bridgeSalio} · ${vivos(MARK_CIERRE)} procesos con la marca`);
 } finally {
   await b.close().catch(() => {});
   try { process.kill(-bp.pid, 'SIGTERM'); } catch { /* ya no estaba */ }
