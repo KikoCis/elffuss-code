@@ -126,6 +126,11 @@ const L = {
     // ronda UX 2026-10: cola, guardar, avisos honestos
     queuedTitle: "En cola: sale en cuanto termine lo de ahora",
     queuedCancelled: "Descartado: pulsaste ■ antes de que le tocara",
+    hwPhasePlan: "Hard Work · {n} partes ({k}k){trim}",
+    hwPhaseMap: "Hard Work · leyendo {i}/{n}",
+    hwPhaseGroup: "Hard Work · fundiendo {g}/{n}",
+    hwResult: "⛏ Hard Work (RLM): {n} partes, {k} con señal.",
+    hwFailed: "Hard Work falló: {e}",
 },
   en: {
     ph: 'Type here… (@ attaches a file)',
@@ -247,6 +252,11 @@ const L = {
     // UX round 2026-10: queue, save, honest notices
     queuedTitle: "Queued: it goes out as soon as the current work ends",
     queuedCancelled: "Dropped: you pressed ■ before its turn",
+    hwPhasePlan: "Hard Work · {n} chunks ({k}k){trim}",
+    hwPhaseMap: "Hard Work · reading {i}/{n}",
+    hwPhaseGroup: "Hard Work · merging {g}/{n}",
+    hwResult: "⛏ Hard Work (RLM): {n} chunks, {k} with signal.",
+    hwFailed: "Hard Work failed: {e}",
 },
 };
 

@@ -245,8 +245,9 @@ export async function listAll() {
 }
 
 // ---- envío / procesado ----
-// items de la cola: {kind:'chat'|'goal', text} — 'chat' es un turno normal
-// (agent.handle), 'goal' dispara el planificador/ejecutor de goal.js. Las
+// items de la cola: {kind:'chat'|'goal'|'hard', text} — 'chat' es un turno normal
+// (agent.handle), 'goal' dispara el planificador/ejecutor de goal.js, 'hard'
+// el Hard Work (ver setHardWorkRunner). Las
 // colas persistidas ANTES de que existiera el modo Objetivo guardaban texto
 // suelto (strings) — normalizeItem() los sigue aceptando como 'chat'.
 let inferenceLock = Promise.resolve();
@@ -301,6 +302,21 @@ export function startGoal(id, text) {
   const conv = convs.get(id);
   if (!conv) return;
   conv.queue.push({ kind: 'goal', text });
+  persistConv(conv);
+  pump(conv);
+}
+
+// ⛏ Hard Work: lee el proyecto entero por partes. Va por la MISMA cola que el
+// resto: así el ■ lo para, la conversación se ve ocupada (el cerebro CEO
+// espera) y la pregunta y la respuesta se guardan como cualquier turno. Antes
+// corría por fuera: no se podía parar y desaparecía al cambiar de pestaña.
+// Quien sabe leer el proyecto (main.js) registra cómo se ejecuta.
+let hardWorkRunner = null;
+export function setHardWorkRunner(fn) { hardWorkRunner = fn; }
+export function startHardWork(id, text) {
+  const conv = convs.get(id);
+  if (!conv) return;
+  conv.queue.push({ kind: 'hard', text });
   persistConv(conv);
   pump(conv);
 }
@@ -387,6 +403,7 @@ async function pump(conv) {
         };
         try {
           if (item.kind === 'goal') await runGoal(conv, item.text, onEvent, { signal });
+          else if (item.kind === 'hard' && hardWorkRunner) await hardWorkRunner(conv, item.text, onEvent, { signal });
           else await conv.agent.handle(item.text, onEvent, { signal });
         } finally {
           if (!parada && !signal.aborted) {

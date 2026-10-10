@@ -309,6 +309,7 @@ function onConvEvent(kind, id, payload) {
     if (ev.type === 'text') addMsg('assistant', ev.text);
     if (ev.type === 'tool') { activeThinking?.tool(ev.call.tool); addTool(ev.call.tool, ev.call.args?.path || ev.call.args?.query || ''); }
     if (ev.type === 'tool_result') addToolResult(ev.result);
+    if (ev.type === 'progress') activeThinking?.tool(ev.text);
     if (ev.type === 'error') addMsg('assistant err', ev.text);
     if (ev.type === 'aborted') addMsg('assistant muted', ev.text);
     // 🎯 Modo Objetivo: la tarjeta de plan se crea con 'plan' y se repinta
@@ -317,13 +318,14 @@ function onConvEvent(kind, id, payload) {
   }
 }
 
-function send(text) {
+function send(text, modo) {
   const active = conv.getActive();
   if (!active) return;
   // Si la elfa ya está con algo, el mensaje espera su turno y se ve así (⏳).
   const burbuja = addMsg(active.pumping || active.queue.length ? 'user queued' : 'user', text);
   if (burbuja.classList.contains('queued')) burbuja.title = t('queuedTitle');
-  if (goalMode) conv.startGoal(active.id, text);
+  if (modo === 'hard') conv.startHardWork(active.id, text);
+  else if (goalMode) conv.startGoal(active.id, text);
   else conv.send(active.id, text);
 }
 
@@ -1786,45 +1788,65 @@ let hardMode = false;
 $('btn-hardwork').addEventListener('click', () => {
   hardMode = !hardMode;
   $('btn-hardwork').classList.toggle('on', hardMode);
-  $('prompt').placeholder = hardMode ? t("hwPlaceholder") : 'Pídele código a Elffuss…';
+  // Al apagarlo vuelve el texto de siempre, en el idioma de la interfaz: antes
+  // quedaba un «Pídele código a Elffuss…» fijo y en español.
+  $('prompt').placeholder = hardMode ? t("hwPlaceholder") : t('ph');
 });
 
 // Trabaja el proyecto abierto por partes: trocea, pregunta a cada parte y funde.
-async function runHardWork(question) {
-  const active = conv.getActive();
-  if (!active) return;
-  addMsg('user', question);
-  const thinking = thinkingBubble();
-  const fail = msg => { thinking.remove(); addMsg('assistant', msg); };
+// Corre como un turno MÁS de la conversación (conversations.js → 'hard'): el ■
+// lo para, la conversación se ve ocupada y la pregunta y la respuesta quedan en
+// su historial, así que sobreviven a cambiar de pestaña y a recargar. Antes
+// corría por fuera de la cola: el botón nunca pasaba a ■ y todo vivía solo en
+// el DOM.
+conv.setHardWorkRunner(async (c, question, onEvent, { signal }) => {
+  const hist = c.agent.history;
+  hist.push({ role: 'user', content: question, ts: Date.now() });
+  const responde = texto => {
+    hist.push({ role: 'assistant', content: texto, ts: Date.now() });
+    onEvent({ type: 'text', text: texto });
+  };
+  const parado = () => onEvent({ type: 'aborted', text: '(Parado.)' });
+  const provider = conv.getProvider();
+  if (!provider || provider === rules) return responde(t('hwNeedBrain'));
+  const root = codeTools.handle();
+  if (!root) return responde(t('hwNeedProject'));
+  // Cada sub-llamada recibe la parada (corta la generación en curso) y, si ya
+  // se pulsó ■, la siguiente ni se lanza.
+  const conParada = {
+    chat: (h, sys, cb) => signal.aborted
+      ? Promise.reject(new DOMException('Parado', 'AbortError'))
+      : provider.chat(h, sys, cb, signal),
+  };
   try {
-    const provider = conv.getProvider();
-    if (!provider || provider === rules) return fail(t("hwNeedBrain"));
-    const root = codeTools.handle();
-    if (!root) return fail(t("hwNeedProject"));
-    thinking.tool(t("hwReading"));
+    onEvent({ type: 'progress', text: t('hwReading') });
     const context = await gatherFolder(root, { maxBytes: 1.5e6 });
-    if (!context.trim()) return fail(t("hwNoFiles"));
+    if (signal.aborted) return parado();
+    if (!context.trim()) return responde(t('hwNoFiles'));
     const res = await hardWork({
-      question, context, provider,
+      question, context, provider: conParada,
       onProgress: p => {
-        if (p.phase === 'plan') thinking.tool(`Hard Work · ${p.chunks} partes (${Math.round(p.chars / 1000)}k)${p.truncated ? t("hwTrimmed") : ''}`);
-        else if (p.phase === 'map') thinking.tool(`Hard Work · leyendo ${p.i}/${p.n}`);
-        else if (p.phase === 'reduce-group') thinking.tool(`Hard Work · fundiendo ${p.g}/${p.n}`);
-        else if (p.phase === 'reduce') thinking.tool(t("hwPhaseReduce"));
+        if (signal.aborted) return;
+        if (p.phase === 'plan') onEvent({ type: 'progress', text: t('hwPhasePlan', { n: p.chunks, k: Math.round(p.chars / 1000), trim: p.truncated ? t('hwTrimmed') : '' }) });
+        else if (p.phase === 'map') onEvent({ type: 'progress', text: t('hwPhaseMap', { i: p.i, n: p.n }) });
+        else if (p.phase === 'reduce-group') onEvent({ type: 'progress', text: t('hwPhaseGroup', { g: p.g, n: p.n }) });
+        else if (p.phase === 'reduce') onEvent({ type: 'progress', text: t('hwPhaseReduce') });
       },
     });
-    thinking.remove();
-    addMsg('assistant', res.answer + `\n\n_⛏ Hard Work (RLM): ${res.chunks} partes, ${res.kept} con señal.${res.truncated ? t("hwResultTrunc") : ''}_`);
+    if (signal.aborted) return parado();
+    responde(res.answer + '\n\n_' + t('hwResult', { n: res.chunks, k: res.kept }) + (res.truncated ? t('hwResultTrunc') : '') + '_');
   } catch (e) {
-    thinking.remove();
-    addMsg('assistant err', 'Hard Work falló: ' + (e?.message || String(e)));
+    if (signal.aborted || e?.name === 'AbortError') return parado();
+    const texto = t('hwFailed', { e: e?.message || String(e) });
+    hist.push({ role: 'assistant', content: texto, ts: Date.now() });
+    onEvent({ type: 'error', text: texto });
   }
-}
+});
 
 // resolver @rutas del mensaje: se leen y se adjuntan como contexto
 const _send = send;
 send = async (text) => {
-  if (hardMode) return runHardWork(text);
+  if (hardMode) return _send(text, 'hard');
   const refs = [...text.matchAll(/@([\w./-]+\.\w+)/g)].map(m => m[1]);
   if (refs.length) {
     let ctx = '';
