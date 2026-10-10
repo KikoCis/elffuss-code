@@ -223,6 +223,7 @@ const L = {
     viewBuilding: "Construyendo…", viewFailed: "No pude construir la vista: {e}", flipChat: "Chat", flipEditor: "Editor",
     termClear: "limpiar", tTermClear: "limpiar la pantalla del terminal",
     drawerTitle: "Archivos y herramientas",
+    chatLogLabel: "Conversación",
     clearModelsConfirm: "Vas a borrar {size} de modelos guardados en este navegador.\n\nNo se pierde nada tuyo: solo los pesos descargados. La próxima vez habrá que bajarlos otra vez.\n\n¿Seguir?",
     clearModelsShared: "Ojo: el almacén compartido de Elffuss no se pudo consultar desde aquí; puede quedar algo guardado ahí.",
     clearModelsDone: "💾 Liberados {size}.", clearModelsFailed: "No se pudo vaciar: {what}.",
@@ -447,6 +448,7 @@ const L = {
     viewBuilding: "Building…", viewFailed: "Couldn't build the view: {e}", flipChat: "Chat", flipEditor: "Editor",
     termClear: "clear", tTermClear: "clear the terminal screen",
     drawerTitle: "Files and tools",
+    chatLogLabel: "Conversation",
     clearModelsConfirm: "You are about to delete {size} of models stored in this browser.\n\nNothing of yours is lost: only the downloaded weights. Next time they will be downloaded again.\n\nContinue?",
     clearModelsShared: "Note: Elffuss's shared store could not be checked from here; something may remain stored there.",
     clearModelsDone: "💾 Freed {size}.", clearModelsFailed: "Couldn't clear: {what}.",
@@ -495,4 +497,5 @@ export function applyI18n() {
     '#term-clear': 'tTermClear',
   };
   for (const [sel, key] of Object.entries(titles)) set(sel, 'title', key);
+  document.getElementById('chat-log')?.setAttribute('aria-label', t('chatLogLabel'));
 }
