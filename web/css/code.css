@@ -1,7 +1,15 @@
 /* Elffuss Code — VS Code oscuro con alma élfica */
 :root {
   --bg: #090a11; --bg2: #101317; --bg3: #161a24; --line: #20252c;
-  --fg: #eae8f2; --muted: #8b929c; --accent: #c8a06a; --accent2: #8272ff;
+  /* `--accent2` era #6e63c5: saturación 100 % al lado de un `--accent` arena al
+     46 %, y ese SALTO de saturación es lo que cansa la vista, más que el color.
+     El de ahora tiene la misma saturación que el arena y una luminosidad casi
+     igual (58 % contra 60 %), así que el degradado deja de dar el tirón.
+     De paso arregla la legibilidad: con texto blanco encima el morado viejo
+     daba 3,62:1, por debajo del 4,5:1 que pide WCAG; éste da 4,95:1.
+     ⚠ El arena sigue en 2,42:1 con blanco encima — peor aún— pero bajarlo
+     cambia la identidad de la marca, así que esa decisión no se toma aquí. */
+  --fg: #eae8f2; --muted: #8b929c; --accent: #c8a06a; --accent2: #6e63c5;
   --serif: "Iowan Old Style", Georgia, "Times New Roman", serif;
 }
 * { box-sizing: border-box; }
@@ -422,6 +430,7 @@ body.hide-tree #sidebar { display: none; }
 #menu .sep { font-size: .66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 8px 10px 3px; }
 #menu .menu-item { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; background: none; border: none; color: var(--fg); padding: 7px 10px; border-radius: 7px; cursor: pointer; font-size: .82rem; }
 #menu .menu-item:hover { background: #ffffff0f; }
+#menu .menu-item.sel { background: #ffffff1a; }
 #menu .menu-item b { font-family: ui-monospace, monospace; font-weight: 600; }
 #menu .menu-item span { color: var(--muted); font-size: .74rem; }
 #chat { position: relative; }
@@ -628,3 +637,32 @@ button.wide { width: 100%; padding: 9px; border-radius: 8px; }
 #chat { position: relative; }
 body.chat-full main { grid-template-columns: 46px 0 0 minmax(0, 1fr); }
 body.chat-full #chat { border-left: none; }
+
+/* ── Velocímetro ─────────────────────────────────────────────────────────────
+   Panel anclado a la derecha de la cabecera. Posición fija y no absoluta
+   respecto al header a propósito: el header tiene overflow y recortaba la
+   gráfica por abajo. */
+#speed-panel {
+  position: fixed; top: 52px; right: 12px; z-index: 60;
+  width: min(280px, calc(100vw - 24px));
+  background: var(--panel, #15161c); color: var(--fg, #e8e8ef);
+  border: 1px solid var(--line, #2a2b36); border-radius: 10px;
+  padding: 12px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  font-size: .82rem; line-height: 1.35;
+}
+#speed-panel[hidden] { display: none; }
+.vm-tit { font-weight: 600; margin-bottom: 8px; }
+.vm-tit2 { margin-top: 14px; }
+.vm-filas { display: grid; gap: 6px; }
+.vm-filas > div { display: flex; align-items: baseline; gap: 8px; }
+.vm-filas b { font-variant-numeric: tabular-nums; font-size: 1.05rem; min-width: 4.2em; }
+.vm-filas span { opacity: .72; }
+.vm-graf { margin: 10px 0 2px; }
+.vm-graf-top, .vm-graf-pie { display: flex; justify-content: space-between; opacity: .6; font-size: .72rem; }
+.vm-graf svg { width: 100%; height: 38px; display: block; margin: 3px 0; }
+.vm-vacio { opacity: .55; font-size: .76rem; margin: 6px 0; }
+.vm-nota { margin-top: 12px; opacity: .5; font-size: .7rem; line-height: 1.3; }
+.vm-modelo { font-weight: 400; opacity: .6; font-size: .78rem; }
+/* El aviso de «leer va tan lento como escribir»: es un sintoma, no un dato. */
+.vm-alerta { margin: 10px 0 2px; padding: 8px 10px; border-radius: 8px; font-size: .75rem;
+  line-height: 1.35; background: rgba(255,176,32,.10); border: 1px solid rgba(255,176,32,.28); }

@@ -32,11 +32,33 @@ export async function runTool(name, args) {
   return tool.run(args || {});
 }
 
+// La hora, TRUNCADA A LA HORA EN PUNTO, y el motivo no es estético.
+// ─────────────────────────────────────────────────────────────────────────────
+// Esto era `new Date().toLocaleString()`, que incluye SEGUNDOS, y va en la
+// primera línea del contexto — o sea en la cabeza del prompt de sistema. El
+// motor reutiliza el prefijo solo si los tokens del turno EMPIEZAN EXACTAMENTE
+// por los que ya ingirió, así que un reloj con segundos hacía diverger el
+// prefijo en el token ~5 de CADA turno: la caché de prefijo existía, estaba
+// encendida, estaba medida —sin ella la espera hasta la primera letra crece
+// ×3,2 del turno 1 al 6; con ella se queda plana— y no saltaba NUNCA en
+// producción porque este prompt la invalidaba sola.
+//
+// Truncar a la hora la deja estable durante toda una sesión normal; cruzar una
+// hora cuesta UN re-prefill, no uno por turno. La fecha se conserva entera
+// porque el modelo la usa; los segundos no los usaba nadie —«ayer» se resuelve
+// con el `ts` del turno en que se dijo (ver annotateDates en acer-core.js), no
+// con este reloj—.
+const horaEstable = (loc) => {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  return d.toLocaleString(loc, { dateStyle: 'short', timeStyle: 'short' });
+};
+
 // CONTEXTO AHORA del IDE: proyecto, archivo abierto y árbol resumido.
 export async function snapshot() {
   const { projectName, currentFile } = code.current();
   const parts = [
-    'Fecha y hora: ' + new Date().toLocaleString(),
+    'Fecha y hora: ' + horaEstable(),
     'Proyecto abierto: ' + (projectName || 'ninguno'),
     'Archivo abierto en el editor: ' + (currentFile || 'ninguno'),
   ];

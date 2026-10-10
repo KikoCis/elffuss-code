@@ -12,6 +12,20 @@ import * as terminal from './terminal.js';
 import * as shell from './shell.js';
 import { setTerminalEcho } from './tools/index.js';
 import { ensureModelCache, cacheEstimate, clearModelCache } from './model-cache.js';
+// El almacén compartido vive en OTRO origen y `navigator.storage.estimate()` no
+// lo ve: hay que preguntárselo a él y SUMAR. Ver model-broker.js.
+import { sharedUsage, clearShared } from './runtime/model-broker.js';
+
+// Los origenes donde puede haber pesos salen del REGISTRO del motor, no de una
+// lista a mano: una copiada se queda vieja en cuanto un modelo cambia de host y
+// el contador vuelve a mirar donde no hay nada. Import perezoso porque el motor
+// puede no estar (modo ONNX); sin el, `sharedUsage` usa su defecto.
+async function origenesAlmacen() {
+  try {
+    const r = await import('./engine/registro.js');
+    return r.origenesAlmacen ? r.origenesAlmacen() : undefined;
+  } catch { return undefined; }
+}
 import * as ceo from './ceo.js';
 import * as mind from './mind.js';
 import { buildCityAdapter, loadThoughtsAdapter } from './mind-adapter.js';
@@ -36,6 +50,31 @@ workspace.init({
   ],
 });
 workspace.restore().catch(() => {});
+
+// AVISAR ANTES DE SALIR si hay un turno en marcha.
+// ─────────────────────────────────────────────────────────────────────────────
+// La conversación sobrevive a recargar —se guarda en IndexedDB y se restaura al
+// arrancar—, pero el turno EN CURSO no: la respuesta solo se persiste cuando el
+// turno termina, así que refrescar a mitad de generación tira lo que llevara
+// escrito. Y volver a empezar no es gratis: hay que subir el modelo a la GPU
+// otra vez y releer la conversación entera antes de poder seguir, que con el
+// modelo grande son minutos.
+//
+// El navegador NO deja poner un texto propio —ignora lo que se devuelva y
+// enseña el suyo— así que esto solo consigue que PREGUNTE. Es poco, pero es la
+// diferencia entre perderlo sin enterarte y que te den la opción.
+//
+// Solo se avisa si de verdad hay algo vivo: un aviso que salta siempre se
+// aprende a ignorar en dos días y entonces ya no avisa de nada.
+// `hayTrabajoVivo` cubre LAS DOS cosas, no solo el turno de chat: lo más caro
+// de perder es irse a mitad de subir el modelo a la GPU, que con el grande son
+// minutos y hay que rehacerlo entero. `loadingId` es no-nulo mientras eso pasa.
+const hayTrabajoVivo = () => conv.isBusy() || loadingId !== null;
+addEventListener('beforeunload', (e) => {
+  if (!hayTrabajoVivo()) return;
+  e.preventDefault();
+  e.returnValue = '';   // Safari y navegadores viejos miran esto
+});
 if (workspace.autosaveEnabled()) workspace.autosave({ enabled: true });
 
 import * as telemetry from './telemetry.js';
@@ -333,7 +372,7 @@ async function resolveProvider(id) {
     mod.configure(id.slice(7));
     return mod;
   }
-  if (id.startsWith('onnx:')) {              // ONNX concreto (Elffuss LM, Qwen3…)
+  if (id.startsWith('onnx:')) {              // ONNX concreto (Qwen3.5…)
     const mod = await import('./providers/onnx.js');
     mod.configure(id.slice(5));
     return mod;
@@ -344,6 +383,13 @@ async function resolveProvider(id) {
     // otro fallo de carga.
     const mod = await import('./engine/provider.js');
     mod.configure(id.slice(7));
+    // Igual que en Claw: solo el motor propio mide tok/s (`alMedir`), así que
+    // con ONNX o con un proveedor externo el chip se queda oculto en vez de
+    // mentir con un número que nadie ha medido.
+    try {
+      const vm = await import('./velocimetro.js');
+      vm.montar(mod);
+    } catch (e) { console.warn('[code] velocímetro no disponible:', e.message); }
     return mod;
   }
   if (id.startsWith('ext:')) {
@@ -393,7 +439,7 @@ async function pickLocalBrain() {
     if (c.maxBuf >= 2 ** 30 && c.mem >= 6) return 'litert:gemma-e2b';   // ~2 GB
   }
   if (c.gpu && isMobile()) return 'litert:gemma-e2b';
-  return 'onnx';   // ONNX pequeño: Elffuss LM (1.2B) por defecto; Qwen3 seleccionable
+  return 'onnx';   // ONNX pequeño: Qwen3.5-0.8B por defecto (ver model-config.js)
 }
 // heurística vieja como último recurso síncrono
 const defaultBrain = () => !realGPU ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
@@ -402,6 +448,24 @@ const defaultBrain = () => !realGPU ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' 
 // llega por rsync y el modelo son gigabytes que pueden no estar alojados.
 // Ofrecer algo que no está sería prometer un fallo que llega DESPUÉS de que el
 // usuario haya esperado, que es la peor forma de fallar.
+// Mismo patrón que el 27B: nombre y tamaño salen del REGISTRO del motor, nunca
+// de un literal aquí. Un nombre duplicado es un nombre que se queda viejo.
+// ⚠️ Con HANDLE, no «fire and forget». La lista del selector se construye tras
+// esperar las sondas de disponibilidad, así que una sonda que nadie espera deja
+// su bandera en false cuando se pinta la lista y el modelo no aparece — se sirve
+// y nadie puede elegirlo, el mismo modo de fallo que escondió a Bonsai. Pasó con
+// esta misma sonda: en una app se colaba por carrera y en la otra no aparecía.
+let MINICPM_READY = false, MINICPM_LABEL = 'MiniCPM5 2B', MINICPM_GB = 0;
+const minicpmCheck = (async () => {
+  try {
+    const reg = await import('./engine/registro.js');
+    const m = reg.MODELS && reg.MODELS['minicpm5-2b'];
+    if (m) { MINICPM_LABEL = m.label || MINICPM_LABEL; MINICPM_GB = (m.bytes || 0) / 1e9; }
+    MINICPM_READY = await reg.disponible('minicpm5-2b');
+    return MINICPM_READY;
+  } catch { return (MINICPM_READY = false); }
+})();
+
 let ENGINE_READY = false, MODEL27_READY = false;
 let MODEL27_LABEL = 'Modelo grande';
 let MODEL27_GB = 0;
@@ -438,13 +502,23 @@ function modelOptionsLocales() {
   const opts = [];
   if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
   if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
-  opts.push({ id: 'onnx', label: 'Elffuss LM (healed · 850 MB) — ligero' });
+  // `onnx` a secas era Elffuss LM y se ha quitado. Ojo con el patrón: ESTE era
+  // el TERCER sitio donde el mismo modelo estaba declarado a mano (el registro
+  // de model-config.js, la lista del lab y esta), y quitarlo de los dos
+  // primeros lo dejaba igual de visible aquí. Es el mismo modo de fallo que el
+  // comentario de arriba avisa para Bonsai: un nombre duplicado es un nombre
+  // que se queda viejo.
   opts.push({ id: 'onnx:qwen3.5-0.8b', label: 'Qwen3.5-0.8B · WebGPU (~600 MB)' });
   if (realGPU && ENGINE_READY) opts.push({ id: 'engine:qwen35-0.8b', label: 'Qwen3.5-0.8B · Elffuss Engine (~800 MB)' });
   // El 27B se guarda tras la primera descarga (repartido en dos servidores y
   // troceado, porque el navegador corta un fichero suelto sobre 1,94 GB), así
   // que son «gigas una vez», no «gigas cada vez». Sigue siendo lento: la espera
   // cae entera antes de la primera palabra.
+  // MiniCPM5-2B por el motor propio. Va en «Avanzado» y sin estrella a
+  // propósito: carga y responde con texto limpio, y eso es TODO lo que está
+  // comprobado. No se ha medido contra Gemma E4B, que es el predeterminado, así
+  // que la etiqueta no promete velocidad ni calidad.
+  if (realGPU && ENGINE_READY && MINICPM_READY) opts.push({ id: 'engine:minicpm5-2b', label: `${MINICPM_LABEL} · Elffuss Engine (${MINICPM_GB.toFixed(1)} GB, se guarda)`, group: '⚠ Avanzado' });
   if (realGPU && ENGINE_READY && MODEL27_READY) opts.push({ id: 'engine:qwen38-27b', label: `${MODEL27_LABEL} · Elffuss Engine (${MODEL27_GB.toFixed(1)} GB, se guarda: solo se baja la primera vez) — lento`, group: '⚠ Avanzado' });
   opts.push({ id: 'rules', label: t('setModelRulesName') });
   return opts;
@@ -517,6 +591,20 @@ async function changeModel(id) {
       }
     });
     conv.setProvider(mod);
+    // AHORA sí se reanuda lo que quedó a medias. Al refrescar durante un turno,
+    // el mensaje sigue en la cola —se guarda al enviarlo— pero reanudarlo antes
+    // de este punto lo habría procesado con el cerebro básico. Aquí ya hay
+    // modelo de verdad.
+    //
+    // Si un turno ya se intentó dos veces sin terminar, no se reanuda solo: lo
+    // normal es que esté tumbando la pestaña, y reintentarlo al abrir deja al
+    // usuario en un bucle del que no sale ni cerrando. Se le cuenta y decide.
+    conv.resumePending((convId, item) => {
+      const texto = String(item?.text || '').slice(0, 60);
+      addMsg('sys', `⚠️ «${texto}…» se quedó a medias dos veces y no lo reintento solo: puede estar agotando la memoria. ` +
+        `Escribe otra cosa para seguir, o vuelve a enviarlo si quieres insistir.`);
+      conv.descartarPendiente(convId);
+    });
     // El medidor de contexto pasa a hablar del modelo QUE ESTÁ CARGADO. Quien no
     // sepa decir su contexto deja el valor de reserva, así que esto no puede
     // romper a un proveedor que no lo implemente.
@@ -532,7 +620,7 @@ async function changeModel(id) {
     return true;
   } catch (e) {
     console.error('[elffuss-code] fallo cargando', e);
-    // Un Gemma (LiteRT) que no cabe → cae al Elffuss LM healed (onnx, ligero).
+    // Un Gemma (LiteRT) que no cabe → cae al ligero (onnx, Qwen3.5-0.8B).
     if (id.startsWith('litert') && !_fellBack) {
       _fellBack = true;
       sessionStorage.setItem('elffusscode.skipGemma', '1');
@@ -568,8 +656,8 @@ async function preloadModel() {
   // Las sondas del motor y del modelo grande resuelven DESPUÉS de que se pinte
   // el selector, así que hay que repintarlo: sin esto la opción no aparece
   // hasta que algo más fuerce un refresco, y el usuario no la ve nunca.
-  const [hayMotor, hay27] = await Promise.all([engineCheck, modelo27Check]);
-  if (hayMotor || hay27) rebuildSelect();
+  const [hayMotor, hay27, hayMini] = await Promise.all([engineCheck, modelo27Check, minicpmCheck]);
+  if (hayMotor || hay27 || hayMini) rebuildSelect();
   const avail = new Set(modelOptions().map(o => o.id));
   const skipGemma = sessionStorage.getItem('elffusscode.skipGemma') === '1';
   const def = skipGemma ? 'onnx' : await pickLocalBrain();
@@ -685,7 +773,14 @@ function renderSettings() {
   box.append(el('div', 'sk-h', '💾 ' + t('wsTitle')));
   const wsCard = el('div', 'prov-card');
   const wsState = el('div', 'muted'); wsState.style.fontSize = '.78rem';
-  const wsRow = el('div', 'field'); wsRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:8px';
+  // `flex-direction:row` EXPLÍCITO. La clase `field` es una columna
+  // (`flex-direction: column`), y el estilo de aquí ponía `display:flex` y
+  // `flex-wrap` sin corregir la dirección: los botones quedaban apilados y
+  // estirados a todo el ancho —tres barras de color enormes para «elige una
+  // carpeta»— cuando son acciones pequeñas que caben en una línea. El
+  // `align-items:center` es para que la casilla de autoguardado no se estire.
+  const wsRow = el('div', 'field');
+  wsRow.style.cssText = 'display:flex;flex-direction:row;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px';
   const wsInv = el('div'); wsInv.style.cssText = 'margin-top:10px;font-size:.78rem';
   wsCard.append(el('span', 'muted', t('wsDesc')), wsState, wsRow, wsInv);
   box.appendChild(wsCard);
@@ -742,10 +837,21 @@ function renderSettings() {
   box.appendChild(storeCard);
   async function paintStorage() {
     const { usage, quota, persisted } = await cacheEstimate();
+    // El modelo grande NO está en este origen: lo guarda el broker en el suyo, y
+    // `estimate()` solo ve el propio. Sumando los dos, el panel decía «0,82 GB»
+    // con 7,2 GB guardados al lado — justo sobre el modelo que más ocupa.
+    const compartido = await sharedUsage(await origenesAlmacen());
+    const total = usage + compartido.usage;
     const gb = n => (n / 1073741824).toFixed(2) + ' GB';
-    storeInfo.textContent = usage ? t('setCached', { gb: gb(usage) }) : t('setNone');
+    storeInfo.textContent = total ? t('setCached', { gb: gb(total) }) : t('setNone');
+    // Si el broker no contesta se dice, en vez de dar un total que se queda
+    // corto sin avisar: un número incompleto que parece completo es peor que
+    // uno que admite lo que le falta.
     storeMuted.textContent = (persisted ? t('setPersist') : t('setNoPersist'))
-      + (quota ? t('setLimit', { gb: gb(quota) }) : '');
+      + (quota ? t('setLimit', { gb: gb(quota) }) : '')
+      + (compartido.ok
+        ? (compartido.usage ? ` · incluye ${gb(compartido.usage)} del almacén compartido` : '')
+        : ' · no se pudo consultar el almacén compartido (puede haber más guardado)');
   }
   paintStorage();
 
@@ -1404,12 +1510,41 @@ function openMenu(items) {
     row.className = 'menu-item';
     row.innerHTML = `<b>${it.label}</b>${it.hint ? `<span>${it.hint}</span>` : ''}`;
     row.onclick = () => { menu.hidden = true; it.run(); };
+    row.onmouseenter = () => { menuSel = menuFilas().indexOf(row); pintaMenuSel(); };
     menu.appendChild(row);
   }
   menu.hidden = false;
+  menuSel = menuFilas().length ? 0 : -1;
+  pintaMenuSel();
 }
+
+// Navegar el menú con el teclado. El keydown del composer se aparta cuando el
+// menú está abierto «porque el menú ya usa ↑/↓», y era mentira: nadie escuchaba,
+// así que con el menú abierto las flechas no movían nada y el Enter se quedaba
+// sin enviar el mensaje y sin elegir fichero. Ahora es verdad.
+let menuSel = -1;
+const menuFilas = () => [...$('menu').querySelectorAll('.menu-item')];
+function pintaMenuSel() {
+  const filas = menuFilas();
+  filas.forEach((f, i) => f.classList.toggle('sel', i === menuSel));
+  if (menuSel >= 0) filas[menuSel]?.scrollIntoView({ block: 'nearest' });
+}
+function cierraMenu({ sueltaToken = true } = {}) {
+  $('menu').hidden = true;
+  menuSel = -1;
+  if (sueltaToken) { arrobaDesde = -1; cacheFicheros = null; }
+}
+$('prompt').addEventListener('keydown', (e) => {
+  if ($('menu').hidden) return;
+  if (e.key === 'Escape') { e.preventDefault(); return cierraMenu(); }
+  const filas = menuFilas();
+  if (!filas.length) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); menuSel = (menuSel + 1) % filas.length; pintaMenuSel(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); menuSel = (menuSel - 1 + filas.length) % filas.length; pintaMenuSel(); }
+  else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); filas[Math.max(0, menuSel)].click(); }
+});
 document.addEventListener('click', e => {
-  if (!e.target.closest('#menu, #btn-slash, #btn-plus')) $('menu').hidden = true;
+  if (!e.target.closest('#menu, #btn-slash, #btn-plus')) cierraMenu();
 });
 
 // [/] comandos
@@ -1426,35 +1561,114 @@ $('btn-slash').addEventListener('click', () => openMenu([
 // El menú de ficheros, en una función: lo abren el botón `+` Y escribir `@` en
 // la conversación, que es lo natural y lo que ya prometía el título del botón
 // («Adjuntar archivo del proyecto (@)») sin que nada lo implementara.
-async function abreMenuFicheros() {
+//
+// Y FILTRA mientras escribes. Antes el menú se pintaba una vez al teclear `@` y
+// se quedaba congelado: las letras siguientes entraban en el textarea y la lista
+// seguía mostrando los mismos veinte ficheros. Con un árbol de verdad eso es un
+// menú inútil, porque lo que buscas casi nunca está entre los veinte primeros.
+let arrobaDesde = -1;      // índice del `@` que se está escribiendo, o -1
+let cacheFicheros = null;  // el árbol, leído una vez por sesión de menú
+
+// Reconstruye las RUTAS COMPLETAS del árbol. `code.tree` indenta dos espacios
+// por nivel y marca las carpetas con «📁 », así que la carpeta de un fichero
+// está en su sangría, no en su línea.
+//
+// ⚠️ Esto hacía `l.trim()` sobre cada línea, que es exactamente tirar esa
+// información: el menú ofrecía «obj_1_Zusammenbau.stl» cuando el fichero real
+// es «dinos/obj_1_Zusammenbau.stl», y al insertarlo la herramienta fallaba con
+// «no existe en este proyecto». Lo peor del fallo es que el menú te deja
+// elegirlo: parece que la ruta está bien hasta que la lees.
+export function rutasDelArbol(tree) {
+  const rutas = [];
+  const pila = [];
+  for (const linea of String(tree || '').split('\n')) {
+    if (!linea.trim()) continue;
+    if (linea.startsWith('…')) continue;            // el aviso de árbol recortado
+    const sangria = linea.length - linea.replace(/^ +/, '').length;
+    const nivel = Math.floor(sangria / 2);
+    const texto = linea.trim();
+    if (texto.startsWith('📁')) {
+      pila.length = nivel;                          // salir de las carpetas hermanas
+      pila.push(texto.replace(/^📁\s*/, ''));
+    } else {
+      rutas.push([...pila.slice(0, nivel), texto].join('/'));
+    }
+  }
+  return rutas;
+}
+
+async function listaProyecto() {
+  if (cacheFicheros) return cacheFicheros;
   let tree = '';
   try { tree = await codeTools.tree({ depth: 3 }); } catch { /* sin proyecto */ }
-  const files = tree.split('\n').filter(l => l.trim() && !l.includes('📁')).map(l => l.trim()).slice(0, 40);
+  const files = rutasDelArbol(tree);
   const { currentFile } = codeTools.current();
-  const items = [{ sep: t('attachSep') }];
-  if (currentFile) items.push({ label: '@' + currentFile, hint: t('attachOpen'), run: () => attach(currentFile) });
-  for (const f of files.filter(f => f !== currentFile).slice(0, 20))
-    items.push({ label: '@' + f, run: () => attach(f) });
-  openMenu(items.length > 1 ? items : [{ sep: t('openProjFirst') }]);
+  return (cacheFicheros = { files, currentFile });
 }
-$('btn-plus').addEventListener('click', abreMenuFicheros);
 
-// Escribir `@` abre la lista de ficheros. Se mira el carácter ANTERIOR al
-// cursor: así `correo@dominio` no dispara el menú a media palabra, y `@` al
-// principio o tras un espacio sí. La condición es sobre lo que el usuario
-// acaba de teclear, no sobre el valor entero, para no reabrirlo cada vez que
-// toca una tecla con un `@` ya escrito antes.
-$('prompt').addEventListener('input', (e) => {
-  if (e.inputType !== 'insertText' || e.data !== '@') return;
-  const v = e.target.value, i = e.target.selectionStart - 1;
-  const previo = i > 0 ? v[i - 1] : '';
-  if (previo === '' || /\s/.test(previo)) abreMenuFicheros();
+async function abreMenuFicheros(frag = '') {
+  const { files, currentFile } = await listaProyecto();
+  const q = frag.toLowerCase();
+  // El filtro va sobre la lista COMPLETA y el recorte a 20 va DESPUÉS. Al revés
+  // —recortar y luego filtrar, como hacía antes— un fichero en el puesto 50 del
+  // árbol no aparece nunca, por mucho que escribas su nombre entero.
+  const casa = (f) => !q || f.toLowerCase().includes(q);
+  const items = [{ sep: frag ? `${t('attachSep')} · @${frag}` : t('attachSep') }];
+  if (currentFile && casa(currentFile)) items.push({ label: '@' + currentFile, hint: t('attachOpen'), run: () => attach(currentFile) });
+  for (const f of files.filter(f => f !== currentFile && casa(f)).slice(0, 20))
+    items.push({ label: '@' + f, run: () => attach(f) });
+
+  if (items.length === 1) {
+    // Sin coincidencias: el menú se aparta en vez de estorbar con una lista
+    // vacía, y vuelve solo en cuanto borras una letra y el filtro encaja.
+    if (frag) { cierraMenu({ sueltaToken: false }); return; }
+    openMenu([{ sep: t('openProjFirst') }]);
+    return;
+  }
+  openMenu(items);
+}
+$('btn-plus').addEventListener('click', () => { arrobaDesde = -1; cacheFicheros = null; abreMenuFicheros(); });
+
+// ¿Está el cursor dentro de un `@token`? Se recorre hacia atrás hasta el primer
+// espacio: así `correo@dominio` no dispara el menú a media palabra (el carácter
+// previo al `@` no es espacio) y `@` al principio o tras un espacio sí. El
+// fragmento no puede contener espacios, que es justo donde termina una ruta.
+function tokenArroba(el) {
+  const v = el.value, cur = el.selectionStart;
+  for (let i = cur - 1; i >= 0; i--) {
+    if (/\s/.test(v[i])) return null;
+    if (v[i] === '@') {
+      const previo = i > 0 ? v[i - 1] : '';
+      return (previo === '' || /\s/.test(previo)) ? { desde: i, frag: v.slice(i + 1, cur) } : null;
+    }
+  }
+  return null;
+}
+
+$('prompt').addEventListener('input', () => {
+  const tk = tokenArroba($('prompt'));
+  if (!tk) { if (arrobaDesde >= 0) cierraMenu(); return; }
+  arrobaDesde = tk.desde;
+  abreMenuFicheros(tk.frag);
 });
 
 function attach(path) {
   const p = $('prompt');
-  p.value = (p.value + ' @' + path).trim() + ' ';
-  p.focus();
+  if (arrobaDesde >= 0) {
+    // Se SUSTITUYE el `@frag` a medio escribir. Añadirlo al final, como antes,
+    // dejaba `@src/ma @src/main.js` en cuanto el menú empezó a filtrar.
+    const cola = p.value.slice(p.selectionStart);
+    const sep = cola.startsWith(' ') ? '' : ' ';
+    p.value = p.value.slice(0, arrobaDesde) + '@' + path + sep + cola;
+    const cur = arrobaDesde + 1 + path.length + sep.length;
+    p.focus();
+    p.setSelectionRange(cur, cur);
+  } else {
+    p.value = (p.value + ' @' + path).trim() + ' ';
+    p.focus();
+  }
+  arrobaDesde = -1;
+  cacheFicheros = null;
 }
 
 // </> Auto (Edit automatically): si off, pide confirmación antes de escribir
@@ -1725,7 +1939,15 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') { e.preventDefault(); openPalette(e.shiftKey ? '>' : ''); }
   if (e.key === 'Escape' && !$('palette').hidden) closePalette();
 });
-document.addEventListener('click', e => { if (!e.target.closest('#palette')) closePalette(); });
+// Cerrar la paleta al pulsar fuera, PERO no cuando el clic viene del menú: es
+// el menú el que la abre («Go to file»), y sin esta excepción el mismo clic la
+// abría y la cerraba — el `onclick` del item la mostraba y acto seguido el
+// evento seguía burbujeando hasta aquí, donde el target es el item del menú,
+// que no está dentro de #palette. Con Cmd+P funcionaba porque es teclado y no
+// pasa por este camino, y por eso parecía que «el atajo sí y el menú no».
+document.addEventListener('click', e => {
+  if (!e.target.closest('#palette, #menubar, #topmenu')) closePalette();
+});
 
 // ---------- barra de menú File/Edit/View/Git ----------
 async function menuFor(which) {
@@ -1845,18 +2067,29 @@ function mountDiskChip() {
   const gb = n => n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : Math.round(n / 1048576) + ' MB';
   async function paint() {
     const { usage, quota } = await cacheEstimate();
-    if (!usage) { chip.hidden = true; return; }
+    const compartido = await sharedUsage(await origenesAlmacen());
+    const total = usage + compartido.usage;
+    if (!total) { chip.hidden = true; return; }
     chip.hidden = false;
-    chip.textContent = '💾 ' + gb(usage);
-    chip.title = `Modelos guardados en este navegador: ${gb(usage)}`
+    chip.textContent = '💾 ' + gb(total);
+    chip.title = `Modelos guardados en este navegador: ${gb(total)}`
       + (quota ? ` de ${gb(quota)} disponibles` : '') + '. Pulsa para vaciarlo.';
   }
   chip.addEventListener('click', async () => {
     const { usage } = await cacheEstimate();
-    if (!confirm(`Vas a borrar ${gb(usage)} de modelos guardados en este navegador.\n\n`
+    const comp = await sharedUsage(await origenesAlmacen());
+    const total = usage + comp.usage;
+    if (!confirm(`Vas a borrar ${gb(total)} de modelos guardados en este navegador.\n\n`
       + `No se pierde nada tuyo: solo los pesos descargados. La próxima vez habrá que bajarlos otra vez.\n\n¿Seguir?`)) return;
     chip.textContent = '💾 …';
-    try { await clearModelCache(); } catch (e) { alert('No se pudo vaciar: ' + (e.message || e)); }
+    // LOS DOS almacenes. Vaciar solo el de este origen dejaba intacto el modelo
+    // grande —que es casi todo lo que ocupa— así que quien pulsaba para
+    // recuperar espacio no lo recuperaba y no se enteraba.
+    let fallo = null;
+    try { await clearModelCache(); } catch (e) { fallo = e.message || String(e); }
+    const r = await clearShared();
+    if (!r.ok && comp.usage) fallo = (fallo ? fallo + ' · ' : '') + 'el almacén compartido no se pudo vaciar';
+    if (fallo) alert('No se pudo vaciar del todo: ' + fallo);
     paint();
   });
   paint();

@@ -72,10 +72,13 @@
       <span id="model-dot" class="dot off" title="modelo"></span>
       <select id="model-select" hidden></select>
       <button id="disk-chip" class="chip" hidden></button>
+      <button id="speed-chip" class="chip" hidden title="velocidad de esta máquina"></button>
       <button id="btn-history" class="ghost icon-btn" title="Historial de conversaciones"></button>
       <button id="btn-settings" class="ghost icon-btn" title="Ajustes, modelo y API keys"></button>
     </div>
   </header>
+  <!-- Fuera del header: dentro heredaba su overflow y recortaba la gráfica. -->
+  <div id="speed-panel" hidden></div>
   <div id="settings-panel" hidden></div>
   <div id="topmenu" hidden></div>
   <div id="palette" hidden>

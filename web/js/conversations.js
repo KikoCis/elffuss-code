@@ -180,6 +180,40 @@ export async function listAll() {
 let inferenceLock = Promise.resolve();
 const normalizeItem = it => (typeof it === 'string' ? { kind: 'chat', text: it } : it);
 
+// Reanudar lo que quedó a medias, UNA VEZ HAY CEREBRO. Lo llama main.js después
+// de cargar el modelo.
+//
+// La guarda del contador no es paranoia: si un turno se llevó la pestaña por
+// delante —pasa con el modelo grande y poca memoria— reanudarlo al abrir la
+// vuelve a tumbar, y el usuario entra en un bucle del que no puede salir ni
+// abriendo la web. Se cuenta el intento ANTES de ejecutar y se persiste; si el
+// turno acaba, el item sale de la cola y el contador se va con él. Si la
+// pestaña muere, el contador sobrevive y al tercer intento ya no se reanuda
+// solo: se avisa y decide el usuario.
+const MAX_INTENTOS = 2;
+export function resumePending(onAviso = () => {}) {
+  for (const conv of convs.values()) {
+    if (!conv.queue.length) continue;
+    const it = normalizeItem(conv.queue[0]);
+    if ((it.intentos || 0) >= MAX_INTENTOS) {
+      onAviso(conv.id, it);
+      continue;
+    }
+    pump(conv);
+  }
+}
+
+// Descarta el turno atascado y sigue con el resto de la cola. Para el botón del
+// aviso: sin esto, una conversación con un turno que cuelga queda bloqueada
+// para siempre y no hay forma de usarla.
+export async function descartarPendiente(id) {
+  const conv = convs.get(id);
+  if (!conv || !conv.queue.length) return;
+  conv.queue.shift();
+  await persistConv(conv);
+  if (conv.queue.length) pump(conv);
+}
+
 export function send(id, text) {
   const conv = convs.get(id);
   if (!conv) return;
@@ -206,6 +240,12 @@ async function pump(conv) {
   onChange('pumping', conv.id, true);
   while (conv.queue.length) {
     const item = normalizeItem(conv.queue[0]);
+    // El intento se cuenta y se GUARDA antes de ejecutar: si el turno se lleva
+    // la pestaña, esto es lo único que queda para saber que ya se intentó.
+    // Guardarlo después no serviría de nada — no habría «después».
+    item.intentos = (item.intentos || 0) + 1;
+    conv.queue[0] = item;
+    await persistConv(conv);
     const myTurn = inferenceLock;
     let release;
     inferenceLock = new Promise(r => { release = r; });
@@ -214,11 +254,27 @@ async function pump(conv) {
       // un fallo aquí (del modelo, de una tool, o del propio repintado en
       // main.js) NUNCA debe dejar la conversación "pumping" para siempre —
       // eso bloquearía sus futuros mensajes Y al cerebro CEO (isBusy()).
+      // Tasa de resolución y tiempo por tarea. Se mide aquí, que es donde una
+      // tarea empieza y acaba de verdad: el motor solo ve turnos y no sabe qué
+      // es una tarea. «Resuelta» = ni excepción ni evento de error, porque el
+      // fallo típico no es una excepción sino una respuesta que llega al
+      // usuario como error — contar solo excepciones daría un 100 % perpetuo.
+      const tTarea = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      let huboError = false;
       const onEvent = ev => {
+        if (ev && ev.type === 'error') huboError = true;
         try { onChange('event', conv.id, ev); } catch (e) { console.error('[elffuss] fallo pintando un evento de chat', e); }
       };
-      if (item.kind === 'goal') await runGoal(conv, item.text, onEvent);
-      else await conv.agent.handle(item.text, onEvent);
+      try {
+        if (item.kind === 'goal') await runGoal(conv, item.text, onEvent);
+        else await conv.agent.handle(item.text, onEvent);
+      } finally {
+        try {
+          const vm = await import('./velocimetro.js');
+          const fin = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+          vm.tarea({ ok: !huboError, ms: fin - tTarea });
+        } catch { /* sin velocímetro la app funciona igual */ }
+      }
     } catch (e) {
       console.error('[elffuss] fallo procesando el turno', e);
       telemetry.reportError('pump: ' + (e?.message || e), { stack: e?.stack || '' });
@@ -268,6 +324,12 @@ export async function init({ onEvent }) {
     if (mostRecent) { makeConv(mostRecent.id, mostRecent); openTabIds.push(mostRecent.id); activeId = mostRecent.id; }
     else create();
   }
-  for (const conv of convs.values()) if (conv.queue.length) pump(conv);
+  // NO se reanuda aquí. Esta línea hacía `pump(conv)` directamente, y `init()`
+  // corre ANTES de que el modelo esté cargado: el proveedor en ese momento es
+  // `rules`, así que al refrescar a mitad de turno el mensaje en cola se
+  // reprocesaba con el cerebro BÁSICO y se gastaba — peor que no reanudar,
+  // porque además parecía que había contestado. Ahora lo dispara quien sabe
+  // que hay cerebro: main.js, tras cargar el modelo, llamando a
+  // `resumePending()`.
   persistMeta();
 }

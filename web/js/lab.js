@@ -67,7 +67,7 @@ const BENCHES = [
 
 const BRAINS = [
   ['rules', 'Reglas (sin GPU)', 'Determinista. Valida el arnés sin bajar pesos.'],
-  ['onnx', 'Elffuss LM (CPU/wasm)', 'LFM2.5-1.2B por transformers.js.'],
+  ['onnx', 'Qwen3.5-0.8B (CPU/wasm)', 'El ligero, por transformers.js.'],
   ['litert:gemma-e2b', 'Gemma-4 E2B (~2 GB)', 'WebGPU.'],
   ['litert:gemma-e4b', 'Gemma-4 E4B (~3 GB)', 'WebGPU. El mejor.'],
 ];

@@ -107,11 +107,48 @@ Tú:
 \`\`\`tool
 {"tool": "code.read", "args": {"path": "src/main.py"}}
 \`\`\`
-(y tras leerlo de verdad, propones mejoras CONCRETAS citando líneas — nunca genéricas)${skillsPromptBlock()}${context ? `
-
-CONTEXTO AHORA (estado real del IDE, úsalo):
-${context}` : ''}`;
+(y tras leerlo de verdad, propones mejoras CONCRETAS citando líneas — nunca genéricas)${skillsPromptBlock()}`;
 }
+
+export const ETIQUETA_CONTEXTO = 'CONTEXTO AHORA (estado real del IDE, úsalo):';
+
+// ── Dónde va el estado vivo, y por qué NO va en el prompt de sistema ────────
+// El bloque «CONTEXTO AHORA» estaba dentro de `systemPrompt()`, y el motor monta
+// el prompt poniendo el system ENTERO en la cabeza, delante de toda la historia
+// (`montarPrompt` en provider.js). La reutilización de prefijo compara tokens
+// desde el principio y se corta en la primera divergencia, así que cualquier
+// cambio en ese bloque invalidaba el prefijo COMPLETO: el prompt de sistema
+// entero más toda la conversación.
+//
+// Y ese bloque cambia constantemente —es estado vivo— así que en la práctica la
+// caché de prefijo no servía casi nunca. Medido el 2026-10-10: con un prompt
+// realista el prefill del modelo grande es la espera mas larga del producto,
+// y un turno con
+// herramientas pagaba eso EN CADA PASO del bucle, porque cada paso cambia el
+// estado y por tanto la cabeza.
+//
+// Ahora el estado vivo viaja como un MENSAJE, colocado justo antes del último
+// de la conversación. Así el prefijo común cubre el prompt de sistema y toda la
+// historia anterior, y solo se reprocesa lo nuevo.
+//
+// ⚠️ Va antes del ÚLTIMO mensaje, no al final, a propósito: el empaquetador de
+// contexto elige la «pregunta viva» como el último mensaje de usuario que no
+// empiece por «[resultado», y si este bloque fuera el último se convertiría en
+// la pregunta viva y la recuperación puntuaría contra un volcado de estado en
+// vez de contra lo que ha pedido el usuario.
+export function mensajeContexto(context, etiqueta) {
+  if (!context) return null;
+  return { role: 'user', content: `${etiqueta}\n${context}` };
+}
+
+// Inserta el estado vivo justo antes del último mensaje de la conversación.
+export function conContexto(history, context, etiqueta) {
+  const m = mensajeContexto(context, etiqueta);
+  if (!m) return history;
+  if (!history.length) return [m];
+  return [...history.slice(0, -1), m, history[history.length - 1]];
+}
+
 
 // Repara el JSON que emiten los modelos pequeños: coma final + saltos de línea/
 // tab/CR LITERALES dentro de cadenas (un HTML escrito «tal cual» en content los
@@ -199,6 +236,36 @@ export function parseToolCall(text) {
   return parseToolCalls(text)[0] || null;
 }
 
+// Formato `<function name="X"><param name="k">v</param></function>`, que es el
+// que emite MiniCPM5 y varios modelos más. No es el que pide nuestro prompt
+// —bloque ```tool con JSON— pero un modelo entrenado con otro formato lo emite
+// igual por mucho que se le pida el nuestro, y entonces la llamada se imprime
+// como texto y no se ejecuta NADA: el usuario ve al modelo "contestar" con una
+// etiqueta XML y no pasa nada más.
+//
+// Se acepta el formato en vez de pelearse con el modelo. El valor de cada
+// `param` se intenta leer como JSON —para que un 3 sea el número 3 y no "3"—
+// y si no es JSON válido se queda como texto, que es lo que hay que hacer con
+// una ruta.
+export function parseFunctionTags(text) {
+  const out = [];
+  const re = /<function\s+name=["']([\w.\-]+)["']\s*>([\s\S]*?)<\/function\s*>/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const args = {};
+    const pre = /<param\s+name=["']([\w.\-]+)["']\s*>([\s\S]*?)<\/param\s*>/g;
+    let p;
+    while ((p = pre.exec(m[2]))) {
+      const bruto = p[2].trim();
+      let v = bruto;
+      try { v = JSON.parse(bruto); } catch { /* texto tal cual: lo normal en una ruta */ }
+      args[p[1]] = v;
+    }
+    out.push({ tool: m[1], args });
+  }
+  return out;
+}
+
 // Extrae TODAS las tool-calls de un mensaje, en orden. El modelo pequeño a
 // menudo emite varias (p. ej. tres code.write para crear tres ficheros) o las
 // mete en prosa sin un fence ```tool perfecto → antes solo se ejecutaba la
@@ -216,6 +283,8 @@ export function parseToolCalls(text) {
   const nat = /<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g;
   let mm;
   while ((mm = nat.exec(text))) push(parseNativeCall(mm[0]));
+  // 1b) formato <function><param> (MiniCPM5 y afines)
+  for (const c of parseFunctionTags(text)) push(c);
   // 2) cada objeto JSON que empiece por {"tool": … (con o sin fence)
   const re = /\{\s*"tool"\s*:/g;
   let m;
@@ -290,7 +359,8 @@ export class Agent {
         // por tamaño de contexto: al 27B le cabría y aun así no debe recibirlo.
         // Quien no declare `prefiereCompacto` —todos los demás— recibe
         // exactamente el mismo prompt que antes; para ellos esto es inerte.
-        out = await this.provider.chat(this.history, systemPrompt(context),
+        out = await this.provider.chat(conContexto(this.history, context, ETIQUETA_CONTEXTO),
+          systemPrompt(''),
           t => onEvent({ type: 'token', text: t }), signal);
       } catch (e) {
         telemetry.reportError('agent.handle: ' + e.message, { stack: e.stack || '' });

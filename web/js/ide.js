@@ -61,8 +61,14 @@ export function gotoLine(n) {
   editor.focus();
 }
 export function triggerEditor(actionId) {
-  editor?.getAction(actionId)?.run();
+  // El foco va ANTES de lanzar la acción, no después. Muchas acciones de Monaco
+  // abren un widget que toma el foco (quickOutline, por ejemplo), así que un
+  // `focus()` posterior se lo quitaba y lo cerraba al instante: «Go to symbol»
+  // no hacía nada visible. Y además varias acciones necesitan que el editor
+  // tenga el foco para ejecutarse, cosa que no pasa si vienes de pulsar un
+  // item de menú.
   editor?.focus();
+  editor?.getAction(actionId)?.run();
 }
 export function hasEditor() { return !!editor; }
 
