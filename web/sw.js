@@ -26,18 +26,24 @@ self.addEventListener('message', e => {
 // notificaciones normales (new Notification()) no soportan acciones, las que
 // pasan por el SW (registration.showNotification) sí. Al pulsar, avisamos a
 // la pestaña (postMessage) para que mande la propuesta a la cola real.
+//
+// A la ventana del IDE, no a la primera que haya: con el Lab abierto (lab.html)
+// el aviso podía irse a él y perderse. Y si no hay ninguna ventana abierta, se
+// abre el IDE con la acción en la URL (?notif=…) para que la Mente aparezca en
+// cuanto el proyecto esté abierto; antes se abría «/» y la propuesta se perdía.
 self.addEventListener('notificationclick', event => {
   const action = event.action; // 'execute' | 'open' | '' (clic en el cuerpo)
   const data = event.notification.data || {};
   event.notification.close();
   event.waitUntil((async () => {
     const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const client = clientsList[0];
+    const esIDE = c => { try { const u = new URL(c.url); return !/\/lab\.html$/.test(u.pathname); } catch { return false; } };
+    const client = clientsList.find(esIDE);
     if (client) {
       client.postMessage({ type: 'notif-action', action, md: data.md });
       client.focus?.();
     } else if (self.clients.openWindow) {
-      await self.clients.openWindow('/');
+      await self.clients.openWindow('./?notif=' + (action === 'execute' ? 'execute' : 'open'));
     }
   })());
 });

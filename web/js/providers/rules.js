@@ -9,7 +9,7 @@ const HELP = `Estoy en modo básico (sin modelo). Entiendo:
 • «lee <archivo>» · «abre <archivo>»
 • «busca <texto>»
 • «escribe <archivo>: <contenido>»
-Para programar de verdad, carga el modelo local (selector 🧠) o configura uno en ⚙️.`;
+Para programar de verdad, elige un modelo en ⚙️ Ajustes → Cerebro (o pulsa el punto de estado del modelo, arriba a la derecha).`;
 
 export async function chat(history, systemPrompt) {
   const last = history[history.length - 1];
