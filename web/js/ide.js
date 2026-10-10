@@ -1,11 +1,13 @@
 // IDE: Monaco (el editor de VS Code) + árbol de archivos + pestañas.
 import * as code from './tools/code.js';
+import * as db from './db.js';
 import { fileIcon, folderIcon } from './icons.js';
 import { renderMarkdown } from './md.js';
 import { t } from './i18n.js';
 
 let editor = null;
 let monacoRef = null;
+let ext = null;               // extensiones de VS Code (js/ext/host.js), ver loadExt()
 const tabs = [];              // { path, model, dirty, preview }
 let active = null;
 let onDirtyChange = () => {};
@@ -17,7 +19,8 @@ const LANG = {
   cpp: 'cpp', sh: 'shell', yml: 'yaml', yaml: 'yaml', toml: 'ini',
   svg: 'xml', xml: 'xml', sql: 'sql', txt: 'plaintext',
 };
-const langOf = p => LANG[p.split('.').pop().toLowerCase()] || 'plaintext';
+// las extensiones instaladas mandan (p. ej. .toml → toml en vez de ini)
+const langOf = (p, primeraLinea = null) => ext?.languageForPath(p, primeraLinea) || LANG[p.split('.').pop().toLowerCase()] || 'plaintext';
 const $ = id => document.getElementById(id);
 
 export async function initEditor() {
@@ -30,8 +33,9 @@ export async function initEditor() {
   window.require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
   await new Promise(res => window.require(['vs/editor/editor.main'], res));
   monacoRef = window.monaco;
+  ext = await loadExt(false);
   editor = monacoRef.editor.create($('editor'), {
-    theme: 'vs-dark',
+    theme: ext ? ext.themeId() : 'vs-dark',
     automaticLayout: true,
     fontSize: 13,
     minimap: { enabled: false },
@@ -93,8 +97,13 @@ export async function openFile(path) {
       if (hits.length === 1 && hits[0] !== path) return openFile(hits[0]);
       return alertBar(t('openFailed', { path, e: e.message }));
     }
-    tab = { path, model: monacoRef.editor.createModel(content, langOf(path)), dirty: false, preview: false };
-    tabs.push(tab);
+    const lang = langOf(path, content.slice(0, 500).split('\n')[0]);
+    await ext?.prepareLanguage(lang);       // la gramática, antes de que exista el modelo
+    tab = tabs.find(t => t.path === path);  // otra llamada pudo abrirla mientras tanto
+    if (!tab) {
+      tab = { path, model: monacoRef.editor.createModel(content, lang), dirty: false, preview: false };
+      tabs.push(tab);
+    }
   }
   active = path;
   code.setCurrentFile(path);
@@ -731,4 +740,32 @@ async function renderDir(dir, prefix) {
     ul.appendChild(li);
   }
   return ul;
+}
+
+// ---------- extensiones de VS Code (js/ext/) ----------
+// Temas de color, gramáticas TextMate, snippets y lenguajes. El host solo se
+// carga si hay alguna extensión activa o un tema elegido, o al abrir el panel
+// de extensiones: sin ellas, Code arranca exactamente igual que siempre.
+let extCarga = null;
+async function hayExtensiones() {
+  try { const p = localStorage.getItem('elffusscode.theme'); if (p && p !== 'vs-dark') return true; } catch { /* sin almacenamiento */ }
+  const lista = await db.get('kv', 'extensions').catch(() => null);
+  return Array.isArray(lista) && lista.some(e => e && e.enabled);
+}
+export async function loadExt(force = true) {
+  if (ext) return ext;
+  if (!monacoRef || (!force && !(await hayExtensiones()))) return null;
+  extCarga ??= import('./ext/host.js').then(m => m.init(monacoRef, { onLanguagesChanged: refreshLanguages }));
+  try { ext = await extCarga; }
+  catch (e) { extCarga = null; console.warn('[elffuss] extensiones no disponibles:', e?.message || e); }
+  return ext;
+}
+// Tras instalar, activar o desactivar: cada pestaña abierta, con su lenguaje y
+// su gramática al día (o de vuelta a lo de serie).
+async function refreshLanguages() {
+  for (const tab of [...tabs]) {
+    const lang = langOf(tab.path, tab.model.getLineContent(1));
+    await ext?.prepareLanguage(lang);
+    if (!tab.model.isDisposed() && tab.model.getLanguageId() !== lang) monacoRef.editor.setModelLanguage(tab.model, lang);
+  }
 }

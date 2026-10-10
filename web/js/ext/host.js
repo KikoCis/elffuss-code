@@ -1,0 +1,222 @@
+// Host de extensiones de VS Code — nivel 1: solo contribuciones declarativas
+// (temas de color, gramáticas TextMate, snippets y configuración de lenguajes).
+// NINGÚN JavaScript de una extensión se ejecuta aquí.
+//
+// ide.js lo carga solo si hay alguna extensión activa (o un tema elegido) y el
+// panel lo carga al abrirse: sin extensiones, el arranque de Code no cambia.
+// Cada cambio (instalar, activar, desactivar, desinstalar) deshace lo aplicado
+// y lo vuelve a aplicar desde cero, de uno en uno: más simple y sin restos.
+// Las gramáticas solo se rehacen si su lista cambia.
+import * as store from './store.js';
+import { BASES, builtinTheme, toMonacoTheme, toTextMateTheme, chromeCss, themeIdFor } from './themes.js';
+import { registerSnippets } from './snippets.js';
+import { toLanguageConfiguration, matchLanguage } from './languages.js';
+import { Grammars } from './grammars.js';
+import { uiLang } from '../i18n.js';
+
+export const THEME_PREF = 'elffusscode.theme';
+let instancia = null;
+
+export function init(monaco, opts = {}) {
+  instancia ??= crear(monaco, opts).catch(e => { instancia = null; throw e; });
+  return instancia;
+}
+
+async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
+  const paused = /[?&]noext\b/.test(location.search);
+  const builtin = new Set(monaco.languages.getLanguages().map(l => l.id));
+  const registrados = new Set();      // lenguajes que registramos (Monaco no permite quitarlos)
+  const listeners = new Set();
+  let exts = [];
+  let aplicado = [];                  // disposables de lo aplicado
+  let langContribs = [];
+  let themeIndex = new Map();         // id de tema → { key, label, uiTheme, ext, extName }
+  let pref = leePref();
+  let actual = 'vs-dark', monacoId = 'vs-dark';
+  let estilo = null;
+  let firmaGramaticas = '[]';
+  let cola = Promise.resolve();       // los cambios se aplican de uno en uno
+
+  const grammars = new Grammars(monaco, {
+    loadFile: store.getFile,
+    builtin,
+    // la primera gramática enciende el motor: el tema se redefine con el mapa
+    // de colores de TextMate antes de pintar ningún token
+    onActivate: () => aplicaTema(actual),
+  });
+
+  function leePref() { try { return localStorage.getItem(THEME_PREF) || 'vs-dark'; } catch { return 'vs-dark'; } }
+  function guardaPref(id) {
+    pref = id;
+    try { if (id === 'vs-dark') localStorage.removeItem(THEME_PREF); else localStorage.setItem(THEME_PREF, id); } catch { /* sin almacenamiento */ }
+  }
+
+  function pintaCromo(tema, id) {
+    if (!estilo) { estilo = document.createElement('style'); estilo.id = 'ext-theme-chrome'; document.head.appendChild(estilo); }
+    estilo.textContent = id === 'vs-dark' ? '' : chromeCss(tema);
+  }
+
+  let turnoTema = 0;
+  async function aplicaTema(id, { guardar = false } = {}) {
+    const turno = ++turnoTema;
+    let elegido = id, tema = null;
+    if (themeIndex.has(id)) {
+      tema = await store.getFile(themeIndex.get(id).key).catch(() => null);
+      if (!tema) elegido = 'vs-dark';
+    } else if (!BASES.includes(id)) elegido = 'vs-dark';
+    // flechas rápidas en el selector: solo cuenta la última petición
+    if (turno !== turnoTema) return actual;
+    tema ??= builtinTheme(elegido);
+    const encoded = grammars.setTheme(toTextMateTheme(tema));
+    let mid = elegido;
+    if (!tema.builtin) monaco.editor.defineTheme(elegido, toMonacoTheme(tema, encoded));
+    else if (encoded) {
+      mid = 'elffuss-tm-' + elegido;
+      monaco.editor.defineTheme(mid, { base: elegido, inherit: true, rules: [], colors: {}, encodedTokensColors: encoded });
+    }
+    monaco.editor.setTheme(mid);
+    actual = elegido;
+    monacoId = mid;
+    pintaCromo(tema, elegido);
+    if (guardar) guardaPref(elegido);
+    return elegido;
+  }
+
+  async function reaplica() {
+    for (const d of aplicado) { try { d.dispose(); } catch { /* ya fuera */ } }
+    aplicado = [];
+    const activas = paused ? [] : exts.filter(e => e.enabled);
+
+    langContribs = [];
+    for (const e of activas) {
+      for (const l of e.languages || []) {
+        langContribs.push(l);
+        if (builtin.has(l.id)) continue;      // los de serie conservan su configuración
+        if (!registrados.has(l.id)) {
+          monaco.languages.register({ id: l.id, extensions: l.extensions, filenames: l.filenames, filenamePatterns: l.filenamePatterns, firstLine: l.firstLine, aliases: l.aliases, mimetypes: l.mimetypes });
+          registrados.add(l.id);
+        }
+        if (l.configKey) {
+          const conf = await store.getFile(l.configKey).catch(() => null);
+          if (conf) aplicado.push(monaco.languages.setLanguageConfiguration(l.id, toLanguageConfiguration(conf, monaco)));
+        }
+      }
+    }
+
+    const porLang = new Map();
+    for (const e of activas) {
+      for (const s of e.snippets || []) {
+        if (!porLang.has(s.language)) porLang.set(s.language, []);
+        porLang.get(s.language).push({ key: s.key, ext: e.displayName });
+      }
+    }
+    for (const [lang, fuentes] of porLang) {
+      const cargar = async () => (await Promise.all(fuentes.map(async f => ((await store.getFile(f.key)) || []).map(s => ({ ...s, ext: f.ext }))))).flat();
+      aplicado.push(registerSnippets(monaco, lang, cargar, s => s.ext));
+    }
+
+    // las gramáticas solo se rehacen si cambian: un tema nuevo no obliga a
+    // recompilarlas ni a repintar los ficheros con gramática
+    const gramaticas = activas.flatMap(e => (e.grammars || []).map(g => ({ ...g, ext: e.id })));
+    const firma = JSON.stringify(gramaticas.map(g => [g.key, g.language, g.scopeName]));
+    if (firma !== firmaGramaticas) { firmaGramaticas = firma; grammars.configure(gramaticas); }
+
+    themeIndex = new Map();
+    for (const e of activas) for (const t of e.themes || []) themeIndex.set(t.themeId, { ...t, ext: e.id, extName: e.displayName });
+    await aplicaTema(pref);
+  }
+
+  const emit = () => {
+    for (const f of listeners) { try { f(); } catch { /* un oyente roto no para al resto */ } }
+    try { onLanguagesChanged(); } catch { /* — */ }
+  };
+  function recarga() {
+    const r = cola.then(async () => { exts = await store.list(); await reaplica(); });
+    cola = r.catch(() => {});
+    return r.then(emit);
+  }
+
+  // ── arranque ──
+  try { await store.reconcile(); } catch (e) { console.warn('[elffuss-ext] no pude ordenar las extensiones guardadas:', e?.message || e); }
+  exts = await store.list().catch(() => []);
+  await reaplica();
+
+  const quitaTemasDe = id => { if (themeIndex.get(pref)?.ext === id) guardaPref('vs-dark'); };
+
+  async function install(src, { onProgress, confirmLarge, signal } = {}) {
+    let bytes, sha256, verified = false, source = 'file', meta = null;
+    const ovsx = await import('./openvsx.js');
+    if (src instanceof Blob) {
+      bytes = new Uint8Array(await src.arrayBuffer());
+      sha256 = await ovsx.sha256Hex(bytes);
+    } else {
+      meta = await ovsx.metadata(src.namespace, src.name, src.version || '', { signal });
+      ({ bytes, sha256, verified } = await ovsx.download(meta, { onProgress, confirmLarge, signal }));
+      source = 'open-vsx';
+    }
+    const { readVsix } = await import('./vsix.js');
+    const v = await readVsix(bytes, { lang: uiLang() });
+    if (meta && v.id !== `${meta.namespace}.${meta.name}`.toLowerCase()) throw new Error(`el paquete dice ser ${v.id}, no ${meta.namespace}.${meta.name}`);
+    if (!v.themes.length && !v.grammars.length && !v.snippets.length && !v.languages.length) {
+      const e = new Error('nothing-applies'); e.code = 'nothing'; throw e;
+    }
+    const previo = exts.find(e => e.id === v.id);
+    const usados = new Set(exts.filter(e => e.id !== v.id).flatMap(e => (e.themes || []).map(t => t.themeId)));
+    const files = new Map();
+    const k = p => store.fileKey(v.id, v.version, p);
+    const rec = {
+      id: v.id, publisher: v.publisher, name: v.name, version: v.version,
+      displayName: v.displayName, description: v.description.slice(0, 500),
+      license: (meta?.license || v.license || '').slice(0, 200), sha256, verified, source, size: bytes.length,
+      installedAt: previo?.installedAt || Date.now(), enabled: previo ? previo.enabled : true,
+      hasCode: v.analysis.hasCode, ignored: v.analysis.ignored, pack: v.analysis.pack, warnings: v.warnings.slice(0, 20),
+      themes: v.themes.map(t => { const key = k('theme/' + t.index); files.set(key, t.data); return { key, label: t.label, uiTheme: t.uiTheme, themeId: themeIdFor(v.id, t, t.index, usados) }; }),
+      grammars: v.grammars.map(g => {
+        const key = k(g.path); files.set(key, g.data);
+        return { key, scopeName: g.scopeName, language: g.language, embeddedLanguages: g.embeddedLanguages, tokenTypes: g.tokenTypes, injectTo: g.injectTo, balancedBracketScopes: g.balancedBracketScopes, unbalancedBracketScopes: g.unbalancedBracketScopes };
+      }),
+      snippets: v.snippets.map(s => { const key = k(s.path); files.set(key, s.data); return { key, language: s.language, count: s.data.length }; }),
+      languages: v.languages.map(l => {
+        let configKey = null;
+        if (l.config) { configKey = k(l.configPath); files.set(configKey, l.config); }
+        return { id: l.id, aliases: l.aliases, extensions: l.extensions, filenames: l.filenames, filenamePatterns: l.filenamePatterns, firstLine: l.firstLine, mimetypes: l.mimetypes, configKey };
+      }),
+      licenseKey: null,
+    };
+    if (v.licenseText) { rec.licenseKey = k('LICENSE'); files.set(rec.licenseKey, v.licenseText); }
+    await store.put(rec, files);
+    await recarga();
+    return rec;
+  }
+
+  async function setEnabled(id, on) {
+    if (!on) quitaTemasDe(id);
+    await store.setEnabled(id, on);
+    await recarga();
+  }
+  async function uninstall(id) {
+    quitaTemasDe(id);
+    await store.remove(id);
+    await recarga();
+  }
+
+  const nombresSerie = { 'vs-dark': 'builtinDark', vs: 'builtinLight', 'hc-black': 'builtinHc', 'hc-light': 'builtinHcLight' };
+  return {
+    paused,
+    list: () => exts.map(e => ({ ...e })),
+    onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    install, setEnabled, uninstall,
+    licenseText: async id => { const e = exts.find(x => x.id === id); return e?.licenseKey ? (await store.getFile(e.licenseKey)) || '' : ''; },
+    themes: () => [
+      ...BASES.map(id => ({ id, builtin: true, labelKey: nombresSerie[id], uiTheme: id })),
+      ...[...themeIndex].map(([id, t]) => ({ id, label: t.label, uiTheme: t.uiTheme, ext: t.ext, extName: t.extName })),
+    ],
+    currentTheme: () => actual,
+    themeId: () => monacoId,
+    setTheme: id => aplicaTema(id, { guardar: true }),
+    previewTheme: id => aplicaTema(id),
+    languageForPath: (path, primeraLinea = null) => (paused ? null : matchLanguage(langContribs, path, primeraLinea)),
+    prepareLanguage: async lang => (paused || !grammars.hasGrammarFor(lang) ? false : grammars.prepare(lang)),
+    skippedGrammars: () => grammars.skipped.map(g => ({ ext: g.ext, language: g.language, scopeName: g.scopeName })),
+  };
+}
