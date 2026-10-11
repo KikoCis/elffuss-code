@@ -138,7 +138,9 @@ function anunciaBusqueda(texto) {
 // «Aplica: 2 temas · No aplica: commands (necesita su código)», con lo que de
 // verdad se aplicaría aquí: la gramática de un lenguaje de serie sin Monarch
 // (JSON) y la configuración de un lenguaje de serie no se aplican, y no cuentan.
-function resumen({ themes = 0, grammarLangs = [], languageList = [], snippetLangs = [], ignored = [], hasCode = false, pack = [] }) {
+// Con `code` (trae código para el navegador y el nivel 2 lo cuenta debajo) no
+// se dice «nada se puede aplicar» ni se listan las partes que son de su código.
+function resumen({ themes = 0, grammarLangs = [], languageList = [], snippetLangs = [], ignored = [], hasCode = false, pack = [], code = false }) {
   const saltaGram = l => !!l && !!host.grammarSkippedFor?.(l);
   const deSerie = id => !!host.builtinLanguage?.(id);
   const gramSaltadas = [...new Set(grammarLangs.filter(saltaGram))];
@@ -153,10 +155,11 @@ function resumen({ themes = 0, grammarLangs = [], languageList = [], snippetLang
   const porMotivo = { code: [], later: [] };
   for (const i of ignored) (porMotivo[i.why] || porMotivo.later).push(i.key);
   const no = [...gramSaltadas.map(lang => tx('grammarNotApplied', { lang })), ...confSaltadas.map(lang => tx('settingsNotApplied', { lang }))];
-  if (porMotivo.code.length) no.push(`${porMotivo.code.join(', ')} (${tx('needsCode')})`);
+  if (porMotivo.code.length && !code) no.push(`${porMotivo.code.join(', ')} (${tx('needsCode')})`);
   if (porMotivo.later.length) no.push(`${porMotivo.later.join(', ')} (${tx('notYet')})`);
   const lineas = [];
-  lineas.push(aplica.length ? { cls: 'ext-applies', t: tx('applies', { list: aplica.join(' · ') }) } : { cls: 'ext-nothing', t: tx('nothing') });
+  if (aplica.length) lineas.push({ cls: 'ext-applies', t: tx('applies', { list: aplica.join(' · ') }) });
+  else if (!code) lineas.push({ cls: 'ext-nothing', t: tx('nothing') });
   if (no.length) lineas.push({ cls: 'ext-ignored', t: tx('ignores', { list: no.join(' · ') }) });
   if (hasCode) lineas.push({ cls: 'ext-ignored', t: tx('hasCode') });
   if (pack.length) lineas.push({ cls: 'ext-ignored', t: tx('pack', { n: pack.length }) });
@@ -438,7 +441,8 @@ function filaResultado(it, instalada) {
     inerte(b, true);
   } else if (instalada) rotula(b, tx('update', { v: it.version }), tx('updateNamed', { name: it.displayName, v: it.version }));
   else rotula(b, tx('install'), tx('installNamed', { name: it.displayName }));
-  b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b); };
+  // actualizar una que corre su código la trae con su código (y su suma)
+  b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b, { withCode: !!instalada?.code }); };
   acc.appendChild(b);
   // nivel 2: si ya se sabe qué funcionará (filtro o detalle), se dice en la fila
   const c = estado.cls.get(clave(it));
@@ -452,23 +456,12 @@ function filaResultado(it, instalada) {
   return row;
 }
 
-// «Instalar y ejecutar su código…»: solo para las que traen código para el
-// navegador; inerte (con el motivo) si no puede correr aquí
+// Instalar con su código (el botón, el consentimiento y la instalación): en
+// ../ext2/manage.js, que se carga con el detalle, el filtro o si hay alguna.
 let m2 = null;                          // ../ext2/manage.js, una vez cargado
-function ponBotonCodigo(acc, it, c, instalada) {
-  if (!m2 || acc.querySelector('.ext-install-code')) return;
-  const cb = m2.codeButton(c);
-  if (!cb.show || (instalada && instalada.version === it.version && instalada.code)) return;
-  const b = el('button', 'ghost ext-install-code');
-  b.type = 'button';
-  rotula(b, tx('btnInstallCode'), tx('btnInstallCodeNamed', { name: it.displayName }));
-  if (cb.disabled) { inerte(b, true); b.title = cb.disabled; }
-  b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instalaConCodigo(it, c, b); };
-  acc.appendChild(b);
-  // sin nada declarativo, «Instalar» a secas no haría nada
-  const inst = acc.querySelector('.ext-install');
-  if (!c.hasDeclarative && inst && !esInerte(inst)) { inerte(inst, true); inst.title = tx('errCodeonly'); inst.className = 'ghost ext-install'; }
-}
+let conCodigo = null;
+const codigo = () => (conCodigo ??= m2.codeInstall({ host: () => host, aviso, instala, rotula, inerte, esInerte }));
+const ponBotonCodigo = (...a) => { if (m2) codigo().button(...a); };
 
 async function detalle(it, det, boton) {
   det.hidden = !det.hidden;
@@ -481,14 +474,14 @@ async function detalle(it, det, boton) {
     const meta = await ovsx.metadata(it.namespace, it.name, it.version);
     const manifest = await ovsx.manifest(meta);
     const a = analyzeManifest(manifest);
-    // el código lo cuenta el nivel 2 (abajo): aquí solo lo declarativo
-    const r = resumen({ themes: a.applies.themes, grammarLangs: a.grammarLangs, languageList: a.languageList, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: false, pack: a.pack });
-    det.replaceChildren();
-    for (const l of r.lineas) det.appendChild(el('div', l.cls, l.t));
     m2 ??= await gestor();
     const d2 = await m2.describe(manifest, { installedIds: new Set(host.list().map(e => e.id)) });
     estado.cls.set(clave(it), d2.cls);
-    for (const l of d2.lines) det.appendChild(el('div', l.cls, l.t));
+    // «Funciona ya (sin código)» del nivel 2 en vez del «Aplica» de siempre (lo
+    // mismo), luego lo que no se aplica y por qué, y luego lo de su código
+    const r = resumen({ themes: a.applies.themes, grammarLangs: a.grammarLangs, languageList: a.languageList, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: false, pack: a.pack, code: d2.cls.runtime === 'browser' });
+    const ya = d2.lines.filter(l => l.cls === 'ext-applies');
+    det.replaceChildren(...[...ya, ...r.lineas.filter(l => l.cls !== 'ext-applies' || !ya.length), ...d2.lines.filter(l => !ya.includes(l))].map(l => el('div', l.cls, l.t)));
     const lic = el('div', 'ext-meta muted', tx('license', { l: meta.license || tx('noLicense') }) + ' ');
     if (meta.files.license) {
       const a2 = el('a', null, tx('viewLicense'));
@@ -506,22 +499,6 @@ async function detalle(it, det, boton) {
     const acc = fila?.querySelector('.ext-actions');
     if (acc) ponBotonCodigo(acc, it, d2.cls, host.list().find(e => e.id === `${it.namespace}.${it.name}`.toLowerCase()));
   } catch (e) { det.replaceChildren(el('div', 'ext-ignored', textoError(e))); }
-}
-
-// Instalar y ejecutar su código: primero el consentimiento (qué verá, que no
-// tiene red, cuánto se baja), luego la instalación con la suma SHA-256
-// publicada obligatoria. «Solo temas y snippets» instala lo declarativo.
-async function instalaConCodigo(it, c, boton) {
-  aviso(null);
-  m2 ??= await gestor();
-  const runtime = await host.codeRuntime();
-  if (!runtime.available) { aviso(tx('x2Unavail_' + runtime.reason), true); return; }
-  const meta = await (await import('./openvsx.js')).metadata(it.namespace, it.name, it.version).catch(() => null);
-  const census = c.census && c.census.bytes ? c.census.bytes : null;
-  const v = await m2.consent({ name: it.displayName, publisher: it.namespace, version: it.version, license: meta?.license, cls: c, runtime, extensionBytes: census });
-  if (v === 'declarative') return instala(it, $('ext-results')?.querySelector(`.ext-row[data-id="${it.namespace}.${it.name}"] .ext-install`) || null);
-  if (v !== 'code') return;
-  return instala(it, boton, { withCode: true });
 }
 
 async function instala(src, boton, { withCode = false } = {}) {
@@ -549,27 +526,7 @@ async function instala(src, boton, { withCode = false } = {}) {
   }
 }
 
-// Una instalada sin su código (solo lo declarativo) que trae código para el
-// navegador: se vuelve a bajar de Open VSX, con su suma, y su código
-async function instalaConCodigoInstalada(rec) {
-  m2 ??= await gestor();
-  const runtime = await host.codeRuntime();
-  if (!runtime.available) { aviso(tx('x2Unavail_' + runtime.reason), true); return; }
-  const v = await m2.consent({ name: rec.displayName, publisher: rec.publisher, version: rec.version, license: rec.license, cls: null, runtime, extensionBytes: null });
-  if (v !== 'code') return;
-  return instala({ namespace: rec.publisher, name: rec.name, version: rec.version, displayName: rec.displayName }, null, { withCode: true });
-}
-
-// .vsix suelto que solo trae código: consentimiento (sin suma publicada con la
-// que comprobarlo, y se dice) y, si acepta, se instala con su código
-async function instalaFicheroConCodigo(file, { yaInstalada = false } = {}) {
-  m2 ??= await gestor();
-  const runtime = await host.codeRuntime();
-  if (!runtime.available) { if (!yaInstalada) aviso(tx('errCodeonly') + ' ' + tx('x2Unavail_' + runtime.reason), true); return; }
-  const v = await m2.consent({ name: file.name, publisher: '', version: '', license: '', cls: null, runtime, extensionBytes: file.size, mode: 'file' });
-  if (v !== 'code') { if (!yaInstalada) aviso(tx('cancelled')); return; }
-  return instala(file, null, { withCode: true });
-}
+const instalaFicheroConCodigo = async (file, opts) => { m2 ??= await gestor(); return codigo().file(file, opts); };
 
 // ── instaladas ──
 function claveFoco(x) {
@@ -631,14 +588,14 @@ function pintaInstaladas() {
       languageList: (e.languages || []).map(l => ({ id: l.id, config: !!l.configKey })),
       snippetLangs: [...new Set((e.snippets || []).map(s => s.language))],
       // (el código para el navegador lo cuentan los mandos de abajo)
-      ignored: e.ignored || [], hasCode: e.hasCode && !e.code && !e.browser, pack: e.pack || [],
+      ignored: e.ignored || [], hasCode: e.hasCode && !e.code && !e.browser, pack: e.pack || [], code: !!(e.code || e.browser),
     });
     for (const l of r.lineas) main.appendChild(el('div', l.cls, l.t));
     // mandos del código (nivel 2): ejecutar o no, estado, comandos, ajustes…
     if ((e.code || e.browser) && m2) {
       const b = m2.codeBlock(e, {
         host,
-        onGetCode: rec => instalaConCodigoInstalada(rec),
+        onGetCode: rec => codigo().installed(rec),
         onMessage: (t, error) => aviso(t, error),
         register: f => bajas.push(f),
       });

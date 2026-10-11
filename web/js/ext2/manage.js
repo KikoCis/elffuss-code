@@ -111,6 +111,65 @@ export async function consent({ name, publisher, version, license, cls, runtime,
   return modal({ id: 'x2-consent', title: tx('consentTitle', { name }), body, buttons, cancelValue: null, focus: 0 });
 }
 
+// ── instalar con su código, desde el panel ──
+// El consentimiento (qué verá, que no tiene red, cuánto se baja) y, si se
+// acepta, la instalación con su código (bajada de Open VSX, con su suma
+// SHA-256 publicada obligatoria). `ui` es lo del panel: host() y sus aviso(),
+// instala(src, botón, { withCode }), rotula(), inerte() y esInerte().
+export function codeInstall(ui) {
+  const disponible = async () => {
+    const r = await ui.host().codeRuntime();
+    if (!r.available) ui.aviso(tx('x2Unavail_' + r.reason), true);
+    return r.available ? r : null;
+  };
+  // «Instalar y ejecutar su código…» en un resultado: solo si trae código para
+  // el navegador; inerte (con el motivo) si no puede correr aquí
+  function button(acc, it, c, instalada) {
+    if (acc.querySelector('.ext-install-code')) return;
+    const cb = codeButton(c);
+    if (!cb.show || (instalada && instalada.version === it.version && instalada.code)) return;
+    const b = btn('', 'ghost ext-install-code');
+    ui.rotula(b, tx('btnInstallCode'), tx('btnInstallCodeNamed', { name: it.displayName }));
+    if (cb.disabled) { ui.inerte(b, true); b.title = cb.disabled; }
+    b.onclick = e => { e.stopPropagation(); if (!ui.esInerte(b)) fromResult(it, c, b); };
+    acc.appendChild(b);
+    // sin nada declarativo, «Instalar» a secas no haría nada
+    const inst = acc.querySelector('.ext-install');
+    if (!c.hasDeclarative && inst && !ui.esInerte(inst)) { ui.inerte(inst, true); inst.title = tx('errCodeonly'); inst.className = 'ghost ext-install'; }
+  }
+  async function fromResult(it, c, boton) {
+    ui.aviso(null);
+    const runtime = await disponible();
+    if (!runtime) return;
+    const meta = await (await import('../ext/openvsx.js')).metadata(it.namespace, it.name, it.version).catch(() => null);
+    const v = await consent({ name: it.displayName, publisher: it.namespace, version: it.version, license: meta?.license, cls: c, runtime, extensionBytes: c.census?.bytes || null });
+    if (v === 'declarative') return ui.instala(it, boton.closest('.ext-actions')?.querySelector('.ext-install') || null);
+    if (v === 'code') return ui.instala(it, boton, { withCode: true });
+  }
+  // una instalada solo con lo declarativo que trae código: se vuelve a bajar con él
+  async function installed(rec) {
+    const runtime = await disponible();
+    if (!runtime) return;
+    if ((await consent({ name: rec.displayName, publisher: rec.publisher, version: rec.version, license: rec.license, cls: null, runtime })) !== 'code') return;
+    return ui.instala({ namespace: rec.publisher, name: rec.name, version: rec.version, displayName: rec.displayName }, null, { withCode: true });
+  }
+  // un .vsix suelto: su nombre, editor, versión y licencia se leen del propio
+  // fichero (es local), y se dice que no hay suma publicada con la que comprobarlo
+  async function file(f, { yaInstalada = false } = {}) {
+    const r = await ui.host().codeRuntime();
+    if (!r.available) { if (!yaInstalada) ui.aviso(tx('errCodeonly') + ' ' + tx('x2Unavail_' + r.reason), true); return; }
+    let who = { name: f.name, publisher: '', version: '', license: '' };
+    try {
+      const { readVsix } = await import('../ext/vsix.js');
+      const v = await readVsix(new Uint8Array(await f.arrayBuffer()), { lang: uiLang() });
+      who = { name: v.displayName || v.name || f.name, publisher: v.publisher, version: v.version, license: v.license };
+    } catch { /* el instalador dirá qué le pasa al fichero */ }
+    if ((await consent({ ...who, cls: null, runtime: r, extensionBytes: f.size, mode: 'file' })) !== 'code') { if (!yaInstalada) ui.aviso(tx('cancelled')); return; }
+    return ui.instala(f, null, { withCode: true });
+  }
+  return { button, installed, file };
+}
+
 // ── filtro «Funciona en Code»: clasifica una página de resultados ──
 // Cada manifiesto se pide una vez (4 a la vez) y se guarda por id@versión.
 export async function classifyResults(items, { ovsx, store, installedIds = new Set(), signal, onEach = () => {} } = {}) {
