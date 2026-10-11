@@ -28,7 +28,7 @@
 //       for its two documents; no page errors
 import { chromium } from 'playwright';
 import { startServer } from './lib/x2-server.mjs';
-import { PINNED } from './lib/x2-vsix.mjs';
+import { PINNED, fetchVsix } from './lib/x2-vsix.mjs';
 
 let fails = 0;
 const ok = (name, c, extra = '') => { console.log((c ? '✅' : '❌') + ' ' + name + (extra ? '  — ' + extra : '')); if (!c) fails++; };
@@ -84,7 +84,7 @@ ctx.on('request', r => {
   if (!/^https?:$/.test(u.protocol) || u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === 'cdn.jsdelivr.net') return;
   let frame = '';
   try { frame = r.frame()?.url() || ''; } catch { frame = '(worker)'; }
-  outside.push({ url: u.origin + u.pathname, frame });
+  outside.push({ url: u.origin + u.pathname, frame, method: r.method() });
 });
 
 await page.goto(srv.codeOrigin + '/', { waitUntil: 'domcontentloaded' });
@@ -116,7 +116,9 @@ const idbKeys = prefix => page.evaluate(prefix => new Promise((res, rej) => {
   r.onerror = () => rej(r.error);
 }), prefix);
 const READY = s => s === 'running' || s === 'ready (starts when first used)';
-const downloads = () => outside.filter(o => /\.vsix$/.test(o.url)).map(o => o.url.split('/').pop());
+// (un HEAD solo mira lo que pesa, para el consentimiento: no es una descarga)
+const downloads = () => outside.filter(o => /\.vsix$/.test(o.url) && o.method !== 'HEAD').map(o => o.url.split('/').pop());
+const sizeLookups = () => outside.filter(o => /\.vsix$/.test(o.url) && o.method === 'HEAD').map(o => o.url.split('/').pop());
 const SORT = 'tyriar.sort-lines', PRETTIER = 'esbenp.prettier-vscode';
 async function sortFromPanel(text, want) {
   await open('fruits.txt');
@@ -159,10 +161,29 @@ ok('L1 the detail says what will work, before installing', !!det && /No internet
 // ── L2 ──
 const before = downloads().length;
 await row('Tyriar.sort-lines').locator('.ext-install-code').click();
-await until(() => page.evaluate(() => !!document.querySelector('#x2-consent [role="dialog"]')));
+const consentText = await until(() => page.evaluate(() => document.querySelector('#x2-consent [role="dialog"]')?.textContent || null));
 await page.keyboard.press('Escape');
 await sleep(800);
 ok('L2 Cancel in the consent dialog: nothing downloaded, nothing installed', downloads().length === before && !(await record(SORT)), JSON.stringify(downloads()));
+// (aquí la petición HEAD pasa por la intercepción de Playwright, que fija la
+// búsqueda, y Open VSX le contesta 403: el diálogo dice entonces que la baja al
+// aceptar. Sin intercepción, como en un navegador de verdad, se ve abajo, L2b)
+ok('L2 …the dialog opened at once and asked Open VSX for its size (a HEAD request), before anything was downloaded', sizeLookups().includes('Tyriar.sort-lines-1.12.0.vsix')
+  && /This extension: (checking its size|\d+\.\d MB|downloaded from Open VSX when you accept)/.test(consentText || ''), JSON.stringify({ heads: sizeLookups(), text: String(consentText).slice(-160) }));
+{
+  const ctx2 = await browser.newContext();
+  await ctx2.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch { /* — */ } });
+  const p2 = await ctx2.newPage();
+  await p2.goto(srv.codeOrigin + '/', { waitUntil: 'domcontentloaded' });
+  const size = await p2.evaluate(async () => {
+    const ovsx = await import('/js/ext/openvsx.js');
+    return (await import('/js/ext2/manage.js')).downloadSize(await ovsx.metadata('Tyriar', 'sort-lines', '1.12.0'));
+  }).catch(e => String(e.message || e));
+  const pinned = PINNED.find(x => x.name === 'sort-lines');
+  const want = (await fetchVsix({ ...pinned, offline: true }).catch(() => null))?.bytes?.length;
+  ok('L2b in a browser without interception, the size the consent shows comes from Open VSX itself (HEAD) and is the pinned package’s', !!want && size === want, JSON.stringify({ size, want }));
+  await ctx2.close();
+}
 
 // ── L3 ──
 await row('Tyriar.sort-lines').locator('.ext-install-code').click();

@@ -2,8 +2,10 @@
 // partir de su package.json (y del censo en ejecución, tested.json, si la
 // probamos). Lo usa el panel de extensiones para decirlo con honradez:
 //
-//   · lo declarativo (nivel 1): temas, gramáticas, snippets, lenguajes;
-//   · código para el navegador que puede correr en el recinto (nivel 2);
+//   · lo declarativo (nivel 1): temas, gramáticas, snippets, lenguajes, con
+//     las mismas reglas que el «Aplica» del panel;
+//   · código para el navegador que puede correr en el recinto (nivel 2), y si
+//     aquí (navegador, sitio) puede;
 //   · «necesita Node»: no está disponible en el navegador;
 //   · lo que no aparecerá aquí (vistas, webviews, depurador…);
 //   · si la probamos en Code y qué pasó, o que aún no.
@@ -43,7 +45,12 @@ function settingsCount(conf) {
   return n;
 }
 
-export function classify(manifest, { tested = null, installed = new Set() } = {}) {
+// Opciones: `tested` (el censo en ejecución), `installed` (ids instaladas),
+// `builtinLanguage(id)` y `grammarSkippedFor(lang)` (las mismas reglas que el
+// «Aplica» del panel: el lenguaje de serie de Monaco no se registra otra vez y
+// la gramática de uno de serie sin Monarch no se aplica) y `canRun` (si el
+// nivel 2 puede arrancar en este navegador y sitio).
+export function classify(manifest, { tested = null, installed = new Set(), builtinLanguage = () => false, grammarSkippedFor = () => false, canRun = true } = {}) {
   const m = manifest && typeof manifest === 'object' ? manifest : {};
   const c = m.contributes && typeof m.contributes === 'object' ? m.contributes : {};
   const a = analyzeManifest(m);
@@ -55,30 +62,41 @@ export function classify(manifest, { tested = null, installed = new Set() } = {}
   const startsNever = runtime === 'browser' && events.length > 0 && neverEvents.length === events.length && !arr(c.commands).length && !arr(c.languages).length;
   const deps = arr(m.extensionDependencies).filter(d => typeof d === 'string').map(d => d.toLowerCase());
   const unavailable = WORKBENCH.filter(k => c[k] !== undefined && (!Array.isArray(c[k]) || c[k].length) && (typeof c[k] !== 'object' || Object.keys(c[k]).length));
+  // Las APIs propuestas no las enciende Code (ni VS Code fuera de sus
+  // extensiones propias): usarlas falla, pero muchas solo las prueban y
+  // arrancan igual. Es un aviso, no un veto; el censo dice lo que pasó.
   const apiProposals = arr(m.enabledApiProposals).length;
   const engine = engineOk(m.engines && m.engines.vscode);
   const census = tested && tested.results && typeof m.version === 'string' ? tested.results[`${id}@${m.version}`] || null : null;
-  const reasons = [];
-  if (runtime === 'browser') {
-    if (!engine) reasons.push('engine');
-    if (apiProposals) reasons.push('proposals');
-    if (startsNever) reasons.push('never');
-    if (deps.some(d => !installed.has(d))) reasons.push('deps');
-  }
   const failed = !!census && ['error', 'install-failed', 'unsupported'].includes(census.state);
+  const started = !!census && census.state === 'active';
+  const reasons = [];
+  if (runtime === 'browser' && !started) {
+    if (!engine) reasons.push('engine');
+    if (startsNever) reasons.push('never');
+  }
+  if (runtime === 'browser' && deps.some(d => !installed.has(d))) reasons.push('deps');
   if (failed) reasons.push('census');
-  const declarative = { themes: a.applies.themes, grammars: a.applies.grammars, snippets: a.applies.snippets, languages: a.applies.languages };
+  const warnings = runtime === 'browser' && apiProposals ? ['proposals'] : [];
+  // lo declarativo que de verdad se aplicaría aquí (como el «Aplica» del panel)
+  const declarative = {
+    themes: a.applies.themes,
+    grammars: a.grammarLangs.filter(l => !(l && grammarSkippedFor(l))).length,
+    snippets: a.applies.snippets,
+    languages: a.languageList.filter(l => !builtinLanguage(l.id)).length,
+  };
   const hasDeclarative = Object.values(declarative).some(Boolean);
-  // «puede correr»: entrada de navegador, sin nada que lo impida de antemano.
-  // Si faltan dependencias aún puede instalarse, pero se dice.
-  const eligible = runtime === 'browser' && engine && !apiProposals && !startsNever && !failed;
+  // «puede correr»: entrada de navegador y nada que lo impida de antemano, o
+  // que el censo la vio arrancar. Si faltan dependencias aún puede
+  // instalarse, pero se dice.
+  const eligible = runtime === 'browser' && !failed && (started || (engine && !startsNever));
   return {
     id, version: typeof m.version === 'string' ? m.version : '', runtime, engineOk: engine, apiProposals, startsNever, neverEvents,
     deps: { all: deps, missing: deps.filter(d => !installed.has(d)) }, unavailable, declarative, hasDeclarative, ignored: a.ignored,
     counts: { commands: arr(c.commands).length, keybindings: arr(c.keybindings).length, settings: settingsCount(c.configuration) },
-    census, eligible, reasons,
-    // ¿algo de ella funciona en Code? (para el filtro)
-    works: hasDeclarative || eligible,
+    census, eligible, reasons, warnings, canRun: !!canRun,
+    // ¿algo de ella funciona en Code, aquí? (para el filtro)
+    works: hasDeclarative || (eligible && !!canRun),
     pack: a.pack,
   };
 }

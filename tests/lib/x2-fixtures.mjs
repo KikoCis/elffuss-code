@@ -184,12 +184,17 @@ exports.activate = function (context) {
 // Con x2ui.ask: un aviso con botones (texto con HTML y un enlace, que deben
 // quedar en texto), un aviso modal, un selector, uno de varios, y un cuadro de
 // texto con validación. x2ui.progress: progreso en la barra de estado.
+// x2ui.open(url): openExternal con un vscode.Uri. x2ui.note y x2ui.question:
+// un aviso sin botones y uno con botones.
 export const UI = {
   manifest: base('ui', { activationEvents: ['onStartupFinished'], contributes: { commands: [
     { command: 'x2ui.ask', title: 'UI ask', category: 'X2' },
     { command: 'x2ui.report', title: 'UI report', category: 'X2' },
     { command: 'x2ui.progress', title: 'UI progress', category: 'X2' },
     { command: 'x2ui.clip', title: 'UI clipboard', category: 'X2' },
+    { command: 'x2ui.open', title: 'UI open address', category: 'X2' },
+    { command: 'x2ui.note', title: 'UI note', category: 'X2' },
+    { command: 'x2ui.question', title: 'UI question', category: 'X2' },
   ] } }),
   files: {
     'extension.js': `const vscode = require('vscode');
@@ -209,6 +214,11 @@ exports.activate = async function (context) {
       return JSON.stringify(out);
     }),
     vscode.commands.registerCommand('x2ui.report', () => JSON.stringify(out)),
+    // abrir una dirección como lo hacen las extensiones: con un vscode.Uri
+    vscode.commands.registerCommand('x2ui.open', async url => String(await vscode.env.openExternal(vscode.Uri.parse(String(url))))),
+    // un aviso sin botones (se va solo) y uno con botones (espera la respuesta)
+    vscode.commands.registerCommand('x2ui.note', async () => { await vscode.window.showInformationMessage('x2 note'); return 'closed'; }),
+    vscode.commands.registerCommand('x2ui.question', async () => String(await vscode.window.showWarningMessage('x2 question', 'Keep', 'Drop'))),
     vscode.commands.registerCommand('x2ui.progress', () => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'x2 working' }, async p => {
       p.report({ message: 'half' });
       await new Promise(r => setTimeout(r, 1500));

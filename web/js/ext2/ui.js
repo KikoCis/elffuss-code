@@ -49,11 +49,13 @@ export function loadCss() {
 }
 
 // Modal genérico: título, cuerpo, una caja opcional en monoespaciado (una
-// dirección, una orden) y botones. Escape y fuera = el botón por defecto
-// (el de cancelar). Devuelve el `value` del botón pulsado.
+// dirección, una orden; con su propio scroll si es larga), lo que vaya tras
+// ella (`after`) y botones. Escape y fuera = el botón por defecto (el de
+// cancelar). Abre por arriba: el foco no lo desplaza. Devuelve el `value` del
+// botón pulsado.
 const abiertos = new Set();                 // cierres de los modales abiertos
 export function closeModals() { for (const c of [...abiertos]) c(); }
-export function modal({ id = 'x2-dialog', title, body = [], code = null, buttons, cancelValue = null, focus = 0, labelledBy = null }) {
+export function modal({ id = 'x2-dialog', title, body = [], code = null, after = [], buttons, cancelValue = null, focus = 0, labelledBy = null }) {
   return new Promise(resolve => {
     loadCss();
     document.getElementById(id)?.remove();
@@ -78,8 +80,11 @@ export function modal({ id = 'x2-dialog', title, body = [], code = null, buttons
       const c = typeof code === 'string' ? el('div', 'x2-code', code) : code;
       if (!c.id) c.id = uid('x2-desc');
       desc.push(c.id);
+      // con teclado también se puede recorrer (y leer) entera
+      c.tabIndex = 0;
       caja.appendChild(c);
     }
+    for (const n of [].concat(after).filter(Boolean)) caja.appendChild(n);
     if (desc.length) caja.setAttribute('aria-describedby', desc.join(' '));
     const fila = el('div', 'x2-modal-buttons');
     const botones = buttons.map(b => {
@@ -124,9 +129,28 @@ export function modal({ id = 'x2-dialog', title, body = [], code = null, buttons
     document.addEventListener('keydown', teclas, true);
     fondo.addEventListener('mousedown', e => { if (e.target === fondo) cerrar(cancelValue); });
     document.body.appendChild(fondo);
-    (botones[focus] || botones[0])?.focus();
+    (botones[focus] || botones[0])?.focus({ preventScroll: true });
+    caja.scrollTop = 0;
   });
 }
+
+// Atrapa Tab dentro de `caja` (da la vuelta) y cierra con Escape desde
+// cualquier sitio de ella, no solo desde su campo de texto.
+function atrapa(caja, cerrar) {
+  caja.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cerrar(); return; }
+    if (e.key !== 'Tab') return;
+    const fs = [...caja.querySelectorAll('button, input, textarea, [tabindex="0"]')].filter(x => !x.disabled && !x.hidden && x.getClientRects().length);
+    if (!fs.length) return;
+    const i = fs.indexOf(document.activeElement);
+    e.preventDefault();
+    fs[e.shiftKey ? (i <= 0 ? fs.length - 1 : i - 1) : (i === fs.length - 1 ? 0 : i + 1)].focus();
+  });
+}
+
+// La tecla que lleva a los avisos (y vuelve de ellos): desde el editor, el
+// chat o el panel, como F6 en VS Code. Solo se usa mientras hay alguno.
+export const TOAST_KEY = 'F6';
 
 export class ExtUI {
   constructor({ nameOf = id => id, log = () => {}, statusbar = () => document.getElementById('statusbar') } = {}) {
@@ -140,11 +164,53 @@ export class ExtUI {
     this.progress = new Map();          // id → texto
     this.dropped = { notify: 0, dialog: 0, pick: 0, clipboard: 0 };
     this.closers = new Set();
+    this.volver = null;                 // dónde estaba el foco antes de ir a un aviso
+    this.tecla = null;                  // el oyente de F6
+    this.entrada = null;                // la entrada de la paleta de Code
   }
 
   origin(source) {
     const n = source ? this.nameOf(source) : null;
     return n ? tx('x2From', { name: n }) : tx('x2FromAny');
+  }
+
+  // ── llegar a los avisos con el teclado: F6 y la paleta de Code ──
+  focusToast() {
+    const t = this.toasts.at(-1)?.el;
+    if (!t) return false;
+    if (!t.contains(document.activeElement)) this.volver = document.activeElement;
+    t.querySelector('.x2-toast-buttons button')?.focus();
+    return true;
+  }
+  backFromToast() {
+    const v = this.volver;
+    this.volver = null;
+    if (v && v.isConnected && v !== document.body && v.getClientRects().length && typeof v.focus === 'function') { v.focus(); return; }
+    const ed = globalThis.monaco?.editor?.getEditors?.().find(e => document.getElementById('editor')?.contains(e.getContainerDomNode()));
+    if (ed) ed.focus(); else document.getElementById('prompt')?.focus();
+  }
+  keyboard(on) {
+    if (on && !this.tecla) {
+      this.tecla = e => {
+        // (con un diálogo abierto, su foco no se suelta: primero se contesta él)
+        if (e.key !== TOAST_KEY || e.altKey || e.ctrlKey || e.metaKey || !this.toasts.length || document.querySelector('.x2-backdrop')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (document.getElementById('x2-toasts')?.contains(document.activeElement)) this.backFromToast();
+        else this.focusToast();
+      };
+      document.addEventListener('keydown', this.tecla, true);
+    } else if (!on && this.tecla) { document.removeEventListener('keydown', this.tecla, true); this.tecla = null; }
+    // en la paleta de Code (window.elffussClaw.commands), mientras haya avisos
+    const lista = globalThis.window?.elffussClaw?.commands;
+    if (on && !this.entrada && Array.isArray(lista)) {
+      this.entrada = { label: tx('x2FocusToast'), hint: TOAST_KEY, x2: 'ui', run: () => { const p = document.getElementById('palette'); if (p) p.hidden = true; this.focusToast(); } };
+      lista.push(this.entrada);
+    } else if (!on && this.entrada) {
+      const i = Array.isArray(lista) ? lista.indexOf(this.entrada) : -1;
+      if (i >= 0) lista.splice(i, 1);
+      this.entrada = null;
+    }
   }
 
   // ── avisos ──
@@ -170,16 +236,24 @@ export class ExtUI {
       t.setAttribute('role', sev === 'error' ? 'alert' : 'status');
       t.appendChild(el('div', 'x2-toast-from', this.origin(source)));
       t.appendChild(el('div', 'x2-toast-text', String(text)));
+      // (para el lector de pantalla: cómo llegar a sus botones desde el editor)
+      if (actions.length) t.appendChild(el('span', 'x2-sr', tx('x2ToastHint', { key: TOAST_KEY })));
       const fila = el('div', 'x2-toast-buttons');
-      let hecho = false, reloj = null;
+      let hecho = false, reloj = null, encima = false, antes = null;
       const entry = { el: t, resolve: null };
+      // sin botones se va solo, pero no mientras el ratón o el foco estén en él
+      const arma = () => { clearTimeout(reloj); if (!actions.length && !encima && !t.contains(document.activeElement)) reloj = setTimeout(() => fin(null), TOAST_AUTOCLOSE); };
       const fin = v => {
         if (hecho) return;
         hecho = true;
         clearTimeout(reloj);
+        const conFoco = t.contains(document.activeElement);
         t.remove();
         this.toasts = this.toasts.filter(x => x !== entry);
         this.closers.delete(entry.resolve);
+        // el foco vuelve a donde estaba (nunca se queda en <body>)
+        if (conFoco) { if (antes && antes.isConnected && antes.getClientRects().length) { this.volver = null; antes.focus(); } else this.backFromToast(); }
+        if (!this.toasts.length) this.keyboard(false);
         resolve(v);
       };
       entry.resolve = () => fin(null);
@@ -190,10 +264,15 @@ export class ExtUI {
       x.onclick = () => fin(null);
       fila.appendChild(x);
       t.appendChild(fila);
+      t.addEventListener('mouseenter', () => { encima = true; clearTimeout(reloj); });
+      t.addEventListener('mouseleave', () => { encima = false; arma(); });
+      t.addEventListener('focusin', e => { clearTimeout(reloj); if (!t.contains(e.relatedTarget)) antes = this.volver || e.relatedTarget || antes; });
+      t.addEventListener('focusout', e => { if (!t.contains(e.relatedTarget)) setTimeout(arma, 0); });
+      t.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fin(null); } });
       box.appendChild(t);
       this.toasts.push(entry);
-      // sin botones, se va solo; con botones espera a que el usuario elija
-      if (!actions.length) reloj = setTimeout(() => fin(null), TOAST_AUTOCLOSE);
+      this.keyboard(true);
+      arma();
     });
   }
 
@@ -321,18 +400,22 @@ export class ExtUI {
       ok.onclick = () => fin([...marcados].sort((a, b) => a - b));
       no.onclick = () => fin(null);
       inp.oninput = () => { sel = 0; pinta(); };
+      // Tab no sale del selector y Escape lo cierra desde cualquier parte
+      atrapa(caja, () => fin(null));
       inp.onkeydown = e => {
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault();
           if (!visibles.length) return;
           sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + visibles.length) % visibles.length;
           marca();
-        } else if (e.key === ' ' && many && visibles.length && !inp.value) { e.preventDefault(); alterna(visibles[sel]); }
+        // con varias a elegir, Espacio marca la resaltada aunque haya filtro
+        // (el filtro se escribe sin espacios; lo dice el texto de ayuda)
+        } else if (e.key === ' ' && many) { e.preventDefault(); if (visibles.length) alterna(visibles[sel]); }
         else if (e.key === 'Enter') {
           e.preventDefault();
           if (many) fin([...marcados].sort((a, b) => a - b));
           else if (visibles.length) fin(visibles[sel]);
-        } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fin(null); }
+        }
       };
       pinta();
       inp.focus();
@@ -391,10 +474,8 @@ export class ExtUI {
       setTimeout(() => document.addEventListener('mousedown', fuera, true), 0);
       ok.onclick = () => fin(inp.value);
       no.onclick = () => fin(null);
-      inp.onkeydown = e => {
-        if (e.key === 'Enter') { e.preventDefault(); fin(inp.value); }
-        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); fin(null); }
-      };
+      atrapa(caja, () => fin(null));
+      inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); fin(inp.value); } };
       inp.focus();
       inp.select();
     });
@@ -437,6 +518,7 @@ export class ExtUI {
     for (const c of [...this.closers]) { try { c(); } catch { /* — */ } }
     this.closers.clear();
     for (const t of [...this.toasts]) { try { t.resolve(); } catch { /* — */ } }
+    this.keyboard(false);
     document.getElementById('x2-toasts')?.remove();
     closeModals();
     this.progress.clear();

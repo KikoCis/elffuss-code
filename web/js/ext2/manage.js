@@ -15,10 +15,20 @@ import { tx } from '../ext/i18n.js';
 import './strings.js';
 import { classify, loadTested, validateSettings, VSCODE } from './classify.js';
 import { modal, loadCss } from './ui.js';
+import { runtimeInfo } from './vendor.js';
 import { uiLang } from '../i18n.js';
 
 // sus estilos (los mandos y las líneas de qué funcionará) viven en ext2.css
 if (globalThis.document) loadCss();
+
+// ¿Puede arrancar aquí el código de una extensión (navegador, sitio,
+// ?noext2, el interruptor del manifiesto)? Se mira una vez, al cargarse: las
+// líneas, el botón y el filtro lo dicen ANTES de que nadie pulse nada.
+let aqui = null;
+const aquiListo = globalThis.document
+  ? runtimeInfo().catch(() => ({ available: false, reason: 'manifest' })).then(r => (aqui = r))
+  : Promise.resolve(null);
+export const runtimeHere = () => aquiListo;
 
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 const btn = (txt, cls = 'ghost') => { const b = el('button', cls, txt); b.type = 'button'; return b; };
@@ -59,16 +69,20 @@ function censusText(t) {
   return tx('testedFails', { e: String(t.error || '').slice(0, 160) }).trim();
 }
 
-// Las líneas de «qué funcionará» de una extensión (por su manifiesto)
-export function linesFor(c) {
+// Las líneas de «qué funcionará» de una extensión (por su manifiesto). Son
+// lo único que se dice de ella: sin un «nada se puede aplicar» del nivel 1 al
+// lado de lo que sí corre (o de por qué no).
+export function linesFor(c, runtime = aqui) {
   const out = [];
   if (c.hasDeclarative) out.push({ cls: 'ext-applies', t: tx('lineWorksNow', { list: declList(c.declarative) }) });
   if (c.runtime === 'browser') {
-    if (c.eligible) out.push({ cls: 'ext-x2-runs', t: tx(codeList(c) ? 'lineRuns' : 'lineRunsBare', { list: codeList(c) }) });
-    else out.push({ cls: 'ext-ignored', t: tx('lineRunsNot', { why: reasonsText(c) }) });
+    if (!c.eligible) out.push({ cls: 'ext-ignored', t: tx('lineRunsNot', { why: reasonsText(c) }) });
+    else if (runtime && !runtime.available) out.push({ cls: 'ext-ignored', t: tx('lineRunsNotHere', { why: tx('x2Unavail_' + runtime.reason) }) });
+    else out.push({ cls: 'ext-x2-runs', t: tx(codeList(c) ? 'lineRuns' : 'lineRunsBare', { list: codeList(c) }) });
+    if (c.eligible && c.warnings?.includes('proposals')) out.push({ cls: 'ext-ignored', t: tx('lineProposals') });
   } else if (c.runtime === 'node') {
     out.push({ cls: 'ext-ignored', t: tx('lineNode') + (c.hasDeclarative ? ' ' + tx('lineNodeDecl') : '') });
-  }
+  } else if (!c.hasDeclarative) out.push({ cls: 'ext-nothing', t: tx('nothing') });
   if (c.unavailable.length) out.push({ cls: 'ext-ignored', t: tx('lineUnavailable', { list: unavailableList(c) }) });
   if (c.runtime === 'browser') {
     out.push(c.census ? { cls: c.census.state === 'active' ? 'ext-x2-tested' : 'ext-ignored', t: tx('lineTested', { text: censusText(c.census) }) }
@@ -77,30 +91,59 @@ export function linesFor(c) {
   return out;
 }
 
-export async function describe(manifest, { installedIds = new Set() } = {}) {
-  const c = classify(manifest, { tested: await loadTested(), installed: installedIds });
+// Las reglas del panel: `host` (js/ext/host.js) dice qué lenguajes trae
+// Monaco de serie y qué gramáticas no se aplicarían.
+async function opciones({ installedIds = new Set(), host = null } = {}) {
+  const [tested, rt] = await Promise.all([loadTested(), aquiListo]);
+  return {
+    tested, installed: installedIds, canRun: !!rt?.available,
+    builtinLanguage: host?.builtinLanguage || undefined, grammarSkippedFor: host?.grammarSkippedFor || undefined,
+  };
+}
+export async function describe(manifest, opts = {}) {
+  const c = classify(manifest, await opciones(opts));
   return { cls: c, lines: linesFor(c) };
 }
 
 // el botón «Instalar y ejecutar su código…»: si sale y si está activo
-export function codeButton(c, runtime) {
+export function codeButton(c, runtime = aqui) {
   if (!c || c.runtime !== 'browser') return { show: false };
   if (runtime && !runtime.available) return { show: true, disabled: tx('x2Unavail_' + runtime.reason) };
   if (!c.eligible) return { show: true, disabled: reasonsText(c) };
   return { show: true, disabled: null };
 }
 
+// Lo que pesa el .vsix, ANTES de bajarlo: una petición HEAD a la misma
+// dirección de descarga (la misma que verá Open VSX al instalarla).
+export async function downloadSize(meta) {
+  const url = meta?.files?.download;
+  if (!url) return null;
+  try {
+    const r = await fetch(url, { method: 'HEAD', credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(30000) });
+    const n = Number(r.headers.get('content-length'));
+    return r.ok && Number.isSafeInteger(n) && n > 0 ? n : null;
+  } catch { return null; }
+}
+
 // ── consentimiento ──
 // mode 'install' (desde la búsqueda), 'file' (.vsix suelto) o 'run' (ya
 // instalada). Devuelve 'code', 'declarative' o null.
-export async function consent({ name, publisher, version, license, cls, runtime, extensionBytes = null, mode = 'install' }) {
+export async function consent({ name, publisher, version, license, cls, runtime, extensionBytes = null, downloadBytes = null, mode = 'install' }) {
   const body = [];
   body.push(el('p', 'x2-modal-text', tx('consentWho', { publisher: publisher || '?', v: version || '?', l: license || tx('noLicense') })));
   body.push(el('p', 'x2-modal-text', tx('consentBody')));
   const sizes = el('ul', 'x2-sizes');
   if (runtime && runtime.bytes) sizes.appendChild(el('li', null, tx('consentRuntime', { mb: mb(runtime.bytes) })));
-  sizes.appendChild(el('li', null, mode === 'run' ? tx('consentExtAlready', { mb: mb(extensionBytes) })
-    : extensionBytes ? tx('consentExt', { mb: mb(extensionBytes) }) : tx('consentExtUnknown')));
+  // el peso del .vsix llega de una petición HEAD: el diálogo no la espera, la
+  // línea dice «mirando…» y se completa al llegar (y lo anuncia)
+  const extLine = n => (n ? tx('consentExtDownload', { mb: mb(n) }) : extensionBytes ? tx('consentExt', { mb: mb(extensionBytes) }) : tx('consentExtUnknown'));
+  const ext = el('li', null, mode === 'run' ? tx('consentExtAlready', { mb: mb(extensionBytes) })
+    : typeof downloadBytes?.then === 'function' ? tx('consentExtChecking') : extLine(downloadBytes));
+  if (mode !== 'run' && typeof downloadBytes?.then === 'function') {
+    ext.setAttribute('aria-live', 'polite');
+    downloadBytes.then(n => n, () => null).then(n => { if (ext.isConnected) ext.textContent = extLine(n); });
+  }
+  sizes.appendChild(ext);
   if (mode === 'file') sizes.appendChild(el('li', null, tx('consentFile')));
   body.push(sizes);
   if (cls && cls.unavailable.length) body.push(el('p', 'x2-note', tx('lineUnavailable', { list: unavailableList(cls) })));
@@ -133,16 +176,17 @@ export function codeInstall(ui) {
     if (cb.disabled) { ui.inerte(b, true); b.title = cb.disabled; }
     b.onclick = e => { e.stopPropagation(); if (!ui.esInerte(b)) fromResult(it, c, b); };
     acc.appendChild(b);
-    // sin nada declarativo, «Instalar» a secas no haría nada
+    // sin nada declarativo, «Instalar» a secas no haría nada (y si su código
+    // tampoco puede correr aquí, se dice por qué)
     const inst = acc.querySelector('.ext-install');
-    if (!c.hasDeclarative && inst && !ui.esInerte(inst)) { ui.inerte(inst, true); inst.title = tx('errCodeonly'); inst.className = 'ghost ext-install'; }
+    if (!c.hasDeclarative && inst && !ui.esInerte(inst)) { ui.inerte(inst, true); inst.title = cb.disabled || tx('errCodeonly'); inst.className = 'ghost ext-install'; }
   }
   async function fromResult(it, c, boton) {
     ui.aviso(null);
     const runtime = await disponible();
     if (!runtime) return;
     const meta = await (await import('../ext/openvsx.js')).metadata(it.namespace, it.name, it.version).catch(() => null);
-    const v = await consent({ name: it.displayName, publisher: it.namespace, version: it.version, license: meta?.license, cls: c, runtime, extensionBytes: c.census?.bytes || null });
+    const v = await consent({ name: it.displayName, publisher: it.namespace, version: it.version, license: meta?.license, cls: c, runtime, extensionBytes: c.census?.bytes || null, downloadBytes: meta?.files?.download ? downloadSize(meta) : null });
     if (v === 'declarative') return ui.instala(it, boton.closest('.ext-actions')?.querySelector('.ext-install') || null);
     if (v === 'code') return ui.instala(it, boton, { withCode: true });
   }
@@ -150,7 +194,8 @@ export function codeInstall(ui) {
   async function installed(rec) {
     const runtime = await disponible();
     if (!runtime) return;
-    if ((await consent({ name: rec.displayName, publisher: rec.publisher, version: rec.version, license: rec.license, cls: null, runtime })) !== 'code') return;
+    const meta = await (await import('../ext/openvsx.js')).metadata(rec.publisher, rec.name, rec.version).catch(() => null);
+    if ((await consent({ name: rec.displayName, publisher: rec.publisher, version: rec.version, license: rec.license, cls: null, runtime, downloadBytes: meta?.files?.download ? downloadSize(meta) : null })) !== 'code') return;
     return ui.instala({ namespace: rec.publisher, name: rec.name, version: rec.version, displayName: rec.displayName }, null, { withCode: true });
   }
   // un .vsix suelto: su nombre, editor, versión y licencia se leen del propio
@@ -172,8 +217,8 @@ export function codeInstall(ui) {
 
 // ── filtro «Funciona en Code»: clasifica una página de resultados ──
 // Cada manifiesto se pide una vez (4 a la vez) y se guarda por id@versión.
-export async function classifyResults(items, { ovsx, store, installedIds = new Set(), signal, onEach = () => {} } = {}) {
-  const tested = await loadTested();
+export async function classifyResults(items, { ovsx, store, installedIds = new Set(), host = null, signal, onEach = () => {} } = {}) {
+  const opts = await opciones({ installedIds, host });
   const out = new Map();
   let i = 0;
   const one = async it => {
@@ -192,7 +237,7 @@ export async function classifyResults(items, { ovsx, store, installedIds = new S
         return;
       }
     }
-    const c = classify(manifest, { tested, installed: installedIds });
+    const c = classify(manifest, opts);
     out.set(key, c);
     onEach(it, c, manifest);
   };
@@ -203,6 +248,18 @@ export async function classifyResults(items, { ovsx, store, installedIds = new S
 
 // ── mandos de una extensión instalada con código ──
 const STATE_KEY = { active: 'stateRunning', activating: 'stateStarting', installed: 'stateWaiting', error: 'stateError', stopped: 'stateStopped', unsupported: 'stateUnsupported' };
+// por qué un atajo no se ató (keys.js y commands.js dan el código)
+const KEY_SKIP = new Set(['reserved', 'invalid', 'platform', 'chords', 'unknown']);
+// por qué el recinto no arrancó o se paró (bridge.js, vendor.js, frame.js dan
+// el código; su mensaje es técnico y no va en el idioma de la interfaz)
+const NO_DISPONIBLE = new Set(['site', 'browser', 'off', 'url', 'manifest']);
+const FALLOS = new Set(['network', 'integrity', 'timeout', 'editor', 'violations', 'fatal', 'navigated', 'csp']);
+export const isRuntimeError = e => !!e && (NO_DISPONIBLE.has(e.code) || FALLOS.has(e.code) || e.code === 'disabled');
+export function runtimeErrorText(e) {
+  const code = e?.code === 'disabled' ? 'off' : String(e?.code || '').replace(/^x2-/, '');
+  if (NO_DISPONIBLE.has(code)) return tx('x2Unavail_' + code);
+  return tx('stateRuntime', { e: tx('x2Err_' + (FALLOS.has(code) ? code : 'other'), { file: e?.file ? ` (${e.file})` : '', code: code || '?' }) });
+}
 export function codeBlock(rec, { host, onGetCode, onMessage = () => {}, register = () => {} }) {
   const box = el('div', 'ext-x2');
   box.dataset.ext = rec.id;
@@ -213,9 +270,10 @@ export function codeBlock(rec, { host, onGetCode, onMessage = () => {}, register
   label.appendChild(st);
   head.appendChild(label);
   const hasCode = !!rec.code;
-  const toggle = btn(hasCode && rec.runs ? tx('stopCode') : hasCode ? tx('runCode') : tx('getCode'), 'ghost ext-x2-run');
+  // un botón de acción («Apagar el código», «Ejecutar código»): su nombre dice
+  // lo que hará, sin aria-pressed (un conmutador no cambia de nombre)
+  const toggle = btn(hasCode && rec.runs ? tx('stopCode') : hasCode ? tx('runCode') : tx('getCode'), 'ghost ext-x2-run' + (hasCode && rec.runs ? ' on' : ''));
   toggle.dataset.k = 'x2run';
-  toggle.setAttribute('aria-pressed', String(!!(hasCode && rec.runs)));
   toggle.setAttribute('aria-label', tx(hasCode && rec.runs ? 'stopCodeNamed' : 'runCodeNamed', { name: rec.displayName }));
   if (!hasCode && rec.source !== 'open-vsx') { toggle.setAttribute('aria-disabled', 'true'); toggle.title = tx('getCodeFile'); }
   toggle.onclick = async () => {
@@ -230,7 +288,7 @@ export function codeBlock(rec, { host, onGetCode, onMessage = () => {}, register
         confirm: async info => (await consent({ name: rec.displayName, publisher: rec.publisher, version: rec.version, license: rec.license, cls: null, runtime: { bytes: info.runtimeBytes }, extensionBytes: info.extensionBytes, mode: 'run' })) === 'code',
       });
       if (ok === false) onMessage(tx('cancelled'));
-    } catch (e) { onMessage(e?.message || String(e), true); }
+    } catch (e) { onMessage(isRuntimeError(e) || /^x2-/.test(e?.code || '') ? runtimeErrorText(e) : e, true); }
     finally { toggle.removeAttribute('aria-disabled'); }
   };
   head.appendChild(toggle);
@@ -270,7 +328,7 @@ export function codeBlock(rec, { host, onGetCode, onMessage = () => {}, register
   function update() {
     const s = host.codeState();
     const x = s.extensions.find(e => e.id === rec.id);
-    const runtimeOff = s.state === 'error' ? tx('stateRuntime', { e: s.error?.message || '' }) : null;
+    const runtimeOff = s.state === 'error' ? runtimeErrorText(s.error) : null;
     st.textContent = !hasCode ? tx('stateNoCode') : !rec.runs ? tx('stateOff') : runtimeOff || (x ? tx(STATE_KEY[x.state] || 'stateWaiting', { e: x.text || '' }) : tx('stateStarting'));
     dyn.replaceChildren();
     if (!x) return;
@@ -318,7 +376,7 @@ export function codeBlock(rec, { host, onGetCode, onMessage = () => {}, register
       const d = el('details', 'ext-x2-keys');
       d.appendChild(el('summary', null, tx('skippedH', { n: x.skipped.length })));
       const ul = el('ul');
-      for (const k of x.skipped.slice(0, 50)) ul.appendChild(el('li', null, `${k.key || '?'} → ${k.command || '?'}: ${k.conflict ? tx('keyConflict', { ext: k.conflict }) : k.why}`));
+      for (const k of x.skipped.slice(0, 50)) ul.appendChild(el('li', null, `${k.key || '?'} → ${k.command || '?'}: ${k.conflict ? tx('keyConflict', { ext: k.conflict }) : tx('keySkip_' + (KEY_SKIP.has(k.code) ? k.code : 'invalid'))}`));
       d.appendChild(ul);
       dyn.appendChild(d);
     }
@@ -334,11 +392,22 @@ export function codeBlock(rec, { host, onGetCode, onMessage = () => {}, register
   return box;
 }
 
-// Una línea para el encabezado de «Instaladas» cuando corre código
-export function runtimeLine(host) {
-  const s = host.codeState();
-  if (s.state !== 'running') return null;
+// Una línea para el encabezado de «Instaladas» cuando corre código; si el
+// usuario bloqueó las direcciones que piden las extensiones, se dice, con un
+// botón para deshacerlo
+export function runtimeLine(host, { onUnblock = () => {}, register = () => {} } = {}) {
   const p = el('p', 'ext-x2-runtime muted');
-  p.textContent = tx('runtimeRunning') + (s.denials?.n ? ' · ' + tx('denials', { n: s.denials.n }) : '');
+  const update = () => {
+    const s = host.codeState();
+    p.hidden = s.state !== 'running';
+    p.replaceChildren(tx('runtimeRunning') + (s.denials?.n ? ' · ' + tx('denials', { n: s.denials.n }) : ''));
+    if (s.state !== 'running' || !s.gate?.blocked) return;
+    p.appendChild(el('span', 'ext-x2-blocked', ' · ' + tx('x2Blocked', { n: s.gate.dropped || 0 }) + ' '));
+    const b = btn(tx('x2Unblock'), 'ghost ext-x2-unblock');
+    b.onclick = async () => { (await import('./bridge.js')).unblockAddresses(); onUnblock(); update(); };
+    p.appendChild(b);
+  };
+  update();
+  register(host.onCodeChange(() => { if (p.isConnected && !p.contains(document.activeElement)) update(); }));
   return p;
 }

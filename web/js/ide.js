@@ -86,6 +86,7 @@ export function focusEditor() { try { editor?.focus(); } catch { /* sin editor *
 // La ruta del fichero activo (o null): el menú la usa para no lanzar acciones
 // del editor que no hacen nada sin un fichero abierto.
 export function activeFile() { return active; }
+export const openTabs = () => tabs.map(t => [t.path, t.model]);
 
 export async function openFile(path) {
   let tab = tabs.find(t => t.path === path);

@@ -236,10 +236,12 @@ const tcpBefore = beacon.tcp.length;
 
 // ── fase B: aceptar una dirección → exactamente una visita, la enseñada ──
 const popupP = ctx.waitForEvent('page', { timeout: 20000 }).catch(() => null);
-await run('canary.open', 'http://phaseb.beacon.test/exact?x=1');
+// (un vscode.Uri con consulta: se abre como VS Code, encodeURI(uri.toString(true)),
+// así que «=», «&» y «+» llegan tal cual y no como %3D, %26 y %2B)
+const WANT_B = 'http://phaseb.beacon.test/exact?q=word+word&type=code&x=1';
+await run('canary.open', WANT_B);
 const urlB = await dialogUrl();
-// (vscode.Uri codifica el «=» de la consulta: lo que se abre, y se enseña, es eso)
-ok('B el diálogo enseña la dirección que se abrirá', urlB === 'http://phaseb.beacon.test/exact?x%3D1', String(urlB));
+ok('B el diálogo enseña la dirección que se abrirá, con su consulta legible (= & +)', urlB === WANT_B, String(urlB));
 await page.click('#x2-open button:has-text("Open in new tab")');
 const popup = await popupP;
 const hitB = await until(() => (beacon.leaks().length ? beacon.leaks() : null), { timeout: 15000 });
@@ -300,8 +302,10 @@ const forgedSent = await sbxFrame.evaluate(() => {
   for (let i = 0; i < 25; i++) { p.postMessage(bad[i % bad.length]); n++; }
   return n;
 });
-const torn = await until(async () => { const s = await state(); return s.state === 'error' && s.error?.code === 'violations' ? s : null; }, { timeout: 10000 });
-ok('simulacro: mensajes falsificados del relevo rechazados y contados; demasiados desmontan el recinto', forgedSent === 25 && !!torn && !(await page.evaluate(() => !!document.getElementById('x2-sandbox'))), JSON.stringify(torn?.error));
+const torn = await until(async () => { const s = await state(); return s.state === 'error' && s.error?.code === 'violations' ? s : null; }, { timeout: 30000 });
+const after = torn ? null : await state();
+ok('simulacro: mensajes falsificados del relevo rechazados y contados; demasiados desmontan el recinto', forgedSent === 25 && !!torn && !(await page.evaluate(() => !!document.getElementById('x2-sandbox'))),
+  JSON.stringify({ forgedSent, error: torn?.error, state: after?.state, violations: after?.violations, lastError: after?.error }));
 
 // ── controles positivos en esta misma sesión ──
 // 2. el markdown hostil SIN sanitize.js sí pinta una imagen y llega a la baliza

@@ -5,7 +5,7 @@ import { uiLang } from '../i18n.js';
 const L = {
   es: {
     title: 'Extensiones', sub: 'Open VSX',
-    intro: 'Temas de color, gramáticas, snippets y ajustes de lenguaje de extensiones de VS Code. Aquí no se ejecuta el código de ninguna extensión, y tu proyecto no sale del navegador: a Open VSX solo va lo que buscas y lo que instalas.',
+    intro: 'Temas de color, gramáticas, snippets y ajustes de lenguaje de extensiones de VS Code. El código de una extensión no se ejecuta salvo que lo enciendas para ella, y entonces solo en un recinto sellado sin internet; tu proyecto no sale del navegador: a Open VSX solo va lo que buscas y lo que instalas.',
     paused: 'Extensiones en pausa en esta sesión (?noext): no se aplica ninguna. Puedes desactivarlas o desinstalarlas.',
     searchPh: 'Buscar extensiones en Open VSX…',
     catAll: 'Todo', catThemes: 'Temas', catSnippets: 'Snippets', catLangs: 'Lenguajes',
@@ -71,7 +71,7 @@ const L = {
   },
   en: {
     title: 'Extensions', sub: 'Open VSX',
-    intro: 'Color themes, grammars, snippets and language settings from VS Code extensions. No extension code runs here, and your project never leaves the browser: Open VSX only sees what you search for and what you install.',
+    intro: 'Color themes, grammars, snippets and language settings from VS Code extensions. No extension code runs unless you turn it on for one extension, and then only in a sealed sandbox with no internet; your project never leaves the browser: Open VSX only sees what you search for and what you install.',
     paused: 'Extensions are paused for this session (?noext): none is applied. You can still disable or uninstall them.',
     searchPh: 'Search extensions on Open VSX…',
     catAll: 'All', catThemes: 'Themes', catSnippets: 'Snippets', catLangs: 'Languages',

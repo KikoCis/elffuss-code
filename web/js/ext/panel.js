@@ -97,6 +97,7 @@ export function textoError(e) {
     case 'badmanifest': return tx('errBadManifest', { e: e.message });
     case 'unreadable': return tx('errUnreadable', { w: e.warning ? textoAviso(e.warning) : '' }).trim();
   }
+  if (m2?.isRuntimeError(e)) return m2.runtimeErrorText(e);
   return tx('err', { e: e?.message || String(e) });
 }
 // Una parte del paquete que no se pudo usar (vsix.js: { kind, name, code, detail }).
@@ -328,11 +329,11 @@ async function busca_({ mas = false } = {}) {
       estado.total = r.total;
       paginas++;
       if (!estado.works) break;
-      const m = await gestor();
+      const m = m2 ??= await gestor();
       const store = await import('./store.js');
       pintaResultados();
       await m.classifyResults(r.items, {
-        ovsx, store, signal: ctl.signal, installedIds: new Set(host.list().map(e => e.id)),
+        ovsx, store, host, signal: ctl.signal, installedIds: new Set(host.list().map(e => e.id)),
         onEach: (it, c) => { if (estado.ctl !== ctl) return; estado.cls.set(clave(it), c); estado.checked++; pintaResultadosPronto(); },
       });
       if (estado.ctl !== ctl) return;
@@ -442,7 +443,12 @@ function filaResultado(it, instalada) {
   } else if (instalada) rotula(b, tx('update', { v: it.version }), tx('updateNamed', { name: it.displayName, v: it.version }));
   else rotula(b, tx('install'), tx('installNamed', { name: it.displayName }));
   // actualizar una que corre su código la trae con su código (y su suma)
-  b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b, { withCode: !!instalada?.code }); };
+  b.onclick = async e => {
+    e.stopPropagation();
+    if (esInerte(b)) return;
+    if (!instalada) { inerte(b, true); const sigue = await antesDeInstalar(it); inerte(b, false); if (!sigue) return; }
+    instala(it, b, { withCode: !!instalada?.code });
+  };
   acc.appendChild(b);
   // nivel 2: si ya se sabe qué funcionará (filtro o detalle), se dice en la fila
   const c = estado.cls.get(clave(it));
@@ -475,11 +481,11 @@ async function detalle(it, det, boton) {
     const manifest = await ovsx.manifest(meta);
     const a = analyzeManifest(manifest);
     m2 ??= await gestor();
-    const d2 = await m2.describe(manifest, { installedIds: new Set(host.list().map(e => e.id)) });
+    const d2 = await m2.describe(manifest, { installedIds: new Set(host.list().map(e => e.id)), host });
     estado.cls.set(clave(it), d2.cls);
     // «Funciona ya (sin código)» del nivel 2 en vez del «Aplica» de siempre (lo
     // mismo), luego lo que no se aplica y por qué, y luego lo de su código
-    const r = resumen({ themes: a.applies.themes, grammarLangs: a.grammarLangs, languageList: a.languageList, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: false, pack: a.pack, code: d2.cls.runtime === 'browser' });
+    const r = resumen({ themes: a.applies.themes, grammarLangs: a.grammarLangs, languageList: a.languageList, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: false, pack: a.pack, code: true });
     const ya = d2.lines.filter(l => l.cls === 'ext-applies');
     det.replaceChildren(...[...ya, ...r.lineas.filter(l => l.cls !== 'ext-applies' || !ya.length), ...d2.lines.filter(l => !ya.includes(l))].map(l => el('div', l.cls, l.t)));
     const lic = el('div', 'ext-meta muted', tx('license', { l: meta.license || tx('noLicense') }) + ' ');
@@ -495,10 +501,30 @@ async function detalle(it, det, boton) {
     const fila = det.closest('.ext-row');
     // nada aplicable: instalarla solo daría un error, mejor decirlo en el botón
     const inst = fila?.querySelector('.ext-install');
-    if (!r.any && !d2.cls.eligible && inst && !esInerte(inst)) { inerte(inst, true); inst.title = tx('nothing'); inst.className = 'ghost ext-install'; }
+    if (!d2.cls.hasDeclarative && !d2.cls.eligible && inst && !esInerte(inst)) { inerte(inst, true); inst.title = tx('nothing'); inst.className = 'ghost ext-install'; }
     const acc = fila?.querySelector('.ext-actions');
     if (acc) ponBotonCodigo(acc, it, d2.cls, host.list().find(e => e.id === `${it.namespace}.${it.name}`.toLowerCase()));
   } catch (e) { det.replaceChildren(el('div', 'ext-ignored', textoError(e))); }
+}
+
+// «Instalar» sin detalle visto: su manifiesto antes que el .vsix; si solo
+// trae código, la fila enseña su botón de código, con el foco
+async function antesDeInstalar(it) {
+  if (!estado.cls.get(clave(it))) {
+    try {
+      const ovsx = await import('./openvsx.js');
+      const manifest = await ovsx.manifest(await ovsx.metadata(it.namespace, it.name, it.version));
+      m2 ??= await gestor();
+      estado.cls.set(clave(it), (await m2.describe(manifest, { installedIds: new Set(host.list().map(e => e.id)), host })).cls);
+    } catch { return true; }
+  }
+  if (estado.cls.get(clave(it)).hasDeclarative) return true;
+  pintaResultados();
+  const fila = [...document.querySelectorAll('#ext-results .ext-row')].find(r => r.dataset.id === `${it.namespace}.${it.name}`);
+  const cod = fila?.querySelector('.ext-install-code');
+  aviso(!cod ? tx('nothing') : esInerte(cod) ? cod.title : tx('errCodeonly'), true);
+  (cod || fila?.querySelector('.ext-name'))?.focus();
+  return false;
 }
 
 async function instala(src, boton, { withCode = false } = {}) {
@@ -522,6 +548,7 @@ async function instala(src, boton, { withCode = false } = {}) {
     if (boton) { inerte(boton, false); rotula(boton, original.texto, original.accesible); }
     // un .vsix con solo código: se ofrece ejecutarlo (con su consentimiento)
     if (e?.code === 'codeonly' && src instanceof Blob) return instalaFicheroConCodigo(src);
+    if (e?.code === 'codeonly' && !(await antesDeInstalar(src))) return;
     aviso(textoError(e), true);
   }
 }
@@ -530,6 +557,7 @@ const instalaFicheroConCodigo = async (file, opts) => { m2 ??= await gestor(); r
 
 // ── instaladas ──
 function claveFoco(x) {
+  if (x?.id === 'ext-installed-h') return { heading: true };
   const k = x?.closest?.('[data-k]')?.dataset.k;
   const id = x?.closest?.('.ext-row')?.dataset.id;
   return k && id ? { id, k } : null;
@@ -566,11 +594,10 @@ function pintaInstaladas() {
   if (!lista.length) { box.appendChild(el('p', 'muted ext-hint', tx('none'))); recuperaFoco(box, foco && { heading: true }); return; }
   // con código en marcha: una línea con su estado y un botón para apagarlo todo
   if (lista.some(e => e.runs && e.enabled) && m2) {
-    const linea = m2.runtimeLine(host);
-    if (linea) box.appendChild(linea);
+    box.appendChild(m2.runtimeLine(host, { register: f => bajas.push(f), onUnblock: () => { aviso(tx('x2Unblocked')); $('ext-installed-h')?.focus(); } }));
     const todo = el('button', 'ghost ext-x2-alloff', tx('allCodeOff'));
     todo.type = 'button';
-    todo.onclick = async () => { for (const e of host.list()) if (e.runs) await host.setRuns(e.id, false); };
+    todo.onclick = async () => { focoPendiente = { heading: true }; for (const e of host.list()) if (e.runs) await host.setRuns(e.id, false); aviso(tx('allCodeOffDone')); };
     box.appendChild(todo);
   }
   if ((lista.some(e => e.code || e.browser)) && !m2) gestor().then(m => { m2 = m; pintaInstaladas(); }).catch(() => {});
@@ -596,7 +623,7 @@ function pintaInstaladas() {
       const b = m2.codeBlock(e, {
         host,
         onGetCode: rec => codigo().installed(rec),
-        onMessage: (t, error) => aviso(t, error),
+        onMessage: (t, error) => aviso(typeof t === 'string' ? t : textoError(t), error),
         register: f => bajas.push(f),
       });
       for (const d of b.querySelectorAll('details')) if (abiertos.has(e.id + '|' + d.className)) d.open = true;

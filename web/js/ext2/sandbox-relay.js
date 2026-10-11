@@ -80,6 +80,15 @@ function approxSize(v, limit) {
   return n;
 }
 const LISTS = { 'deco.set': 'ranges', markers: 'markers', 'ui.pick': 'items', 'rpc.denied': 'top' };
+// La dirección externa como la abre VS Code: un texto, tal cual; un URI, con
+// encodeURI(uri.toString(true)), que deja «=», «&» y «+» de la consulta como
+// están (toString() los codificaría y sería otra dirección).
+export function externalString(r) {
+  if (typeof r === 'string') return r;
+  try { if (r && typeof r.toString === 'function') return encodeURI(r.toString(true)); } catch { /* sustitutos sueltos */ }
+  return r && typeof r.toString === 'function' ? String(r.toString()) : '';
+}
+
 export function fit(msg) {
   const cap = capOf(msg.t);
   if (approxSize(msg, cap) <= cap) return msg;
@@ -215,7 +224,7 @@ export async function start({ m, port, config, sandbox = {} }) {
     async open(resource) {
       const s = uriString(resource).slice(0, 8192);
       const scheme = (/^([a-z][a-z0-9+.-]*):/i.exec(s) || [])[1]?.toLowerCase();
-      if (scheme === 'http' || scheme === 'https' || scheme === 'mailto') return (await ask('open.request', { url: s })) === true;
+      if (scheme === 'http' || scheme === 'https' || scheme === 'mailto') return (await ask('open.request', { url: externalString(resource).slice(0, 8192) })) === true;
       if (scheme === 'file' && docs.has(s)) { showDoc(s); return true; }
       openRefused.n++;
       log('warn', 'refused to open ' + s.slice(0, 200));

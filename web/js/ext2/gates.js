@@ -100,8 +100,16 @@ export function describeUrl(s) {
   return { ok: true, href: u.href, scheme, openable, host, hostUnicode: uni !== host ? uni : null, site, original: String(s) };
 }
 
+// «Sitio: ejemplo.org» (en Unicode, y en punycode si difiere)
+function siteLine(info, cls) {
+  const site = el('p', cls, tx('x2OpenSite') + ' ');
+  site.appendChild(el('b', null, visibleText(info.hostUnicode || info.site)));
+  if (info.hostUnicode) site.appendChild(document.createTextNode(' ' + tx('x2OpenPuny', { host: info.host })));
+  return site;
+}
+
 function addressBox(href) {
-  const box = el('div', 'x2-code');
+  const box = el('div', 'x2-code x2-address');
   for (const p of visibleParts(href)) {
     if (p.t !== undefined) box.appendChild(document.createTextNode(p.t));
     else box.appendChild(el('span', 'x2-cc', p.cc));
@@ -111,9 +119,11 @@ function addressBox(href) {
 
 // ── abrir una dirección ──
 export class OpenGate {
-  constructor({ log = () => {}, opener = (url) => window.open(url, '_blank', 'noopener,noreferrer') } = {}) {
+  constructor({ log = () => {}, opener = (url) => window.open(url, '_blank', 'noopener,noreferrer'), onDropped = () => {}, onChange = () => {} } = {}) {
     this.log = log;
     this.opener = opener;
+    this.onDropped = onDropped;              // una petición bloqueada: se dice (barra de estado)
+    this.onChange = onChange;                // bloqueado o no (el panel lo enseña)
     this.busy = false;
     this.blocked = false;
     this.dropped = 0;
@@ -121,8 +131,17 @@ export class OpenGate {
     this.shown = [];                         // lo que enseñó el diálogo (para las pruebas y el registro)
   }
 
+  // «Bloquear» es para lo que piden las extensiones: un enlace que el propio
+  // usuario abre con Cmd+clic en el editor sigue preguntando.
+  unblock() { if (this.blocked) { this.blocked = false; this.log('info', 'address requests from extensions are allowed to ask again'); this.onChange(); } }
+
   async request(url, { fromEditor = false } = {}) {
-    if (this.blocked) { this.dropped++; this.log('warn', 'an address was not opened: requests are blocked for this session'); return false; }
+    if (this.blocked && !fromEditor) {
+      this.dropped++;
+      this.log('warn', 'an address was not opened: requests are blocked for this session');
+      this.onDropped(this.dropped);
+      return false;
+    }
     if (this.busy) { this.dropped++; this.log('warn', 'an address was not opened: another one is waiting for an answer'); return false; }
     const info = describeUrl(url);
     const clicked = userActive();
@@ -131,12 +150,7 @@ export class OpenGate {
     if (this.shown.length > 50) this.shown.shift();
     try {
       const body = [el('p', 'x2-modal-text', fromEditor ? tx('x2OpenBodyLink') : tx('x2OpenBody'))];
-      if (info.ok && info.site) {
-        const site = el('p', 'x2-site', tx('x2OpenSite') + ' ');
-        site.appendChild(el('b', null, visibleText(info.hostUnicode || info.site)));
-        if (info.hostUnicode) site.appendChild(document.createTextNode(' ' + tx('x2OpenPuny', { host: info.host })));
-        body.push(site);
-      }
+      if (info.ok && info.site) body.push(siteLine(info, 'x2-site'));
       if (!clicked) body.push(el('p', 'x2-note', tx('x2OpenNoClick')));
       if (!info.ok) body.push(el('p', 'x2-note', tx('x2OpenInvalid')));
       else if (!info.openable) body.push(el('p', 'x2-note', tx('x2OpenScheme', { scheme: info.scheme })));
@@ -145,9 +159,13 @@ export class OpenGate {
         { label: tx('x2OpenCopy'), value: 'copy', onClick: async b => { try { await navigator.clipboard.writeText(info.href); b.textContent = tx('x2OpenCopied'); } catch { b.textContent = tx('x2OpenCopyFailed'); } return true; } },
       ];
       if (info.ok && info.openable) buttons.push({ label: tx('x2OpenOpen'), value: 'open', primary: true });
-      buttons.push({ label: tx('x2OpenBlock'), value: 'block', className: 'x2-block' });
-      const v = await modal({ id: 'x2-open', title: tx('x2OpenTitle'), body, code: addressBox(info.href), buttons, cancelValue: 'cancel', focus: 0 });
-      if (v === 'block') { this.blocked = true; this.log('info', 'address requests from extensions are blocked for this session'); return false; }
+      // (un enlace del propio usuario no se bloquea: ese botón es para las extensiones)
+      if (!fromEditor) buttons.push({ label: tx('x2OpenBlock'), value: 'block', className: 'x2-block' });
+      // en un teléfono la dirección larga no empuja el título ni el sitio fuera
+      // de la vista: tiene su propio scroll, y el sitio se repite junto a los botones
+      const after = info.ok && info.site ? [siteLine(info, 'x2-site x2-site-again')] : [];
+      const v = await modal({ id: 'x2-open', title: tx('x2OpenTitle'), body, code: addressBox(info.href), after, buttons, cancelValue: 'cancel', focus: 0 });
+      if (v === 'block') { this.blocked = true; this.log('info', 'address requests from extensions are blocked for this session'); this.onChange(); return false; }
       if (v !== 'open' || !info.openable) return false;
       this.opener(info.href);
       this.opened++;

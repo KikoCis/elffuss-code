@@ -6,7 +6,8 @@
 // Open VSX y nunca el recinto.
 //
 //   const mock = await mockOpenVsx(ctx, [{ namespace, name, version, manifest, vsix?, published?, keywords? }])
-//   mock.log → [{ url, path, frame }]
+//   mock.log → [{ url, path, frame, method }]; downloads() (GET of a .vsix) and
+//   sizeLookups() (HEAD of a .vsix, for its size before the consent)
 const API = 'https://open-vsx.org';
 
 export async function mockOpenVsx(ctx, packages) {
@@ -23,7 +24,7 @@ export async function mockOpenVsx(ctx, packages) {
     const u = new URL(req.url());
     let frame = '';
     try { frame = req.frame()?.url() || ''; } catch { /* de un worker */ }
-    log.push({ url: u.href, path: u.pathname, frame });
+    log.push({ url: u.href, path: u.pathname, frame, method: req.method() });
     const cors = { 'access-control-allow-origin': '*' };
     const json = (body, status = 200) => route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     if (u.pathname === '/api/-/search') {
@@ -51,9 +52,11 @@ export async function mockOpenVsx(ctx, packages) {
       return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/plain' }, body: `${p.published}  ${p.namespace}.${p.name}-${p.version}.vsix` });
     }
     if (m[4].endsWith('.vsix') && p.vsix) {
+      // HEAD: solo su tamaño (lo que el consentimiento enseña antes de bajar nada)
+      if (req.method() === 'HEAD') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/octet-stream', 'content-length': String(p.vsix.length) }, body: '' });
       return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/octet-stream', 'content-length': String(p.vsix.length) }, body: p.vsix });
     }
     return json({ error: 'not found' }, 404);
   });
-  return { log, downloads: () => log.filter(r => r.path.endsWith('.vsix')).map(r => r.path) };
+  return { log, downloads: () => log.filter(r => r.path.endsWith('.vsix') && r.method !== 'HEAD').map(r => r.path), sizeLookups: () => log.filter(r => r.path.endsWith('.vsix') && r.method === 'HEAD').map(r => r.path) };
 }

@@ -28,7 +28,8 @@
   border-radius: 6px; padding: 5px 11px; font-size: .76rem; cursor: pointer; white-space: nowrap;
 }
 .x2-btn:hover:not([aria-disabled="true"]) { border-color: var(--accent2, #8272ff); }
-.x2-btn.x2-primary { background: linear-gradient(135deg, var(--accent, #c8a06a), var(--accent2, #8272ff)); border: none; color: #fff; }
+/* texto oscuro sobre el degradado de Code: 8,1:1 en el dorado y 5,4:1 en el violeta (WCAG 1.4.3 pide 4,5:1) */
+.x2-btn.x2-primary { background: linear-gradient(135deg, var(--accent, #c8a06a), var(--accent2, #8272ff)); border: none; color: #0b0c12; font-weight: 600; }
 .x2-btn[aria-disabled="true"] { opacity: .55; cursor: default; }
 .x2-btn:focus-visible, .x2-toast-close:focus-visible { outline: 2px solid var(--accent2, #8272ff); outline-offset: 2px; }
 
@@ -52,9 +53,13 @@
   white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; user-select: all;
 }
 .x2-code .x2-cc { color: #ff9db1; background: rgba(255,107,139,.14); border-radius: 3px; padding: 0 2px; }
+/* una dirección o una orden larga no empuja el título fuera: se desplaza ella */
+.x2-code { max-height: min(32vh, 14em); overflow: auto; }
+.x2-code:focus-visible { outline: 2px solid var(--accent2, #8272ff); outline-offset: 1px; }
 .x2-sizes { margin: 0 0 8px 18px; padding: 0; font-size: .78rem; line-height: 1.45; }
 .x2-site { font-size: .8rem; margin: 0 0 6px; }
 .x2-site b { overflow-wrap: anywhere; }
+.x2-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .x2-note { font-size: .76rem; color: #f0c27a; margin: 0 0 6px; }
 
 .x2-pick {
@@ -82,7 +87,8 @@
 .x2-progress { margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50vw; }
 
 @media (max-width: 560px) {
-  #x2-toasts { right: 4vw; left: 4vw; width: auto; }
+  /* arriba, bajo la barra de pestañas: abajo taparía el prompt del chat */
+  #x2-toasts { right: 4vw; left: 4vw; width: auto; bottom: auto; top: 46px; }
   .x2-backdrop { padding-top: 6vh; }
   .x2-modal-buttons { justify-content: stretch; }
   .x2-modal-buttons .x2-btn { flex: 1 1 auto; }
@@ -99,7 +105,7 @@
 .ext-x2-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: space-between; }
 .ext-x2-state { color: #9ecbff; overflow-wrap: anywhere; }
 .ext-x2 button { font-size: .72rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: none; border: 1px solid var(--line); color: var(--fg); }
-.ext-x2 button[aria-pressed="true"] { border-color: var(--accent2); background: rgba(130,114,255,.18); }
+.ext-x2 button.ext-x2-run.on { border-color: var(--accent2); background: rgba(130,114,255,.18); }
 .ext-x2 button[aria-disabled="true"] { opacity: .6; cursor: default; }
 .ext-x2 details { margin-top: 6px; }
 .ext-x2 summary { cursor: pointer; }
@@ -113,6 +119,9 @@
 .ext-x2-keys ul { margin: 4px 0 0 18px; padding: 0; color: var(--muted); overflow-wrap: anywhere; }
 .ext-x2-log pre { margin: 4px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .68rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 .ext-x2-runtime { margin: 2px 0 4px; font-size: .74rem; }
+.ext-x2-blocked { color: #f0c27a; }
+.ext-x2-unblock { font-size: .72rem; padding: 2px 8px; border-radius: 6px; cursor: pointer; background: none; border: 1px solid var(--line); color: var(--fg); }
+.ext-x2-unblock:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
 .ext-x2-alloff { margin: 0 0 8px; font-size: .72rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: none; border: 1px solid var(--line); color: var(--muted); }
 .ext-x2 button:focus-visible, .ext-x2 summary:focus-visible, .ext-x2-json:focus-visible, .ext-x2-alloff:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
 @media (max-width: 560px) {

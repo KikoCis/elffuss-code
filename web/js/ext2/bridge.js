@@ -18,6 +18,8 @@ import { ExtUI, loadCss, userActive } from './ui.js';
 import { OpenGate, installAgentGate, markTouched } from './gates.js';
 import { Decorations } from './decorations.js';
 import * as convert from './convert.js';
+import { tx } from '../ext/i18n.js';
+import './strings.js';
 
 const READY_TIMEOUT = 60000;
 const CALL_TIMEOUT = 30000;
@@ -87,6 +89,8 @@ export function state() {
   };
 }
 export const commands = () => (session?.commands ? session.commands.entries() : []);
+// «Desbloquear» del panel: las extensiones vuelven a poder pedir direcciones
+export const unblockAddresses = () => { session?.gate.unblock(); };
 export const runCommand = (id, args) => (session ? session.runCommand(id, args) : Promise.resolve(null));
 // foto de la superficie de la API del recinto (para las pruebas: tests/x2-surface.json)
 export const surface = () => (session && session.state === 'running' ? session.request({ t: 'surface' }) : Promise.resolve(null));
@@ -111,7 +115,12 @@ class Session {
     this.denials = { n: 0, top: [] };              // llamadas que el cortafuegos de RPC rechazó
     this.names = new Map();                        // id → nombre visible (para decir quién pide algo)
     this.ui = new ExtUI({ nameOf: id => this.names.get(id) || null, log: (level, text, id) => this.log(id || null, level, text) });
-    this.gate = new OpenGate({ log: (level, text) => this.log(null, level, text) });
+    this.gate = new OpenGate({
+      log: (level, text) => this.log(null, level, text),
+      // lo bloqueado no se calla: la barra de estado lo dice, y el panel lo enseña con «Desbloquear»
+      onDropped: () => statusbar(tx('x2BlockedDropped')),
+      onChange: () => emit(),
+    });
     this.restoreAgent = null;
     this.readyPromise = new Promise((res, rej) => { this.onReady = res; this.onFail = rej; });
   }
@@ -157,6 +166,9 @@ class Session {
     // ide.js crea el editor después de cargar las extensiones: se le espera
     this.editor = await this.waitEditor();
     if (this.state === 'stopped') return;
+    // (la misma instancia de ide.js que ya usa la página: sus pestañas abiertas)
+    this.ide = await import('../ide.js').catch(() => null);
+    if (this.state === 'stopped') return;
     this.wire();
     this.state = 'running';
     emit();
@@ -183,9 +195,9 @@ class Session {
     const editor = this.editor;
     this.docs = new EditorPort({
       monaco, editor, post: m => this.post(m),
-      notify: (what, path) => statusbar(what === 'big'
-        ? `Extensions do not see ${path}: it is larger than 5 MB.`
-        : 'An extension\'s change was discarded because the file changed meanwhile.'),
+      notify: (what, path) => statusbar(what === 'big' ? tx('x2DocBig', { path }) : tx('x2DocDiscarded')),
+      // las pestañas que ya estaban abiertas antes de que arrancara el recinto
+      openTabs: () => this.ide?.openTabs?.() || [],
     });
     this.features = new Features({
       monaco, docs: this.docs,
@@ -443,7 +455,7 @@ class Session {
   }
 
   fail(e) {
-    this.error = { code: e?.code || 'error', message: String(e?.message || e) };
+    this.error = { code: e?.code || 'error', message: String(e?.message || e), ...(typeof e?.file === 'string' ? { file: e.file.slice(0, 100) } : {}) };
     lastError = this.error;
     console.warn('[x2] nivel 2 parado:', this.error.message);
     this.stop('error');

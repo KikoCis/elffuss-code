@@ -97,7 +97,7 @@ const idbKeys = prefix => page.evaluate(prefix => new Promise((res, rej) => {
 // ── M1–M5: buscar, detalle, consentimiento ──
 await page.click('#act-ext');
 await until(() => page.evaluate(() => !!document.getElementById('ext-panel')));
-ok('M1 sin extensiones con código, la explicación de siempre', /No extension code runs here/.test(await page.textContent('#ext-panel .ext-intro')));
+ok('M1 sin extensiones con código, la explicación de siempre (que ya dice que su código solo corre si lo enciendes)', /No extension code runs unless you turn it on for one extension/.test(await page.textContent('#ext-panel .ext-intro')));
 requests.length = 0;
 await search('sort');
 await until(async () => (await row('Tyriar.sort-lines').count()) === 1);
@@ -111,11 +111,14 @@ ok('M3c abrir el detalle no baja el recinto ni lo abre', !requests.some(u => u.i
 await row('Tyriar.sort-lines').locator('.ext-install-code').click();
 const consent = await until(() => page.evaluate(() => {
   const d = document.querySelector('#x2-consent [role="dialog"]');
-  return d ? { text: d.textContent, focused: document.activeElement?.textContent, buttons: [...d.querySelectorAll('button')].map(b => b.textContent) } : null;
+  // (lo que pesa la extensión llega de una petición HEAD, sin hacer esperar al diálogo)
+  return d && /This extension: \d/.test(d.textContent) ? { text: d.textContent, focused: document.activeElement?.textContent, buttons: [...d.querySelectorAll('button')].map(b => b.textContent) } : null;
 }));
 ok('M4 consentimiento: qué verá, sin internet, el tamaño del recinto y que se baja al aceptar', !!consent && /Run the code of Sort lines\?/.test(consent.text) && /can’t read your project, conversations or keys/.test(consent.text)
   && /Code’s extension runtime: 2\.6 MB, downloaded once and then cached/.test(consent.text) && /downloaded from Open VSX when you accept/.test(consent.text)
   && consent.focused === 'Cancel' && consent.buttons.join() === 'Cancel,Install and run code', JSON.stringify(consent));
+const mbOf = n => (n / 1e6).toFixed(1) + ' MB';
+ok('M4a …y lo que pesa la extensión, antes de bajarla (una petición HEAD)', consent.text.includes(`This extension: ${mbOf(packages[0].vsix.length)}, downloaded from Open VSX when you accept`) && mock.sizeLookups().length === 1, JSON.stringify({ text: consent.text.slice(-200), heads: mock.sizeLookups() }));
 ok('M4b con el diálogo abierto todavía no se ha bajado nada', !requests.some(u => u.includes('/vendor/x2/')) && !mock.downloads().length);
 await page.keyboard.press('Escape');
 await sleep(500);
@@ -150,8 +153,8 @@ await row('esbenp.prettier-vscode').locator('.ext-name').click();
 const det2 = await until(async () => { const t = await row('esbenp.prettier-vscode').locator('.ext-detail').innerText(); return /Tested in Code/.test(t) ? t : null; });
 ok('M9 Prettier: lo declarativo, el código en el recinto y el resultado del censo (formateador)', !!det2 && /Works now \(no code\): \d+ languages?/.test(det2) && /Runs in Code’s sandbox/.test(det2) && /Tested in Code: starts.*formatter/.test(det2), det2);
 await row('esbenp.prettier-vscode').locator('.ext-install-code').click();
-const consent2 = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-consent [role="dialog"]'); return d ? { text: d.textContent, buttons: [...d.querySelectorAll('button')].map(b => b.textContent) } : null; }));
-ok('M10 su tamaño (del censo) y la opción de instalar solo lo declarativo', !!consent2 && /This extension: 5\.9 MB/.test(consent2.text) && consent2.buttons.includes('Install themes and snippets only'), JSON.stringify(consent2));
+const consent2 = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-consent [role="dialog"]'); return d && /This extension: \d/.test(d.textContent) ? { text: d.textContent, buttons: [...d.querySelectorAll('button')].map(b => b.textContent) } : null; }));
+ok('M10 su tamaño (el del .vsix, antes de bajarlo) y la opción de instalarla sin su código', !!consent2 && consent2.text.includes(`This extension: ${mbOf(packages.find(p => p.name === 'prettier-vscode').vsix.length)}, downloaded`) && consent2.buttons.includes('Install without its code'), JSON.stringify(consent2));
 await page.click('#x2-consent button:has-text("Install and run code")');
 await until(async () => ((await codeState('esbenp.prettier-vscode')) === 'running' ? 1 : null), { timeout: 90000 });
 await open('ugly.js');
@@ -238,7 +241,7 @@ ok('M17 desinstalar sort-lines: sin fila y sin ficheros en IndexedDB', !!(await 
 await installed('esbenp.prettier-vscode').locator('.ext-uninstall').click();
 await until(async () => (await installed('esbenp.prettier-vscode').count()) === 0);
 ok('M18 desinstalar la última: sin recinto, sin ficheros y la explicación de siempre', !!(await until(() => page.evaluate(() => !document.getElementById('x2-sandbox'))))
-  && (await idbKeys('esbenp.prettier-vscode@')) === 0 && /No extension code runs here/.test(await page.textContent('#ext-panel .ext-intro')));
+  && (await idbKeys('esbenp.prettier-vscode@')) === 0 && /No extension code runs unless you turn it on for one extension/.test(await page.textContent('#ext-panel .ext-intro')));
 
 // ── M19–M21: filtro, suma obligatoria, Node ──
 await search('elffuss-filter');

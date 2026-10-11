@@ -18,7 +18,7 @@ import { parseKeybinding, reservedChords } from '../web/js/ext2/keys.js';
 import { commandsOf } from '../web/js/ext2/commands.js';
 import { globMatch, compileSelector, selectorMatches } from '../web/js/ext2/features.js';
 import { validManifest, ROLES } from '../web/js/ext2/vendor.js';
-import { sandboxOrigin } from '../web/js/ext2/config.js';
+import { sandboxOrigin, sameSite, siteOf } from '../web/js/ext2/config.js';
 import { check as checkHeaders, loadSpec, cspFor, queryAllowed, originsFor, expectedMeta } from '../sandbox/x2/headers.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -72,7 +72,11 @@ ok('clipboard.write con tope; selección y desplazamiento con rangos válidos', 
   && !validate({ t: 'editor.reveal', uri: 'https://x.test/a', range: [1, 1, 1, 1] }).ok);
 ok('resultados y ediciones pueden traer un documento entero; el resto, 1 MB', validate({ t: 'result', req: 1, ok: true, value: 'x'.repeat(3 << 20) }).ok
   && !validate({ t: 'result', req: 1, ok: true, value: 'x'.repeat(9 << 20) }).ok && !validate({ t: 'log', level: 'info', text: 'x', pad: 'x'.repeat(1 << 20) }).ok);
-const { fit } = await import('../web/js/ext2/sandbox-relay.js');
+const { fit, externalString } = await import('../web/js/ext2/sandbox-relay.js');
+// un vscode.Uri de mentira con las dos formas de VS Code: toString() codifica «=», «&» y «+»; toString(true), no
+const fakeUri = { toString: skip => (skip ? 'https://github.com/search?q=word+word&type=code&p=a b' : 'https://github.com/search?q%3Dword%2Bword%26type%3Dcode%26p%3Da%20b') };
+ok('abrir una dirección: un URI se abre como VS Code (encodeURI(toString(true))) y un texto, tal cual', externalString(fakeUri) === 'https://github.com/search?q=word+word&type=code&p=a%20b'
+  && externalString('https://x.test/?a=1&b=2') === 'https://x.test/?a=1&b=2' && externalString({ toString: () => 'https://y.test/' }) === 'https://y.test/' && externalString(null) === '', externalString(fakeUri));
 const bigDeco = { t: 'deco.set', key: 'k', uri: 'file:///a.js', ranges: Array.from({ length: 10000 }, () => ({ range: [1, 1, 1, 2], hover: [{ md: 'x'.repeat(4000) }] })) };
 const fitted = fit(bigDeco);
 ok('el recinto recorta antes de mandar: decoraciones sin sus textos largos, resultados enormes como error', validate(fitted).ok && fitted.ranges.length === 10000 && !fitted.ranges[0].hover
@@ -173,6 +177,8 @@ ok('Cmd/Ctrl+P reservado', !!kb({ key: 'ctrl+p' }, 'linux').skip && !!kb({ mac: 
 ok('reservados: guardar, F1, ir a símbolo, terminal, deshacer, buscar, cerrar pestaña, 1-9',
   ['ctrl+s', 'f1', 'ctrl+shift+o', 'ctrl+`', 'ctrl+z', 'ctrl+f', 'ctrl+w', 'ctrl+5', 'ctrl+shift+p'].every(k => kb({ key: k }, 'linux').skip));
 ok('tecla desconocida se salta', !!kb({ key: 'ctrl+fooo' }, 'linux').skip);
+ok('cada atajo saltado trae su código, para decirlo en el idioma de la interfaz', kb({ key: 'ctrl+p' }, 'linux').code === 'reserved' && kb({ key: 'ctrl+fooo' }, 'linux').code === 'unknown'
+  && kb({ key: 'a b c' }, 'linux').code === 'chords' && kb({ mac: 'cmd+k' }, 'linux').code === 'platform' && parseKeybinding(monaco, null).code === 'invalid' && kb({ key: 'ctrl+k' }, 'linux').code === undefined);
 ok('reservedChords no vacío', reservedChords(monaco).size > 20);
 const co = commandsOf({ contributes: { commands: [{ command: 'a.b', title: 'B', category: 'A' }, { command: 'a.hidden', title: 'H' }, { command: 'bad cmd', title: 'x' }], menus: { commandPalette: [{ command: 'a.hidden', when: 'false' }], 'editor/context': [{ command: 'a.b', group: 'nav' }] } } });
 ok('comandos: ocultos marcados, ids raros fuera, menú contextual', co.commands.length === 2 && co.commands.find(c => c.id === 'a.hidden').hidden && co.commands[0].contextGroup === 'nav');
@@ -221,6 +227,13 @@ ok('manifiesto roto no pasa', !validManifest({ ...vm, files: vm.files.slice(1) }
 ok('config: 127.0.0.1 → localhost del mismo puerto', sandboxOrigin({ hostname: '127.0.0.1', port: '8000', origin: 'http://127.0.0.1:8000' }) === 'http://localhost:8000');
 ok('config: localhost y hosts desconocidos → nada', sandboxOrigin({ hostname: 'localhost', port: '8000', origin: 'http://localhost:8000' }) === null && sandboxOrigin({ hostname: 'evil.test', port: '', origin: 'https://evil.test' }) === null);
 ok('config: producción sin dominio todavía → nada', sandboxOrigin({ hostname: 'code.elffuss.com', port: '', origin: 'https://code.elffuss.com' }) === null);
+// el recinto tiene que ser OTRO SITIO: un subdominio del mismo dominio registrable (otro origen) no vale
+const prod = { hostname: 'code.elffuss.com', port: '', origin: 'https://code.elffuss.com' };
+ok('config: un recinto del mismo sitio que Code (x2.elffuss.com, también por http) se rechaza; otro dominio, no',
+  sandboxOrigin(prod, { 'code.elffuss.com': 'https://x2.elffuss.com' }) === null && sandboxOrigin(prod, { 'code.elffuss.com': 'http://x2.elffuss.com' }) === null
+  && sandboxOrigin(prod, { 'code.elffuss.com': 'https://elffuss.com' }) === null && sandboxOrigin(prod, { 'code.elffuss.com': 'https://x2.elffuss-usercontent.org' }) === 'https://x2.elffuss-usercontent.org');
+ok('config: el sitio va por lo alto (nunca da por distintos dos del mismo dominio registrable)', siteOf('a.b.example.co.uk') === 'co.uk' && siteOf('127.0.0.1') === '127.0.0.1' && siteOf('localhost') === 'localhost'
+  && sameSite('https://a.x.example', 'http://b.x.example') && !sameSite('https://a.x.example', 'https://b.example') && !sameSite('http://127.0.0.1:9', 'http://localhost:9') && sameSite('not a url', 'https://x.example'));
 
 // sandboxManifest vive en bridge.js, que importa módulos de navegador: se
 // comprueba aparte con un import dinámico que no ejecuta nada de la página
@@ -302,9 +315,27 @@ ok('Node: no corre aquí y no «funciona»', nodeOnly.runtime === 'node' && !nod
 const webExt = cl.classify({ ...base2, browser: './w.js', contributes: { commands: [{}, {}], keybindings: [{}], configuration: { properties: { 'w.a': { type: 'boolean' } } }, views: { x: [{}] }, debuggers: [{}] } });
 ok('web: corre, con sus comandos y ajustes, y dice lo que no saldrá', webExt.eligible && webExt.works && webExt.counts.commands === 2 && webExt.counts.keybindings === 1
   && webExt.counts.settings === 1 && webExt.unavailable.includes('views') && webExt.unavailable.includes('debuggers'));
-ok('web que no puede correr: propuestas, motor nuevo, solo eventos que nunca llegan', !cl.classify({ ...base2, browser: './w.js', enabledApiProposals: ['x'] }).eligible
-  && !cl.classify({ ...base2, browser: './w.js', engines: { vscode: '^1.200.0' } }).eligible
-  && cl.classify({ ...base2, browser: './w.js', activationEvents: ['onView:x', 'workspaceContains:**/a'] }).startsNever);
+ok('web que no puede correr: motor nuevo, solo eventos que nunca llegan', !cl.classify({ ...base2, browser: './w.js', engines: { vscode: '^1.200.0' } }).eligible
+  && cl.classify({ ...base2, browser: './w.js', activationEvents: ['onView:x', 'workspaceContains:**/a'] }).startsNever && !cl.classify({ ...base2, browser: './w.js', activationEvents: ['onView:x'] }).eligible);
+// las APIs propuestas son un aviso, no un veto (el censo vio arrancar a muchas que las declaran)
+const prop = cl.classify({ ...base2, browser: './w.js', enabledApiProposals: ['x'] });
+ok('APIs propuestas: puede correr, con un aviso', prop.eligible && prop.works && prop.warnings.includes('proposals') && !prop.reasons.includes('proposals'), JSON.stringify({ e: prop.eligible, w: prop.warnings, r: prop.reasons }));
+const vivo = id => ({ results: { [id]: { state: 'active', commands: 1, providers: {} } } });
+ok('lo que el censo vio arrancar puede correr aunque la regla estática dijera que no', cl.classify({ ...base2, browser: './w.js', activationEvents: ['onView:x'] }, { tested: vivo('p.w@1.0.0') }).eligible
+  && cl.classify({ ...base2, browser: './w.js', engines: { vscode: '^1.200.0' } }, { tested: vivo('p.w@1.0.0') }).eligible);
+// las mismas reglas que el «Aplica» del panel: un lenguaje de serie de Monaco no cuenta, ni la gramática de uno de serie sin Monarch
+const monacoLangs = JSON.parse(fs.readFileSync(path.join(HERE, 'lib/monaco-languages.json'), 'utf8')).languages;
+const deSerie = new Set(monacoLangs.map(l => l.id)), monarch = new Set(monacoLangs.filter(l => l.monarch).map(l => l.id));
+const reglas = { builtinLanguage: id => deSerie.has(id), grammarSkippedFor: id => deSerie.has(id) && !monarch.has(id) };
+ok('monaco-languages.json: la lista de serie de Monaco 0.52.2 (python, json…; json y plaintext sin Monarch)', monacoLangs.length > 50 && deSerie.has('python') && deSerie.has('json') && !monarch.has('json') && monarch.has('python'));
+const pyrefly = cl.classify({ ...base2, main: './x.js', contributes: { languages: [{ id: 'python', extensions: ['.py'] }] } }, reglas);
+ok('Node con solo un lenguaje de serie (como Pyrefly): nada se aplica, nada funciona', !pyrefly.hasDeclarative && !pyrefly.works && pyrefly.declarative.languages === 0, JSON.stringify(pyrefly.declarative));
+const mezcla = cl.classify({ ...base2, browser: './w.js', contributes: { languages: [{ id: 'json' }, { id: 'graphql' }, { id: 'toml-x' }], grammars: [{ language: 'json', path: 'j' }, { language: 'python', path: 'p' }, { path: 'inj' }] } }, reglas);
+ok('lenguajes y gramáticas: cuentan solo los que se aplicarían (como en el panel)', mezcla.declarative.languages === 1 && mezcla.declarative.grammars === 2, JSON.stringify(mezcla.declarative));
+// donde el nivel 2 no puede arrancar (sitio, navegador), su código no cuenta como «funciona»
+const aquiNo = cl.classify({ ...base2, browser: './w.js', contributes: { commands: [{}] } }, { canRun: false });
+ok('donde el código no puede correr, una que solo trae código no «funciona» (el filtro la esconde)', aquiNo.eligible && !aquiNo.works
+  && cl.classify({ ...base2, browser: './w.js', contributes: { themes: [{ path: 't' }] } }, { canRun: false }).works);
 ok('lo declarativo cuenta como «funciona» aunque sea de Node', cl.classify({ ...base2, main: './x.js', contributes: { themes: [{ path: 't.json' }] } }).works);
 ok('dependencias que faltan se dicen', cl.classify({ ...base2, browser: './w.js', extensionDependencies: ['a.b'] }, { installed: new Set() }).deps.missing.join() === 'a.b');
 const tested = JSON.parse(fs.readFileSync(path.join(REPO, 'web/js/ext2/tested.json'), 'utf8'));
@@ -337,11 +368,20 @@ const faltan = usados.filter(([, k]) => !(k in STRINGS.en)).map(([f, k]) => `${p
 ok(`cada tx('…') literal tiene su texto (${usados.length} usos)`, usados.length > 100 && !faltan.length, faltan.slice(0, 6).join(' '));
 // (y las que se arman: la razón del recinto, el error de un ajuste, la parte de VS Code que no saldrá)
 const prefijos = {
-  x2Unavail_: ['site', 'browser', 'off', 'url'],
+  x2Unavail_: ['site', 'browser', 'off', 'url', 'manifest'],
+  x2Err_: ['network', 'integrity', 'timeout', 'editor', 'violations', 'fatal', 'navigated', 'csp', 'other'],
+  keySkip_: ['reserved', 'invalid', 'platform', 'chords', 'unknown'],
   set_: ['json', 'object', 'unknown', 'type', 'enum', 'big'],
   wb_: ['views', 'custom_editors', 'notebooks', 'walkthroughs', 'debugger', 'terminal', 'tasks', 'sign_in', 'chat', 'MCP_servers', 'file_labels', 'menus', 'status_bar', 'remote', 'TypeScript_plugins', 'other'],
 };
 ok('las familias de claves que se arman en tiempo de ejecución están completas', Object.entries(prefijos).every(([p, xs]) => xs.every(x => (p + x) in STRINGS.en && (p + x) in STRINGS.es)));
+// los fallos del recinto se dicen en el idioma de la interfaz (sus mensajes técnicos, en español o inglés, no salen)
+const mg = await import('../web/js/ext2/manage.js');
+const integ = mg.runtimeErrorText({ code: 'integrity', message: 'sandbox-main.js: no se pudo bajar o no coincide con su SRI', file: 'sandbox-main.js' });
+ok('fallos del recinto: un texto por código, sin el mensaje técnico', integ === 'the sandbox is not running: one of its files does not match its checksum (sandbox-main.js), so nothing was started'
+  && mg.runtimeErrorText({ code: 'site' }) === STRINGS.en.x2Unavail_site && mg.runtimeErrorText({ code: 'x2-browser' }) === STRINGS.en.x2Unavail_browser
+  && mg.runtimeErrorText({ code: 'disabled' }) === STRINGS.en.x2Unavail_off && /something went wrong \(weird\)/.test(mg.runtimeErrorText({ code: 'weird', message: 'raro' }))
+  && mg.isRuntimeError({ code: 'timeout' }) && !mg.isRuntimeError({ code: 'missing' }), integ);
 
 // ── host2.js: el código del paquete, sin salir de él ──
 const { zip } = await import('./ext_fixtures.mjs');
@@ -373,6 +413,29 @@ ok('censo: cada entrada es id@versión en minúsculas, con su estado', results.l
 ok('censo: los recuentos cuadran con las entradas y la baliza a 0', tested.counts.active === by('active') && tested.counts.error === by('error') && tested.counts.beaconHits === 0
   && tested.counts.installFailed === by('install-failed'), JSON.stringify(tested.counts));
 ok('censo: sin tiempos', !JSON.stringify(tested).match(/"(ms|millis|seconds|duration|elapsed|time)[A-Za-z]*"\s*:/i));
+// ninguna que el censo vio arrancar se dice «no puede correr» ni la esconde el filtro
+const activas = results.filter(([, v]) => v.state === 'active');
+const mal = activas.filter(([k, v]) => {
+  const [id, version] = k.split('@');
+  const [publisher, ...rest] = id.split('.');
+  const c = cl.classify({ name: rest.join('.'), publisher, version, browser: './web.js', ...(v.apiProposals ? { enabledApiProposals: Array.from({ length: v.apiProposals }, (_, i) => 'p' + i) } : {}),
+    activationEvents: ['onView:x'], engines: { vscode: '^1.999.0' } }, { tested });
+  return !c.eligible || !c.works;
+}).map(([k]) => k);
+ok(`censo: las ${activas.length} que arrancaron pueden correr y el filtro las enseña, aunque declaren APIs propuestas`, activas.length > 30 && !mal.length, mal.join(' '));
+// …y con sus manifiestos de verdad, si están en tests/.cache/census (los guarda x2_census)
+const cacheDir = path.join(HERE, '.cache/census');
+const reales = activas.map(([k]) => {
+  const id = k.split('@')[0];
+  const f = fs.existsSync(cacheDir) ? fs.readdirSync(cacheDir).find(x => x.toLowerCase() === id + '.json') : null;
+  const c = f ? JSON.parse(fs.readFileSync(path.join(cacheDir, f), 'utf8')) : null;
+  return c?.manifest && c.version === k.split('@')[1] ? [k, c.manifest] : null;
+}).filter(Boolean);
+if (!reales.length) console.log('⏭️  NOT RUN (part) — the census manifests are not in tests/.cache/census; the check above used the census entries');
+else {
+  const malR = reales.filter(([, m]) => { const c = cl.classify(m, { tested, ...reglas }); return !c.eligible || !c.works || c.reasons.some(r => r !== 'deps'); }).map(([k]) => k);
+  ok(`censo, con sus manifiestos reales (${reales.length}): ninguna que arrancó sale como «no puede correr» ni escondida`, !malR.length, malR.join(' '));
+}
 
 const files = [...fs.readdirSync(path.join(REPO, 'web/js/ext2')).map(f => 'web/js/ext2/' + f), 'sandbox/x2/headers.json', 'sandbox/x2/headers.mjs', 'sandbox/x2/v1/sandbox.html', 'sandbox/x2/v1/exthost-iframe.html'];
 const home = ['/', 'Users', '/'].join(''), linuxHome = ['/', 'home', '/'].join('');

@@ -43,17 +43,19 @@ export function parsePart(monaco, part, platform) {
   return kc === undefined ? null : (mods | kc);
 }
 
-// entrada de contributes.keybindings → { keybinding, chord: [a, b?], when } | { skip: motivo }
+// entrada de contributes.keybindings → { keybinding, chord: [a, b?], when }
+// | { skip: motivo (en inglés, para el registro), code } — el panel traduce
+// el código (reserved, invalid, platform, chords, unknown)
 export function parseKeybinding(monaco, kb, platform = platformOf()) {
-  if (!kb || typeof kb !== 'object' || typeof kb.command !== 'string') return { skip: 'invalid' };
+  if (!kb || typeof kb !== 'object' || typeof kb.command !== 'string') return { skip: 'invalid', code: 'invalid' };
   const src = typeof kb[platform] === 'string' ? kb[platform] : typeof kb.key === 'string' ? kb.key : null;
-  if (!src) return { skip: 'no key for this platform' };
+  if (!src) return { skip: 'no key for this platform', code: 'platform' };
   const parts = src.trim().split(/\s+/);
-  if (parts.length > 2) return { skip: 'more than two chords' };
+  if (parts.length > 2) return { skip: 'more than two chords', code: 'chords', key: src };
   const chord = parts.map(p => parsePart(monaco, p, platform));
-  if (chord.some(c => c === null)) return { skip: 'unknown key ' + src };
+  if (chord.some(c => c === null)) return { skip: 'unknown key ' + src, code: 'unknown', key: src };
   const reserved = reservedChords(monaco);
-  if (reserved.has(chord[0])) return { skip: 'reserved by Elffuss Code or the browser', key: src };
+  if (reserved.has(chord[0])) return { skip: 'reserved by Elffuss Code or the browser', code: 'reserved', key: src };
   const keybinding = chord.length === 2 ? monaco.KeyMod.chord(chord[0], chord[1]) : chord[0];
   const when = typeof kb.when === 'string' && kb.when.trim() ? kb.when.trim().slice(0, 2000) : null;
   return { keybinding, chord, key: src, when, command: kb.command, args: kb.args };

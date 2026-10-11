@@ -46,7 +46,10 @@ function safeJoin(root, urlPath) {
 
 const envInsecure = () => { const v = process.env.X2_INSECURE; return v === 'all' ? 'all' : v === '1' || v === 'exthost' ? 'exthost' : false; };
 
-export async function startServer({ port = 0, webRoot = path.join(REPO, 'web'), insecure = envInsecure(), tamper = process.env.X2_TAMPER === '1', quiet = true } = {}) {
+// codeAliases: other host names that also get Code (with the browser told to
+// resolve them to 127.0.0.1), to see Code where level 2 has no sandbox, as on
+// code.elffuss.com today.
+export async function startServer({ port = 0, webRoot = path.join(REPO, 'web'), insecure = envInsecure(), tamper = process.env.X2_TAMPER === '1', quiet = true, codeAliases = [] } = {}) {
   const requests = [];                        // { host, method, url }
   let codeHost = null, sandboxHost = null, origins = null;
 
@@ -120,7 +123,7 @@ export async function startServer({ port = 0, webRoot = path.join(REPO, 'web'), 
     requests.push({ host, method: req.method, url: req.url });
     let u;
     try { u = new URL(req.url, 'http://' + host); } catch { res.writeHead(400); return res.end(); }
-    if (host === codeHost) return code(req, res, u);
+    if (host === codeHost || codeAliases.some(a => host === `${a}:${server.address().port}`)) return code(req, res, u);
     if (host === sandboxHost) return sandbox(req, res, u);
     res.writeHead(421, { 'Content-Type': 'text/plain' }); res.end('unknown host');
   });

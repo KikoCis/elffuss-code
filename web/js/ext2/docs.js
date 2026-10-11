@@ -20,12 +20,15 @@ import { range as validRange } from './convert.js';
 const MAX_DOC = 5 * 1024 * 1024;
 
 export class EditorPort {
-  constructor({ monaco, editor, post, notify = () => {}, maxBytes = MAX_DOC }) {
+  // openTabs(): [[ruta, modelo]] de las pestañas de ide.js (las que ya
+  // estaban abiertas al arrancar el recinto también se ven, como en VS Code)
+  constructor({ monaco, editor, post, notify = () => {}, maxBytes = MAX_DOC, openTabs = () => [] }) {
     this.monaco = monaco;
     this.editor = editor;
     this.post = post;
     this.notify = notify;
     this.maxBytes = maxBytes;
+    this.openTabs = openTabs;
     this.byModel = new Map();                       // model → { uri, path, v, subs }
     this.byUri = new Map();                         // uri → model
     this.applying = null;
@@ -41,6 +44,12 @@ export class EditorPort {
       clearTimeout(this.selTimer);
       this.selTimer = setTimeout(() => this.sendActive(), 80);
     }));
+    // Todas las pestañas abiertas, no solo la activa: una extensión que
+    // arranca con el lenguaje de un documento (onLanguage) lo ve aunque se
+    // abriera antes que el recinto, y sin que el usuario vuelva a esa pestaña.
+    let tabs = [];
+    try { tabs = this.openTabs() || []; } catch { tabs = []; }
+    for (const [path, model] of tabs) if (model !== ed.getModel()) this.track(model, path);
     this.track(ed.getModel());
     this.sendActive();
   }
@@ -52,12 +61,11 @@ export class EditorPort {
   isMirrored(model) { return this.byModel.has(model); }
 
   // El modelo que acaba de entrar en el editor: su ruta es el fichero actual
-  // de Code (ide.js la fija justo antes de setModel). Sin ruta (el estado
-  // vacío) no se manda nada.
-  track(model) {
+  // de Code (ide.js la fija justo antes de setModel), o la de su pestaña al
+  // arrancar. Sin ruta (el estado vacío, el chat) no se manda nada.
+  track(model, path = code.current().currentFile) {
     if (!model || model.isDisposed() || this.byModel.has(model)) return;
-    const path = code.current().currentFile;
-    if (!path) return;
+    if (typeof path !== 'string' || !path) return;
     const uri = this.uriFor(path);
     if (this.byUri.has(uri) && this.byUri.get(uri) !== model) this.untrack(this.byUri.get(uri));
     const text = model.getValue();
