@@ -1,0 +1,61 @@
+# nginx for the level 2 extension sandbox of Elffuss Code. A TEMPLATE: replace
+# SANDBOX_DOMAIN (a registrable domain used only for this) and SANDBOX_DIR
+# (the folder deploy-sandbox.sh fills), then generate the two header snippets:
+#
+#   node sandbox/x2/headers.mjs --nginx --sandbox https://x2.SANDBOX_DOMAIN
+#
+# and save them as /etc/nginx/snippets/x2-sandbox.conf and x2-exthost.conf.
+# Order (README, "Extensions that run code"): DNS and certificate, this vhost,
+# nginx -t and reload, deploy-sandbox.sh, deploy-vendor.sh, then deploy.sh
+# with web/js/ext2/config.js naming the sandbox. Until that last step Code
+# says "not available on this site" and nothing changes for anyone.
+
+server {
+  listen 443 ssl http2;
+  server_name x2.SANDBOX_DOMAIN;
+  ssl_certificate     /etc/letsencrypt/live/x2.SANDBOX_DOMAIN/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/x2.SANDBOX_DOMAIN/privkey.pem;
+  root /var/www/SANDBOX_DIR;
+  access_log off;          # the sandbox keeps no log of who loaded it
+  autoindex off;
+  server_tokens off;
+
+  # the sandbox document: only with no query string at all
+  location = /x2/v1/sandbox.html {
+    if ($args != "") { return 404; }
+    include snippets/x2-sandbox.conf;
+    try_files $uri =404;
+  }
+
+  # the extension-host document: only the exact query the library builds
+  # (escape the dots of the domain in the pattern: x2\.example\.org)
+  location = /x2/v1/exthost-iframe.html {
+    if ($args !~ "^parentOrigin=https%3A%2F%2Fx2\.SANDBOX_DOMAIN_ESCAPED&vscodeWebWorkerExtHostId=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$") { return 404; }
+    include snippets/x2-exthost.conf;
+    try_files $uri =404;
+  }
+
+  # nothing else exists on this host
+  location / { return 404; }
+}
+
+server {
+  listen 80;
+  server_name x2.SANDBOX_DOMAIN;
+  access_log off;
+  return 301 https://$host$request_uri;
+}
+
+# In the server block of Code (code.elffuss.com), for the verified vendor
+# bundle that deploy-vendor.sh uploads (never compressed again on the way, so
+# the browser checks the exact bytes of the manifest):
+#
+#   location ^~ /vendor/x2/ {
+#     default_type application/octet-stream;
+#     gzip off;
+#     add_header Cache-Control "public, max-age=31536000, immutable" always;
+#     add_header X-Content-Type-Options nosniff always;
+#   }
+#
+# Code's host must never serve /x2/ (the sandbox documents live outside web/,
+# so deploy.sh never uploads them).

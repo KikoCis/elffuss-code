@@ -28,7 +28,7 @@
     "sandbox.html": {
       "path": "/x2/v1/sandbox.html",
       "query": "^$",
-      "inlineScript": "sha256-kW1r66Pg0ghROQ0ZO09cLM+eUrUBOBEcbuRC1gtnExg=",
+      "inlineScript": "sha256-/luUDdba82j70NvkxS1nxDvTfjxLjRfnpKE6sqiin3U=",
       "csp": [
         "default-src 'none'",
         "script-src {self-script} blob: 'wasm-unsafe-eval'",

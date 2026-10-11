@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-kW1r66Pg0ghROQ0ZO09cLM+eUrUBOBEcbuRC1gtnExg=' blob: 'wasm-unsafe-eval'; worker-src blob:; child-src blob:; frame-src 'self'; connect-src blob: data:; img-src blob: data:; font-src blob: data:; style-src 'unsafe-inline'; media-src 'none'; object-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/luUDdba82j70NvkxS1nxDvTfjxLjRfnpKE6sqiin3U=' blob: 'wasm-unsafe-eval'; worker-src blob:; child-src blob:; frame-src 'self'; connect-src blob: data:; img-src blob: data:; font-src blob: data:; style-src 'unsafe-inline'; media-src 'none'; object-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Elffuss Code extension sandbox</title>
 </head>
@@ -28,19 +28,48 @@
   const tell = msg => window.parent.postMessage(msg, parentOrigin);
 
   // 3. No popups and no peer connections from this realm.
-  for (const k of ['open', 'RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel']) {
-    try { Object.defineProperty(window, k, { value: undefined, writable: false, configurable: false }); } catch { /* already gone */ }
-  }
+  const GLOBALS = ['open', 'RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel'];
+  const removeGlobals = w => {
+    for (const k of GLOBALS) {
+      try { Object.defineProperty(w, k, { value: undefined, writable: false, configurable: false }); } catch { /* already gone */ }
+    }
+  };
+  removeGlobals(window);
 
   // 4. This document never navigates.
   let port = null, navBlocked = 0;
-  if (window.navigation) {
-    window.navigation.addEventListener('navigate', e => {
+  const lockNavigation = (w, where) => {
+    if (!w.navigation) return;
+    w.navigation.addEventListener('navigate', e => {
       navBlocked++;
       if (e.cancelable) e.preventDefault();
-      try { port && port.postMessage({ t: 'log', level: 'warn', text: 'sandbox navigation blocked' }); } catch { /* port closed */ }
+      try { port && port.postMessage({ t: 'log', level: 'warn', text: where + ' navigation blocked' }); } catch { /* port closed */ }
     });
-  }
+  };
+  lockNavigation(window, 'sandbox');
+
+  // 4b. The extension-host frame the library creates here (same site) gets the
+  //     same treatment once it loads. It is never reloaded on purpose, so a
+  //     second load means it navigated: everything stops.
+  const watchFrame = f => {
+    if (watched.has(f)) return;
+    watched.add(f);
+    let loads = 0;
+    f.addEventListener('load', () => {
+      if (++loads > 1) {
+        try { port && port.postMessage({ t: 'fatal', reason: 'navigated', text: 'the extension host frame navigated' }); } catch { /* port closed */ }
+        return;
+      }
+      try { removeGlobals(f.contentWindow); lockNavigation(f.contentWindow, 'extension host'); } catch { /* not ours */ }
+    });
+  };
+  const watched = new WeakSet();
+  new MutationObserver(records => {
+    for (const r of records) for (const n of r.addedNodes) {
+      if (n.nodeName === 'IFRAME') watchFrame(n);
+      else if (n.querySelectorAll) n.querySelectorAll('iframe').forEach(watchFrame);
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
 
   // 2. CSP self-test: a request to a name that never resolves must be refused
   //    by the policy itself. Without that refusal, nothing starts.
