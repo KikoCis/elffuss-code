@@ -117,8 +117,10 @@ const midFly = await p.evaluate(async () => {
   return m._debug();
 });
 ok('el clic dispara el vuelo (flying=true a mitad de camino)', midFly.flying);
-// que termine (dura 1,1 s de reloj de fotogramas)
-await p.waitForFunction(async () => !(await import('/js/mind.js'))._debug().flying, null, { timeout: 15000 }).catch(() => {});
+// que termine (dura 1,1 s de reloj de fotogramas): se pregunta desde aquí, sin
+// waitForFunction, que no espera a un predicado asíncrono
+const vuela = async () => (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).flying;
+for (let i = 0; i < 150 && await vuela(); i++) await p.waitForTimeout(100);
 const posAfter = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).cameraPos;
 const moved = Math.hypot(posAfter[0] - posBefore[0], posAfter[1] - posBefore[1], posAfter[2] - posBefore[2]);
 ok('la cámara realmente se movió al centrarse en el perfil', moved > 5, `desplazamiento ${moved.toFixed(1)}`);
