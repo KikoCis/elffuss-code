@@ -28,13 +28,15 @@ async function getJson(url) {
   return r.json();
 }
 
-export async function metadata(namespace, name, version = '') {
-  return getJson(`${API}/api/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${version ? '/' + encodeURIComponent(version) : ''}`);
+// targetPlatform: 'web' para la compilación que un paquete publica para el
+// navegador (las extensiones por plataforma pueden traer una)
+export async function metadata(namespace, name, version = '', targetPlatform = '') {
+  return getJson(`${API}/api/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}${targetPlatform ? '/' + encodeURIComponent(targetPlatform) : ''}${version ? '/' + encodeURIComponent(version) : ''}`);
 }
 
-export async function fetchVsix({ namespace, name, version, sha256: pinned, offline = false }) {
+export async function fetchVsix({ namespace, name, version, targetPlatform = '', sha256: pinned, offline = false }) {
   fs.mkdirSync(CACHE, { recursive: true });
-  const file = path.join(CACHE, `${namespace}.${name}-${version}.vsix`);
+  const file = path.join(CACHE, `${namespace}.${name}-${version}${targetPlatform ? '@' + targetPlatform : ''}.vsix`);
   if (fs.existsSync(file)) {
     const bytes = fs.readFileSync(file);
     const sum = sha256(bytes);
@@ -42,7 +44,7 @@ export async function fetchVsix({ namespace, name, version, sha256: pinned, offl
     fs.rmSync(file);
   }
   if (offline) throw Object.assign(new Error('offline and not cached'), { code: 'offline' });
-  const meta = await metadata(namespace, name, version);
+  const meta = await metadata(namespace, name, version, targetPlatform);
   if (meta.error) throw new Error(String(meta.error));
   if (!meta.files?.download || !meta.files?.sha256) throw Object.assign(new Error('Open VSX publishes no SHA-256 for this version'), { code: 'nosha' });
   const published = (await (await fetch(meta.files.sha256)).text()).trim().split(/\s+/)[0].toLowerCase();
@@ -81,13 +83,15 @@ export async function readCode(bytes, { lang = 'en' } = {}) {
 }
 
 // Guarda una extensión real en la página (IndexedDB de Code), con `runs`.
-export async function seedReal(page, { manifest, files, bytes }, { runs = true } = {}) {
+// `languages` (de readVsix del nivel 1) hace que Code reconozca sus ficheros.
+export async function seedReal(page, { manifest, files, bytes }, { runs = true, languages = [] } = {}) {
   const id = `${manifest.publisher}.${manifest.name}`.toLowerCase();
   const rec = {
     id, publisher: manifest.publisher, name: manifest.name, version: String(manifest.version),
     displayName: typeof manifest.displayName === 'string' ? manifest.displayName : manifest.name, description: '', license: String(manifest.license || ''),
     sha256: '0'.repeat(64), verified: true, source: 'test', size: bytes, installedAt: Date.now(), enabled: true, runs,
-    hasCode: true, ignored: [], pack: [], warnings: [], themes: [], grammars: [], snippets: [], languages: [], licenseKey: null,
+    hasCode: true, ignored: [], pack: [], warnings: [], themes: [], grammars: [], snippets: [], licenseKey: null,
+    languages: languages.map(l => ({ id: l.id, aliases: l.aliases, extensions: l.extensions, filenames: l.filenames, filenamePatterns: l.filenamePatterns, firstLine: l.firstLine, mimetypes: l.mimetypes, configKey: null })),
     code: { entry: manifest.browser, files: Object.keys(files), bytes, manifest },
   };
   // en trozos: page.evaluate no quiere mensajes enormes

@@ -71,8 +71,10 @@ export async function start({ m, port, config, sandbox = {} }) {
     if (r instanceof Error) return (r.name + ': ' + r.message + ' ' + String(r.stack || '').split('\n').slice(1, 3).join(' ')).slice(0, 500);
     try { return 'non-error ' + JSON.stringify(r, Object.getOwnPropertyNames(r || {})).slice(0, 500); } catch { return 'non-error ' + String(r).slice(0, 200); }
   };
-  window.addEventListener('unhandledrejection', e => { e.preventDefault(); log('warn', 'unhandled rejection in the sandbox: ' + describe(e.reason)); });
-  window.addEventListener('error', e => { e.preventDefault(); log('warn', 'uncaught error in the sandbox: ' + describe(e.error || e.message)); });
+  const seenErrors = [];
+  const sandboxError = text => { seenErrors.push(text); if (seenErrors.length > 50) seenErrors.shift(); log('warn', text); };
+  window.addEventListener('unhandledrejection', e => { e.preventDefault(); sandboxError('unhandled rejection in the sandbox: ' + describe(e.reason)); });
+  window.addEventListener('error', e => { e.preventDefault(); sandboxError('uncaught error in the sandbox: ' + describe(e.error || e.message)); });
 
   // ── atribución: lo que llega del host de extensiones (RPC) ──
   // Cada llamada del host de extensiones al hilo principal pasa por aquí. Se
@@ -252,6 +254,7 @@ export async function start({ m, port, config, sandbox = {} }) {
   let nextHandle = 1;
   const providers = new Map();                      // handle → { kind, provider }
   const later = { n: 0 };
+  const kindCount = {};                             // tipo → proveedores registrados (para el censo)
   const lastExtension = { id: null };
   const selectorOf = sel => [].concat(sel).map(s => (typeof s === 'string' ? { language: s }
     : s && typeof s === 'object' ? { language: str(s.language, 100), scheme: str(s.scheme, 50), pattern: str(typeof s.pattern === 'string' ? s.pattern : s.pattern && s.pattern.pattern, 500) } : null)).filter(Boolean);
@@ -272,15 +275,17 @@ export async function start({ m, port, config, sandbox = {} }) {
       if (typeof provider.displayName === 'string') meta.displayName = provider.displayName.slice(0, 200);
       if (provider.extensionId) meta.extension = str(provider.extensionId.value || provider.extensionId._lower || String(provider.extensionId), 200);
       providers.set(handle, { kind, provider });
+      kindCount[kind] = (kindCount[kind] || 0) + 1;
       send({ t: 'providers.add', handle, kind, selector: selectorOf(selector), meta });
       return { dispose() { d.dispose(); if (providers.delete(handle)) send({ t: 'providers.remove', handle }); } };
     };
   }
+  const laterKinds = {};
   for (const name of LATER) {
     const reg = features[name];
     if (!reg || typeof reg.register !== 'function') continue;
     const orig = reg.register.bind(reg);
-    reg.register = (selector, provider) => { if (fromExtHost) later.n++; return orig(selector, provider); };
+    reg.register = (selector, provider) => { if (fromExtHost) { later.n++; laterKinds[name] = (laterKinds[name] || 0) + 1; } return orig(selector, provider); };
   }
 
   // ── setContext: la clave se pone aquí y la página la refleja ──
@@ -293,7 +298,10 @@ export async function start({ m, port, config, sandbox = {} }) {
   // ── extensiones ──
   const exts = new Map();                           // id → { reg, urls, state }
   const unsupported = new Set();
+  const extCommands = new Set();                    // comandos que registraron las extensiones
   m.CommandsRegistry.onDidRegisterCommand(id => {
+    // (los __vsc<uuid> son internos del host de extensiones, no de ninguna extensión)
+    if (fromExtHost && typeof id === 'string' && !id.startsWith('__vsc')) extCommands.add(id);
     // sustituir el tecleo (Vim, Emacs…) no está soportado: se para esa extensión
     if (id === 'type' && fromExtHost) {
       log('warn', 'an extension registered the "type" command (it replaces typing): not supported');
@@ -417,6 +425,7 @@ export async function start({ m, port, config, sandbox = {} }) {
 
   // ── diagnósticos de las extensiones → la página ──
   const ownersOf = new Map();                       // uri → Set(owner)
+  let markersSent = 0;
   markerService.onMarkerChanged(resources => {
     for (const r of resources) {
       const uri = r.toString();
@@ -432,6 +441,7 @@ export async function start({ m, port, config, sandbox = {} }) {
           tags: Array.isArray(mk.tags) ? mk.tags.filter(x => x === 1 || x === 2) : undefined,
         });
       }
+      for (const list of byOwner.values()) markersSent += list.length;
       const prev = ownersOf.get(uri) || new Set();
       for (const owner of new Set([...prev, ...byOwner.keys()])) {
         send({ t: 'markers', uri, owner: String(owner).slice(0, 200), markers: (byOwner.get(owner) || []).slice(0, 5000) });
@@ -654,6 +664,22 @@ export async function start({ m, port, config, sandbox = {} }) {
           let value, ok = true;
           try { value = surface(); } catch (e) { ok = false; value = errText(e); }
           send(ok ? { t: 'result', req: msg.req, ok: true, value } : { t: 'result', req: msg.req, ok: false, error: value });
+          break;
+        }
+        case 'stats': {
+          const st = extensionService.getExtensionsStatus ? extensionService.getExtensionsStatus() : {};
+          const exts2 = {};
+          for (const [k, v] of Object.entries(st)) {
+            if (!exts.has(k.toLowerCase())) continue;
+            exts2[k.toLowerCase()] = {
+              started: !!v.activationStarted, activated: !!v.activationTimes, activationError: activationErrors.get(k.toLowerCase()),
+              errors: [...(v.runtimeErrors || []).map(errText), ...(v.messages || []).map(x => errText(x && x.message))].slice(0, 5),
+            };
+          }
+          send({ t: 'result', req: msg.req, ok: true, value: {
+            commands: [...extCommands].filter(c => typeof c === 'string').slice(0, 2000), providers: { ...kindCount }, later: { ...laterKinds },
+            markers: markersSent, errors: seenErrors.slice(-20), openRefused: openRefused.n, unsupported: [...unsupported], extensions: exts2,
+          } });
           break;
         }
         case 'ping': send({ t: 'pong', n: msg.n, navBlocked: sandbox.navBlocked ? sandbox.navBlocked() : 0 }); break;

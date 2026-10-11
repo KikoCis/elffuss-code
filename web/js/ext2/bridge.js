@@ -58,6 +58,9 @@ export const commands = () => (session?.commands ? session.commands.entries() : 
 export const runCommand = (id, args) => (session ? session.runCommand(id, args) : Promise.resolve(null));
 // foto de la superficie de la API del recinto (para las pruebas: tests/x2-surface.json)
 export const surface = () => (session && session.state === 'running' ? session.request({ t: 'surface' }) : Promise.resolve(null));
+// para el censo: qué registraron las extensiones, y lanzar un evento de activación
+export const stats = () => (session && session.state === 'running' ? session.request({ t: 'stats' }) : Promise.resolve(null));
+export const activate = event => { if (session && session.state === 'running' && typeof event === 'string' && /^[\w:.*-]{1,200}$/.test(event)) session.post({ t: 'activate', event }); };
 
 class Session {
   constructor({ monaco, readCode }) {
