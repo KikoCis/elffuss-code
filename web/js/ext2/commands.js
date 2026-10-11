@@ -79,7 +79,8 @@ export class Commands {
     const registered = new Set();
     for (const [i, kb] of keybindings.entries()) {
       const p = parseKeybinding(monaco, kb);
-      if (p.skip) { skipped.push({ command: s(kb?.command, 200), key: s(kb?.key || kb?.mac, 100), why: p.skip }); continue; }
+      // (la tecla que se miró en esta plataforma: «cmd+p» en un Mac, no «ctrl+p»)
+      if (p.skip) { skipped.push({ command: s(kb?.command, 200), key: s(p.key || kb?.key || kb?.mac, 100), why: p.skip }); continue; }
       // dos extensiones con el mismo atajo: se queda la primera y se avisa
       const owner = this.chords.get(p.keybinding);
       if (owner && owner !== ext.id) { skipped.push({ command: s(kb.command, 200), key: p.key, why: 'conflicts with ' + owner, conflict: owner }); continue; }
