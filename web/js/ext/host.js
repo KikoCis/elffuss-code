@@ -2,11 +2,8 @@
 // (temas de color, gramáticas TextMate, snippets y configuración de lenguajes).
 // NINGÚN JavaScript de una extensión se ejecuta aquí.
 //
-// Nivel 2 (código de extensiones para navegador): solo si el usuario lo
-// enciende en una extensión (`runs`), y entonces en un recinto aparte, en otro
-// sitio y sin red (js/ext2/). Este fichero solo decide CUÁNDO: importa
-// ../ext2/bridge.js cuando hay al menos una extensión activa con su código
-// encendido, y nunca con ?noext o ?noext2. Sin eso no se baja nada del nivel 2.
+// El código de las extensiones (nivel 2) lo lleva ../ext2/host2.js, que solo
+// se importa con alguna con su código encendido o al pedir algo de eso.
 //
 // ide.js lo carga solo si hay alguna extensión activa (o un tema elegido) y el
 // panel lo carga al abrirse: sin extensiones, el arranque de Code no cambia.
@@ -83,14 +80,6 @@ export function init(monaco, opts = {}) {
   return instancia;
 }
 
-// Antes de encender el código de una extensión: el diálogo de consentimiento
-// del panel (qué verá, que no tiene red, cuánto se baja). Vive en el nivel 2
-// y solo se carga si hace falta: quien solo usa temas no lo baja.
-async function confirmaTamano({ runtimeBytes, extensionBytes, name, rec }) {
-  const { consent } = await import('../ext2/manage.js');
-  return (await consent({ name, publisher: rec?.publisher, version: rec?.version, license: rec?.license, runtime: { bytes: runtimeBytes }, extensionBytes, mode: 'run' })) === 'code';
-}
-
 async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   const paused = /[?&]noext\b/.test(location.search);
   const sinCodigo = /[?&]noext2(?:[=&]|$)/.test(location.search);
@@ -102,8 +91,8 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   let langContribs = [];
   let themeIndex = new Map();         // id de tema → { key, label, uiTheme, ext, extName }
   let pref = leePref();
-  let actual = 'vs-dark', monacoId = 'vs-dark', tipoTema = 'dark';
-  let puente = null;                  // ../ext2/bridge.js, solo si alguna extensión corre código
+  let actual = 'vs-dark', monacoId = 'vs-dark', uiTheme = 'vs-dark';
+  let n2 = null, dos = null;          // ../ext2/host2.js: su carga, y ya cargado
   let estilo = null;
   let firmaGramaticas = '[]';
   let cola = Promise.resolve();       // los cambios se aplican de uno en uno
@@ -149,9 +138,8 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     actual = elegido;
     monacoId = mid;
     pintaCromo(tema, elegido);
-    // las extensiones con código ven si el tema es claro, oscuro o de contraste
-    tipoTema = { vs: 'light', 'hc-black': 'hc', 'hc-light': 'hc-light' }[tema.uiTheme] || 'dark';
-    puente?.setTheme(tipoTema);
+    uiTheme = tema.uiTheme;
+    dos?.setTheme(uiTheme);
     if (guardar) guardaPref(elegido);
     return elegido;
   }
@@ -207,36 +195,22 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     try { onLanguagesChanged(); } catch { /* — */ }
   };
 
-  // ── nivel 2: el puente solo se importa si alguna extensión corre código ──
-  // Nunca se espera aquí: el recinto arranca en paralelo (ide.js crea el
-  // editor después de cargar este host y el puente lo espera).
-  const oyentesCodigo = new Set();     // el panel: estado del recinto (arranca, errores, comandos…)
+  // ── nivel 2 ──
+  const oyentesCodigo = new Set();     // el panel: estado del recinto
+  const nivelDos = () => (n2 ??= import('../ext2/host2.js').then(m => (dos = m.attach({
+    monaco, exts: () => exts, recarga, emit, paused, sinCodigo, listeners: oyentesCodigo, uiTheme: () => uiTheme,
+  }))));
+  const deDos = f => (...a) => nivelDos().then(d => d[f](...a));
   function sincronizaCodigo() {
-    const corren = paused || sinCodigo ? [] : exts.filter(e => e.enabled && e.runs);
-    if (!corren.length && !puente) return;
-    (async () => {
-      if (!puente) {
-        puente = await import('../ext2/bridge.js');
-        puente.onChange(() => { for (const f of oyentesCodigo) { try { f(); } catch { /* — */ } } });
-      }
-      puente.setTheme(tipoTema);
-      await puente.sync({ monaco, records: corren, readCode: store.readCode });
-      emit();
-    })().catch(e => console.warn('[elffuss-ext] nivel 2:', e?.message || e));
+    if (n2 || (!paused && !sinCodigo && exts.some(e => e.enabled && e.runs))) deDos('sync')().catch(e => console.warn('[elffuss-ext] nivel 2:', e?.message || e));
   }
-
-  // Vista previa HTML de un fichero en el que entró texto de una extensión
-  // (marca en kv «x2.touched»): mientras haya alguna extensión con código
-  // instalada, pregunta antes (ext2/gates.js, que solo se carga si hay marca).
-  // Sin ninguna, las marcas ya no cuentan y la vista previa es la de siempre.
+  // Con alguna extensión con código instalada, la vista previa HTML de un
+  // fichero en el que entró texto suyo (kv «x2.touched») pregunta antes.
   async function guardaVistaPrevia() {
-    const ide = await import('../ide.js');
-    if (!exts.some(e => e.code)) { ide.setBeforePreview(null); return; }
-    ide.setBeforePreview(async path => {
+    (await import('../ide.js')).setBeforePreview(exts.some(e => e.code) ? async path => {
       const marcas = await maindb.get('kv', 'x2.touched').catch(() => null);
-      if (!marcas || !marcas[path]) return true;
-      return (await import('../ext2/gates.js')).allowPreview(path);
-    });
+      return !marcas?.[path] || (await import('../ext2/gates.js')).allowPreview(path);
+    } : null);
   }
 
   function recarga() {
@@ -254,10 +228,8 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
 
   const quitaTemasDe = id => { if (themeIndex.get(pref)?.ext === id) guardaPref('vs-dark'); };
 
-  // Instalar. Lo declarativo (nivel 1) siempre que lo haya. Con `withCode` (el
-  // usuario aceptó ejecutar su código: diálogo de consentimiento del panel)
-  // también los bytes del paquete para el recinto, y queda encendida. Bajar
-  // para ejecutar código exige la suma SHA-256 publicada (falla cerrado).
+  // Instalar: lo declarativo y, con `withCode` (aceptado por el usuario), su
+  // código vía host2.js, con la suma SHA-256 publicada obligatoria.
   async function install(src, { onProgress, confirmLarge, signal, withCode = false } = {}) {
     let bytes, sha256, verified = false, source = 'file', meta = null;
     const ovsx = await import('./openvsx.js');
@@ -269,18 +241,13 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       ({ bytes, sha256, verified } = await ovsx.download(meta, { onProgress, confirmLarge, signal, requireHash: withCode }));
       source = 'open-vsx';
     }
-    const { readVsix, readVsixRaw, browserEntry } = await import('./vsix.js');
+    const { readVsix } = await import('./vsix.js');
     const v = await readVsix(bytes, { lang: uiLang() });
     if (meta && v.id !== `${meta.namespace}.${meta.name}`.toLowerCase()) {
       throw Object.assign(new Error(`el paquete dice ser ${v.id}, no ${meta.namespace}.${meta.name}`), { code: 'mismatch', got: v.id, want: `${meta.namespace}.${meta.name}` });
     }
-    let raw = null, entry = null;
-    if (withCode) {
-      if (typeof v.manifest.browser !== 'string') throw Object.assign(new Error('sin código para navegador'), { code: 'nocode' });
-      raw = await readVsixRaw(bytes);
-      entry = browserEntry(v.manifest, raw.files);
-      if (!entry) throw Object.assign(new Error('la entrada browser no está en el paquete'), { code: 'noentry' });
-    }
+    const previo = exts.find(e => e.id === v.id);
+    const codigo = withCode ? await deDos('codeFiles')(v, bytes, previo) : null;
     if (!withCode && !v.themes.length && !v.grammars.length && !v.snippets.length && !v.languages.length) {
       // declaraba cosas aplicables pero ninguna se pudo leer: no es lo mismo
       // que no traer nada, y el usuario tiene que saber por qué
@@ -289,7 +256,6 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       if (typeof v.manifest.browser === 'string') throw Object.assign(new Error('code-only'), { code: 'codeonly' });
       throw Object.assign(new Error('nothing-applies'), { code: 'nothing' });
     }
-    const previo = exts.find(e => e.id === v.id);
     const usados = new Set(exts.filter(e => e.id !== v.id).flatMap(e => (e.themes || []).map(t => t.themeId)));
     const files = new Map();
     const k = p => store.fileKey(v.id, v.version, p);
@@ -311,35 +277,12 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
         return { id: l.id, aliases: l.aliases, extensions: l.extensions, filenames: l.filenames, filenamePatterns: l.filenamePatterns, firstLine: l.firstLine, mimetypes: l.mimetypes, configKey };
       }),
       licenseKey: null,
-      // nivel 2: lo que el usuario eligió conservarlo al actualizar
-      settings: previo?.settings && typeof previo.settings === 'object' ? previo.settings : {},
-      formatter: previo?.formatter && typeof previo.formatter === 'object' ? previo.formatter : {},
     };
     if (v.licenseText) { rec.licenseKey = k('LICENSE'); files.set(rec.licenseKey, v.licenseText); }
-    if (withCode) {
-      // bytes del código, por ruta dentro del paquete; encendida salvo que el
-      // usuario la tuviera apagada antes de actualizar
-      for (const [p, data] of raw.files) files.set(store.codeKey(v.id, v.version, p), data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
-      rec.code = { entry, files: [...raw.files.keys()], bytes: raw.bytes, manifest: v.manifest };
-      rec.runs = previo?.code ? !!previo.runs : true;
-    }
+    if (codigo) { for (const [key, d] of codigo.files) files.set(key, d); Object.assign(rec, codigo.fields); }
     await store.put(rec, files);
     await recarga();
     return rec;
-  }
-
-  // Ajustes de una extensión con código (validados por el panel contra lo que
-  // ella declara) y su formateador por lenguaje: se aplican sin recargar.
-  async function setSettings(id, settings) {
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw Object.assign(new Error('los ajustes son un objeto JSON'), { code: 'settings' });
-    await store.patch(id, { settings });
-    await recarga();
-  }
-  async function setFormatter(id, lang, choice) {
-    const rec = exts.find(e => e.id === id);
-    if (!rec || typeof lang !== 'string' || !['extension', 'builtin'].includes(choice)) return;
-    await store.patch(id, { formatter: { ...(rec.formatter || {}), [lang]: choice } });
-    await recarga();
   }
 
   async function setEnabled(id, on) {
@@ -353,35 +296,17 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     await recarga();
   }
 
-  // Encender el código de una extensión (nivel 2). La primera vez enseña
-  // cuánto se va a bajar ANTES de bajar nada; cancelar no cambia nada.
-  async function setRuns(id, on, { confirm = confirmaTamano } = {}) {
-    const rec = exts.find(e => e.id === id);
-    if (!rec) throw Object.assign(new Error('no instalada: ' + id), { code: 'missing' });
-    if (on) {
-      if (typeof rec.code?.manifest?.browser !== 'string') throw Object.assign(new Error('sin código para navegador'), { code: 'nocode' });
-      const { runtimeInfo } = await import('../ext2/vendor.js');
-      const info = await runtimeInfo();
-      if (!info.available) throw Object.assign(new Error('nivel 2 no disponible: ' + info.reason), { code: 'x2-' + info.reason });
-      if (!info.cached && !(await confirm({ runtimeBytes: info.bytes, extensionBytes: rec.code.bytes || 0, name: rec.displayName || rec.id, id, rec }))) return false;
-    }
-    await store.setRuns(id, on);
-    await recarga();
-    return true;
-  }
-  const estadoCodigo = () => (puente ? puente.state() : { state: 'stopped', extensions: [], commands: [] });
-
   const nombresSerie = { 'vs-dark': 'builtinDark', vs: 'builtinLight', 'hc-black': 'builtinHc', 'hc-light': 'builtinHcLight' };
   return {
     paused,
     list: () => exts.map(e => ({ ...e })),
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    install, setEnabled, uninstall, setRuns, setSettings, setFormatter,
-    codeState: estadoCodigo,
-    codeCommands: () => (puente ? puente.commands() : []),
+    install, setEnabled, uninstall,
+    // nivel 2 (host2.js)
+    setRuns: deDos('setRuns'), setSettings: deDos('setSettings'), setFormatter: deDos('setFormatter'), codeRuntime: deDos('runtime'),
+    codeState: () => (dos ? dos.state() : { state: 'stopped', extensions: [], commands: [] }),
+    codeCommands: () => (dos ? dos.commands() : []),
     onCodeChange(fn) { oyentesCodigo.add(fn); return () => oyentesCodigo.delete(fn); },
-    // ¿está disponible el nivel 2 aquí? (navegador, sitio, interruptor) y su tamaño
-    codeRuntime: async () => (paused || sinCodigo ? { available: false, reason: 'url' } : (await import('../ext2/vendor.js')).runtimeInfo()),
     noCode: paused || sinCodigo,
     licenseText: async id => { const e = exts.find(x => x.id === id); return e?.licenseKey ? (await store.getFile(e.licenseKey)) || '' : ''; },
     themes: () => [

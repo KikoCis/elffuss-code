@@ -6,8 +6,7 @@
 //
 //   ext    id → registro (versión, sha256, licencia, activa, contribuciones…)
 //   files  "id@versión/ruta" → contenido ya parseado (tema, gramática…)
-//          "id@versión/code/ruta" → bytes crudos del código de la extensión
-//          (nivel 2: solo se usan si el usuario enciende su código, `runs`)
+//          "id@versión/code/ruta" → bytes del código (nivel 2, js/ext2/host2.js)
 //   meta   marcas internas
 //
 // La lista [{id, version, enabled, runs}] se refleja en kv «extensions» de la
@@ -39,7 +38,6 @@ const done = req => new Promise((res, rej) => { req.onsuccess = () => res(req.re
 const txDone = tx => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error('transacción abortada')); });
 
 export const fileKey = (id, version, path) => `${id}@${version}/${path}`;
-// bytes del código de una extensión (nivel 2), por ruta dentro del paquete
 export const codeKey = (id, version, path) => `${id}@${version}/code/${path}`;
 
 export async function list() {
@@ -74,44 +72,9 @@ export async function remove(id) {
   await writeMirror();
 }
 
-// Encender o apagar el CÓDIGO de una extensión (nivel 2); lo declarativo
-// sigue con `enabled`.
-export async function setRuns(id, runs) {
-  const db = await open();
-  const tx = db.transaction('ext', 'readwrite');
-  const rec = await done(tx.objectStore('ext').get(id));
-  if (!rec) throw new Error('no instalada: ' + id);
-  rec.runs = !!runs;
-  tx.objectStore('ext').put(rec, id);
-  await txDone(tx);
-  await writeMirror();
-  return rec;
-}
-
-// [[ruta, ArrayBuffer]] del código guardado de una extensión
-export async function readCode(rec) {
-  const paths = Array.isArray(rec?.code?.files) ? rec.code.files : [];
-  const store = (await open()).transaction('files').objectStore('files');
-  const vals = await Promise.all(paths.map(p => done(store.get(codeKey(rec.id, rec.version, p)))));
-  return paths.map((p, i) => {
-    const v = vals[i];
-    if (v === undefined) throw Object.assign(new Error('falta ' + p), { code: 'missing' });
-    const buf = v instanceof ArrayBuffer ? v.slice(0) : ArrayBuffer.isView(v) ? v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength) : new TextEncoder().encode(String(v)).buffer;
-    return [p, buf];
-  });
-}
-
-// Ajustes de una extensión con código y su elección de formateador por
-// lenguaje ({ lang: 'extension' | 'builtin' }).
-export async function patch(id, fields) {
-  const db = await open();
-  const tx = db.transaction('ext', 'readwrite');
-  const rec = await done(tx.objectStore('ext').get(id));
-  if (!rec) throw new Error('no instalada: ' + id);
-  for (const k of ['settings', 'formatter']) if (k in fields) rec[k] = structuredClone(fields[k]);
-  tx.objectStore('ext').put(rec, id);
-  await txDone(tx);
-  return rec;
+export async function getFiles(keys) {
+  const st = (await open()).transaction('files').objectStore('files');
+  return Promise.all(keys.map(k => done(st.get(k))));
 }
 
 // Caché de cosas pequeñas de Open VSX (p. ej. lo que se sabe de un manifiesto
@@ -124,17 +87,19 @@ export async function setMeta(key, value) {
   await txDone(tx);
 }
 
-export async function setEnabled(id, enabled) {
+// Cambia un registro en una transacción (`cambia(rec)` lo modifica).
+export async function update(id, cambia, { mirror = true } = {}) {
   const db = await open();
   const tx = db.transaction('ext', 'readwrite');
   const rec = await done(tx.objectStore('ext').get(id));
   if (!rec) throw new Error('no instalada: ' + id);
-  rec.enabled = !!enabled;
+  cambia(rec);
   tx.objectStore('ext').put(rec, id);
   await txDone(tx);
-  await writeMirror();
+  if (mirror) await writeMirror();
   return rec;
 }
+export const setEnabled = (id, enabled) => update(id, r => { r.enabled = !!enabled; });
 
 async function writeMirror() {
   const recs = await list();
