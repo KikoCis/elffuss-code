@@ -211,9 +211,18 @@ await page.setViewportSize({ width: 1280, height: 860 });
 
 // ── M16–M18: apagar, desinstalar ──
 await installed('tyriar.sort-lines').locator('[data-k="x2run"]').click();
+// (quitar una extensión del host de extensiones no para su código: el recinto
+// se rehace con las demás, así que la otra vuelve a «en marcha» enseguida)
 ok('M16 apagar el código de una: queda instalada y apagada; la otra sigue', !!(await until(async () => (await codeState('tyriar.sort-lines')) === 'off'))
-  && (await codeState('esbenp.prettier-vscode')) === 'running'
+  && !!(await until(async () => (await codeState('esbenp.prettier-vscode')) === 'running', { timeout: 60000 }))
   && !(await page.evaluate(() => (window.elffussClaw?.commands || []).some(c => c.x2 === 'tyriar.sort-lines'))));
+await open('fruits.txt');
+await setValue('zz\nyy\n');
+await page.evaluate(() => { const ed = window.monaco.editor.getEditors()[0]; ed.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 3 }); });
+await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('sortLines.sortLines'));
+await sleep(800);
+ok('M16b y su código está parado de verdad: su comando ya no hace nada en el recinto', (await value()) === 'zz\nyy\n', JSON.stringify(await value()));
+await panel();
 // volver a encenderla en la misma sesión (el recinto sigue en marcha por Prettier):
 // sus ficheros se vuelven a registrar y sus comandos funcionan
 await installed('tyriar.sort-lines').locator('[data-k="x2run"]').click();

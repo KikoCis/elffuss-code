@@ -58,6 +58,10 @@ export function allowedCalls(j) {
 
 const listeners = new Set();
 let session = null;
+// Las que el recinto marcó «no soportada» (sustituyen el tecleo): no vuelven a
+// entrar en esta pestaña. Y lo último que pidió host.js, para rehacer el recinto.
+const refused = new Map();                         // id → motivo
+let lastSync = null;
 // el tema de Code (claro, oscuro, alto contraste): host.js lo dice al cambiar
 let themeKind = 'dark';
 export function setTheme(kind) {
@@ -69,14 +73,15 @@ let lastError = null;
 const emit = () => { for (const f of listeners) { try { f(); } catch { /* — */ } } };
 export const onChange = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 
+const refusedList = () => [...refused].map(([id, text]) => ({ id, state: 'unsupported', text, log: [], skipped: [] }));
 export function state() {
-  if (!session) return { state: lastError ? 'error' : 'stopped', error: lastError, extensions: [], commands: [], denials: { n: 0, top: [] } };
+  if (!session) return { state: lastError ? 'error' : 'stopped', error: lastError, extensions: refusedList(), commands: [], denials: { n: 0, top: [] } };
   return {
     state: session.state, error: session.error, violations: session.violations,
     denials: { n: session.denials.n, top: session.denials.top.map(x => [...x]) },
     ui: { dropped: { ...session.ui.dropped } },
     gate: { shown: session.gate.shown.map(x => ({ ...x })), opened: session.gate.opened, dropped: session.gate.dropped, blocked: session.gate.blocked },
-    extensions: [...session.status.values()].map(s => ({ ...s, skipped: session.commands ? session.commands.skipped(s.id).map(x => ({ ...x })) : [] })),
+    extensions: [...[...session.status.values()].filter(s => !refused.has(s.id)).map(s => ({ ...s, skipped: session.commands ? session.commands.skipped(s.id).map(x => ({ ...x })) : [] })), ...refusedList()],
     commands: session.commands ? session.commands.entries().map(({ id, label, hint, ext }) => ({ id, label, hint, ext })) : [],
     formatters: session.features ? session.features.formatters() : {},
   };
@@ -249,6 +254,8 @@ class Session {
         const s = this.status.get(msg.id) || { id: msg.id, log: [] };
         s.state = msg.state; s.text = msg.text || '';
         this.status.set(msg.id, s);
+        // quitarla en el recinto no para su código: se rehace sin ella
+        if (msg.state === 'unsupported' && !refused.has(msg.id)) { refused.set(msg.id, s.text); if (lastSync) setTimeout(() => sync(lastSync), 0); }
         emit();
         break;
       }
@@ -392,6 +399,13 @@ class Session {
     return null;
   }
 
+  // ¿sobra alguna de las que ya están, o cambió de versión? (ver sync())
+  stale(records) {
+    const want = new Map(records.map(r => [r.id, r.version]));
+    for (const [id, version] of this.added) if (want.get(id) !== version) return true;
+    return false;
+  }
+
   async sync(records) {
     const want = new Map(records.map(r => [r.id, r]));
     for (const id of [...this.added.keys()]) {
@@ -471,9 +485,15 @@ function statusbar(text) {
 // activa con su código encendido, el recinto está arrancado y al día; sin
 // ninguna, se desmonta (sin recargar la página).
 let cola = Promise.resolve();
-export function sync({ monaco, records, readCode }) {
+export function sync(args) {
+  const { monaco, records, readCode } = args;
+  lastSync = args;
   const run = async () => {
-    const live = disabledByUrl() ? [] : records.filter(r => r && r.enabled && r.runs);
+    const live = disabledByUrl() ? [] : records.filter(r => r && r.enabled && r.runs && !refused.has(r.id));
+    // Quitar una extensión del host de extensiones no para su código ni sus
+    // proveedores (VS Code reinicia el host para eso): si sobra alguna de las
+    // que ya corren, o cambió de versión, el recinto se rehace con las demás.
+    if (session && session.state === 'running' && session.stale(live)) { session.stop(); session = null; }
     if (!live.length) { if (session) { session.stop(); session = null; } emit(); return state(); }
     if (!session || session.state === 'error' || session.state === 'stopped') {
       lastError = null;
