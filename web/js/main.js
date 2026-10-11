@@ -631,7 +631,7 @@ const ONNX_LIGERO = 'onnx:qwen3.5-0.8b';
 async function pickLocalBrain() {
   const c = await gpuCapacity();
   if (c.gpu && !isMobile()) {
-    if (c.maxBuf >= 2 ** 31 && c.mem >= 8) return 'litert:gemma-e4b';   // ~4 GB
+    if (c.maxBuf >= 2 ** 31 && c.mem >= 8) return 'litert:gemma-e4b';   // ~2.8 GB
     if (c.maxBuf >= 2 ** 30 && c.mem >= 6) return 'litert:gemma-e2b';   // ~2 GB
   }
   if (c.gpu && isMobile()) return 'litert:gemma-e2b';
@@ -696,7 +696,7 @@ const modelo27Check = (async () => {
 // nombre que se queda viejo.
 function modelOptionsLocales() {
   const opts = [];
-  if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~4 GB) ★' });
+  if (realGPU) opts.push({ id: 'litert:gemma-e4b', label: 'Gemma-4 E4B · LiteRT-LM (~2.8 GB) ★' });
   if (realGPU) opts.push({ id: 'litert:gemma-e2b', label: 'Gemma-4 E2B · LiteRT-LM (~2 GB)' });
   // `onnx` a secas era Elffuss LM y se ha quitado. Ojo con el patrón: ESTE era
   // el TERCER sitio donde el mismo modelo estaba declarado a mano (el registro

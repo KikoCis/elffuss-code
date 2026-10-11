@@ -74,7 +74,7 @@ const BRAINS = [
   ['rules', 'Reglas (sin GPU)', 'Determinista. Valida el arnés sin bajar pesos.'],
   ['onnx:qwen3.5-0.8b', 'Qwen3.5-0.8B (CPU/wasm)', 'El ligero, por transformers.js.'],
   ['litert:gemma-e2b', 'Gemma-4 E2B (~2 GB)', 'WebGPU.'],
-  ['litert:gemma-e4b', 'Gemma-4 E4B (~3 GB)', 'WebGPU. El mejor.'],
+  ['litert:gemma-e4b', 'Gemma-4 E4B (~2.8 GB)', 'WebGPU. El mejor.'],
 ];
 
 // Arranca con el cerebro que tenga el IDE, si es uno de los del Lab.

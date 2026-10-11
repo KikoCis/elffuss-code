@@ -50,8 +50,10 @@ const say = async (page, text, wait = 1500) => {
   await p.locator('#tree .file', { hasText: 'index.js' }).click();
   await p.waitForTimeout(1000);
   const hasCode = await p.evaluate(() => window.monaco?.editor.getModels().some(m => m.getValue().includes('saludo')));
-  const tab = await p.locator('.tab.active').textContent().catch(() => '');
-  ok('2 · abrir archivo del árbol → Monaco con su contenido', hasCode && /index\.js/.test(tab));
+  // Solo las pestañas del EDITOR: desde c769f18 las conversaciones también son
+  // .tab.active (en #conv-tabs) y el selector suelto encontraba dos.
+  const tab = await p.locator('#tabs-bar .tab.active').textContent({ timeout: 5000 }).catch(e => 'ERROR: ' + e.message.split('\n')[0]);
+  ok('2 · abrir archivo del árbol → Monaco con su contenido', hasCode && /index\.js/.test(tab), tab);
   await p.context().close();
 }
 
@@ -86,7 +88,9 @@ const say = async (page, text, wait = 1500) => {
   await p.fill('#pal-input', 'utils'); await p.waitForTimeout(400);
   const hits = await p.locator('.pal-item .pi-name').allTextContents();
   await p.locator('.pal-item').first().click(); await p.waitForTimeout(700);
-  const tab = await p.locator('.tab.active').textContent().catch(() => '');
+  // Solo las pestañas del EDITOR: desde c769f18 las conversaciones también son
+  // .tab.active (en #conv-tabs) y el selector suelto encontraba dos.
+  const tab = await p.locator('#tabs-bar .tab.active').textContent({ timeout: 5000 }).catch(e => 'ERROR: ' + e.message.split('\n')[0]);
   ok('5 · Command Palette abre, busca y abre el archivo', open && hits.some(h => /utils\.py/.test(h)) && /utils\.py/.test(tab));
   await p.context().close();
 }
@@ -113,8 +117,10 @@ const say = async (page, text, wait = 1500) => {
 // ============ 8 · el E4B roto NO es cargable (anti-crash) ============
 {
   const p = await ide();
-  const opts = await p.$$eval('#model-select option', os => os.map(o => o.textContent));
-  ok('8 · Gemma E4B roto no se ofrece en el selector', !opts.some(o => /E4B/.test(o)), JSON.stringify(opts));
+  // El E4B «healed» propio (roto) no se ofrece. El Gemma-4 E4B oficial de Google
+  // SÍ (de7a37e, con GPU de verdad): se mira el id y el nombre, no «E4B» suelto.
+  const opts = await p.$$eval('#model-select option', os => os.map(o => ({ id: o.value, label: o.textContent })));
+  ok('8 · el E4B healed (roto) no se ofrece en el selector', !opts.some(o => o.id === 'litert' || o.id === 'litert:elffuss-e4b' || /Elffuss[^·]*E4B|healed/i.test(o.label)), JSON.stringify(opts.map(o => o.label)));
   await p.context().close();
 }
 
