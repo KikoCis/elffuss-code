@@ -137,9 +137,12 @@ function sinThink(txt) {
   return txt.trim();
 }
 
-// Solo para tests/onnx-stop.mjs: probar chat() con un generador de mentira sin
-// descargar ningún modelo. `Corte` null simula un transformers.js sin
-// InterruptableStoppingCriteria.
+// Solo para pruebas (tests/onnx-stop.mjs, tests/chat-opts.mjs): probar chat()
+// con un generador de mentira sin descargar ningún modelo. `Corte` null simula
+// un transformers.js sin InterruptableStoppingCriteria. Inerte si la prueba no
+// lo pide a propósito (globalThis.__ELFFUSS_PRUEBAS__): en la app de verdad no
+// cambia el modelo cargado por nada.
 export function __usarGenerador(gen, Streamer, Corte = null) {
+  if (!globalThis.__ELFFUSS_PRUEBAS__) throw new Error('__usarGenerador es solo para pruebas');
   generator = gen; TextStreamer = Streamer; Interruptor = Corte; cargadoKey = MODEL.key;
 }

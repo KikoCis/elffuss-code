@@ -9,6 +9,7 @@
 //   node tests/litert-contexto.mjs
 //   LITERT=/ruta/a/otro-litert.mjs node tests/litert-contexto.mjs   # p. ej. el de antes, que debe fallar
 const L = await import(process.env.LITERT ? 'file://' + process.env.LITERT : '../web/js/providers/litert.js');
+globalThis.__ELFFUSS_PRUEBAS__ = true;   // el gancho __usarMotor solo funciona si la prueba lo pide
 
 const CARACTERES_POR_TOKEN = 3.2;   // a propósito distinto del 2 con que arranca el guardia
 let fallos = 0;

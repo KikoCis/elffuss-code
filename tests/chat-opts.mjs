@@ -26,6 +26,7 @@ const SOLA = 'señal sola', OBJETO = '{ signal, onPrefill }', SIN = '{ onPrefill
 
 // ── litert.js, en node ──────────────────────────────────────────────────────
 const L = await import(process.env.LITERT ? 'file://' + process.env.LITERT : '../web/js/providers/litert.js');
+globalThis.__ELFFUSS_PRUEBAS__ = true;   // el gancho __usarMotor solo funciona si la prueba lo pide
 function motor() {
   const conversaciones = [];
   return {
@@ -132,6 +133,7 @@ await p.waitForTimeout(1000);
 const rOnnx = await p.evaluate(async ({ SOLA, OBJETO, SIN }) => {
   const onnx = await import('/js/providers/onnx.js');
   if (typeof onnx.__usarGenerador !== 'function') return { sinGancho: true };
+  globalThis.__ELFFUSS_PRUEBAS__ = true;   // el gancho solo funciona si la prueba lo pide
   const N = 30;
   class CorteLocal {
     constructor() { const f = (ids) => new Array(ids.length).fill(f.interrupted); f.interrupted = false; f.interrupt = () => { f.interrupted = true; }; return f; }

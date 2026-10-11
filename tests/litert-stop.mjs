@@ -23,6 +23,14 @@ const ok = (nombre, cond, extra = '') => {
   if (!cond) fallos++;
 };
 
+// El gancho de pruebas no hace nada si la prueba no lo pide a propósito.
+{
+  let error = null;
+  try { L.__usarMotor({ createConversation() {} }, 4096); } catch (e) { error = e.message; }
+  ok('sin pedirlo, el gancho __usarMotor se niega (en la app no cambia el motor)', /solo para pruebas/.test(error || ''), error || 'no lanzó');
+}
+globalThis.__ELFFUSS_PRUEBAS__ = true;
+
 function motor() {
   const conversaciones = [];
   return {

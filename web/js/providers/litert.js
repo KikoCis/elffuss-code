@@ -415,7 +415,11 @@ function recortarPorElMedio(s, max) {
   return s.slice(0, cabeza) + aviso + s.slice(s.length - (util - cabeza));
 }
 
-// Solo para tests/litert-contexto.mjs: probar chat() en node con un motor de mentira.
+// Solo para pruebas (tests/litert-contexto.mjs, litert-stop.mjs, chat-opts.mjs):
+// probar chat() en node con un motor de mentira. Inerte si la prueba no lo pide
+// a propósito (globalThis.__ELFFUSS_PRUEBAS__): en la app de verdad no cambia el
+// motor cargado por nada.
 export function __usarMotor(motor, contexto) {
+  if (!globalThis.__ELFFUSS_PRUEBAS__) throw new Error('__usarMotor es solo para pruebas');
   engine = motor; ctxTokens = contexto; conversation = null; sentCount = 0; sys = ''; charsPorToken = 2; rehacerHasta = 0;
 }
