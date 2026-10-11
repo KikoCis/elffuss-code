@@ -1,5 +1,5 @@
 // Modo Objetivo (🎯 Goal): mismo patrón planificador/ejecutor que clonagent
-// (~/work2026/clonagent) — un PLANIFICADOR descompone el objetivo en una
+// — un PLANIFICADOR descompone el objetivo en una
 // lista de tareas con estado (pending/in-progress/done/failed/skipped), y un
 // EJECUTOR las va ejecutando una a una hasta que no queda ninguna pendiente,
 // marcando el resultado de cada una. Si una tarea falla, las siguientes se
