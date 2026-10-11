@@ -1,0 +1,83 @@
+// Comandos de las extensiones con código en Code: salen en F1 (acciones de
+// Monaco), en el menú contextual del editor si la extensión lo pide, y como
+// entradas para la paleta de Code (entries()). Sus atajos se atan con el foco
+// en el editor, salvo los reservados (keys.js). Al quitar la extensión o parar
+// el puente, todo se deshace.
+import { parseKeybinding } from './keys.js';
+
+const s = (v, max = 300) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+// manifiesto (ya con %nls% resuelto) → comandos visibles y atajos
+export function commandsOf(manifest) {
+  const c = manifest && typeof manifest.contributes === 'object' && manifest.contributes ? manifest.contributes : {};
+  const hidden = new Set();
+  const palette = Array.isArray(c.menus?.commandPalette) ? c.menus.commandPalette : [];
+  for (const m of palette) if (m && typeof m.command === 'string' && (m.when === 'false' || m.when === false)) hidden.add(m.command);
+  const contextMenu = new Map();
+  for (const m of Array.isArray(c.menus?.['editor/context']) ? c.menus['editor/context'] : []) {
+    if (m && typeof m.command === 'string') contextMenu.set(m.command, s(m.group, 100) || 'x2');
+  }
+  const list = [];
+  for (const cmd of Array.isArray(c.commands) ? c.commands : []) {
+    if (!cmd || typeof cmd.command !== 'string' || !/^[\w.:/-]{1,200}$/.test(cmd.command)) continue;
+    const title = typeof cmd.title === 'string' ? cmd.title : cmd.title && typeof cmd.title.value === 'string' ? cmd.title.value : cmd.command;
+    const category = typeof cmd.category === 'string' ? cmd.category : cmd.category && typeof cmd.category.value === 'string' ? cmd.category.value : '';
+    list.push({ id: cmd.command, title: s(title), category: s(category, 100), hidden: hidden.has(cmd.command), contextGroup: contextMenu.get(cmd.command) || null });
+  }
+  return { commands: list, keybindings: Array.isArray(c.keybindings) ? c.keybindings.slice(0, 500) : [] };
+}
+
+export class Commands {
+  constructor({ monaco, editor, run, onReport = () => {} }) {
+    this.monaco = monaco;
+    this.editor = editor;
+    this.run = run;
+    this.onReport = onReport;
+    this.byExt = new Map();                        // id → { disposables, entries, skipped }
+  }
+
+  set(ext) {
+    this.remove(ext.id);
+    const { monaco, editor } = this;
+    const { commands, keybindings } = commandsOf(ext.manifest);
+    const disposables = [], entries = [], skipped = [];
+    const name = s(ext.displayName || ext.manifest?.displayName || ext.id, 200);
+    for (const c of commands) {
+      const label = c.category ? `${c.category}: ${c.title}` : c.title;
+      const run = () => this.run(c.id);
+      // F1 y menú contextual (Monaco pinta las etiquetas como texto)
+      disposables.push(editor.addAction({
+        id: 'x2:' + c.id, label,
+        ...(c.contextGroup ? { contextMenuGroupId: 'x2_' + c.contextGroup.replace(/[^\w]/g, '_'), contextMenuOrder: 1 } : {}),
+        run,
+      }));
+      if (!c.hidden) entries.push({ id: c.id, label, hint: name, run });
+    }
+    // atajos: un comando global de Monaco + su regla de teclado (ambos se deshacen)
+    const registered = new Set();
+    for (const [i, kb] of keybindings.entries()) {
+      const p = parseKeybinding(monaco, kb);
+      if (p.skip) { skipped.push({ command: s(kb?.command, 200), key: s(kb?.key || kb?.mac, 100), why: p.skip }); continue; }
+      const id = `x2-key:${ext.id}:${i}`;
+      if (!registered.has(id)) {
+        registered.add(id);
+        disposables.push(monaco.editor.addCommand({ id, run: () => this.run(p.command, p.args) }));
+      }
+      const when = 'editorTextFocus' + (p.when ? ` && (${p.when})` : '');
+      disposables.push(monaco.editor.addKeybindingRules([{ keybinding: p.keybinding, command: id, when }]));
+    }
+    this.byExt.set(ext.id, { disposables, entries, skipped });
+    if (skipped.length) this.onReport(ext.id, skipped);
+  }
+
+  remove(id) {
+    const e = this.byExt.get(id);
+    if (!e) return;
+    for (const d of e.disposables) { try { d?.dispose(); } catch { /* ya fuera */ } }
+    this.byExt.delete(id);
+  }
+
+  entries() { return [...this.byExt.values()].flatMap(e => e.entries); }
+  skipped(id) { return this.byExt.get(id)?.skipped || []; }
+  dispose() { for (const id of [...this.byExt.keys()]) this.remove(id); }
+}
