@@ -7,7 +7,9 @@
 #              ./lib/x2-mode.mjs S.mjs), where two code extensions are installed
 #              and running in the sandbox while the suite works.
 #   [once]     Level 2's own suites. They start their own server and set up
-#              their extensions themselves, so they run once.
+#              their extensions themselves, so they run once. x2_live and
+#              x2_lifecycle need Open VSX (x2_live only the first time, then
+#              tests/.cache): offline they say NOT RUN.
 #   [not-run]  "name: reason". They need a live model, a GPU, a local Bridge,
 #              the internet or production. They are left out of both modes.
 
@@ -69,10 +71,16 @@ toolparse_missingbrace
 
 [once]
 x2_unit
+x2_headers
 x2_smoke
+x2_bytes
 x2_canary
 x2_manager
+x2_commands
+x2_format
+x2_ux
 x2_live
+x2_lifecycle
 
 [not-run]
 _audio_probe: a probe of the music widget against production, not a test
@@ -89,3 +97,4 @@ mind_video: records a video, not a test
 shot_utopiaia: a screenshot of a production site
 warmup_code: warms up the real model in a persistent profile
 x2_census: manual: downloads and runs the top-500's browser extensions from Open VSX
+catalog_census: manual: reads every extension's package.json in Open VSX (tens of thousands of requests)

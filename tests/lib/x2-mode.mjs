@@ -7,9 +7,9 @@
 // A Node preload that patches Playwright's chromium.launch and
 // launchPersistentContext. Before a page of the suite first goes to a Code
 // origin (http://127.0.0.1:<port>, the only host that has a sandbox in
-// development), that page visits <origin>/__x2seed and installs two synthetic
-// code extensions there with Code's own store.js, then carries on to where the
-// suite was going:
+// development), that page visits <origin>/manifest.json?x2seed and installs two
+// synthetic code extensions there with Code's own store.js, then carries on to
+// where the suite was going:
 //   noop      one command (so the palette and F1 carry an extension command)
 //   observer  hover, completion and symbol providers for every file, always
 //             empty, never a formatter (so every feature the suite uses goes
@@ -17,8 +17,9 @@
 // Both have their code on, so whenever the suite opens the IDE, host.js starts
 // the sandbox and they run in it while the suite works.
 //
-// /__x2seed is a 404 on Code's server: an empty document on that origin, where
-// the seeding runs. Nothing is added to web/, and no request is routed (a
+// The seeding runs in that small document of Code's own origin (a JSON file
+// that is always there, so no 404 shows up in the console of suites that count
+// console errors). Nothing is added to web/, and no request is routed (a
 // Playwright route would turn off the HTTP cache for the whole context and make
 // this mode differ from the default one in a way users never see).
 //
@@ -42,7 +43,7 @@ import { chromium } from 'playwright';
 import { NOOP, OBSERVER, recordFor } from './x2-fixtures.mjs';
 
 const CODE_ORIGIN = /^http:\/\/127\.0\.0\.1:\d+$/;
-const SEED_PATH = '/__x2seed';
+const SEED_PATH = '/manifest.json?x2seed';
 const SANDBOX_DOCS = new Set(['/x2/v1/sandbox.html', '/x2/v1/exthost-iframe.html']);
 const WAIT_RUNNING = 90000;
 const SEEDED = [NOOP, OBSERVER].map(f => recordFor(f));
@@ -60,7 +61,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // js/ext2/bridge.js (lo hace host.js), el estado del puente. Importar ese
 // mismo módulo da la misma instancia: no carga nada que la página no cargara.
 const INIT = `(() => {
-  if (window.top !== window || !${CODE_ORIGIN}.test(location.origin) || location.pathname === ${JSON.stringify(SEED_PATH)}) return;
+  if (window.top !== window || !${CODE_ORIGIN}.test(location.origin) || location.pathname + location.search === ${JSON.stringify(SEED_PATH)}) return;
   const doc = Math.random().toString(36).slice(2) + Date.now().toString(36);
   const tell = d => console.debug('[x2mode]' + JSON.stringify(Object.assign({ doc, at: location.pathname + location.search }, d)));
   tell({ open: true });

@@ -13,8 +13,11 @@ await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 
 const p = await ctx.newPage();
 const errors = [];
 // El motor propio (web/js/engine) no se publica con este repo: donde no está, sus
-// sondas dan 404, y eso no es un error de este flujo.
-p.on('console', m => { if (m.type() === 'error' && !/\/js\/engine\//.test(m.location()?.url || '')) errors.push(m.text()); });
+// sondas dan 404, y eso no es un error de este flujo. Con extensiones de código
+// encendidas, el recinto (otro sitio, /x2/v1/) comprueba al arrancar que su CSP
+// le corta la red, y el navegador anota ese bloqueo como error de consola de su
+// marco: tampoco es de este flujo.
+p.on('console', m => { if (m.type() === 'error' && !/\/js\/engine\/|\/x2\/v1\//.test(m.location()?.url || '')) errors.push(m.text()); });
 p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1500);
 
