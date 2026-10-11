@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { startServer } from './lib/x2-server.mjs';
 import { startBeacon } from './lib/beacon.mjs';
-import { seed, recordFor, SORT, FMT, HOVER, SYM, DIAG, NOOP, CANARY } from './lib/x2-fixtures.mjs';
+import { seed, recordFor, SORT, FMT, HOVER, SYM, DIAG, UI, NOOP, CANARY } from './lib/x2-fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UPDATE = process.argv.includes('--update');
@@ -128,7 +128,7 @@ const sandboxRequests = (server, since = 0) => server.requests.slice(since).filt
 // ── C. extensiones sintéticas ──
 {
   const { ctx, page, requests, errors } = await freshPage();
-  await seed(page, [SORT, FMT, HOVER, SYM, DIAG, NOOP, CANARY]);
+  await seed(page, [SORT, FMT, HOVER, SYM, DIAG, UI, NOOP, CANARY]);
   const since = srv.requests.length;
   requests.length = 0;
   await openIde(page);
@@ -137,6 +137,9 @@ const sandboxRequests = (server, since = 0) => server.requests.slice(since).filt
   ok('C1 arranca solo con extensiones de código encendidas', s?.state === 'running', JSON.stringify(s?.error));
   const st = await until(async () => { const x = await bridgeState(page); return x.extensions.filter(e => e.state === 'active').length >= 4 ? x : null; }, { timeout: 30000 });
   ok('C2 las extensiones arrancan en el recinto sin errores', st && !st.extensions.some(e => e.state === 'error'), JSON.stringify(st?.extensions.map(e => [e.id, e.state, e.text])));
+  // lo que una extensión pide al usuario falla cerrado y no la deja colgada
+  const ui = await until(async () => { const x = await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('x2ui.report')); return x ? JSON.parse(x) : null; }, { timeout: 30000 });
+  ok('C2b avisos, diálogo modal, selector y texto: sin respuesta y sin colgarse; portapapeles vacío', !!ui && ui.info === undefined && ui.modal === undefined && ui.pick === undefined && ui.input === undefined && ui.clipboardRead === '', JSON.stringify(ui));
   ok('C3 iframe del recinto en el otro sitio, invisible y sin foco', await page.evaluate(o => { const f = document.getElementById('x2-sandbox'); return !!f && f.src.startsWith(o) && f.getAttribute('sandbox') === 'allow-scripts allow-same-origin' && f.inert && f.getAttribute('allow') === '' && getComputedStyle(f).opacity === '0'; }, srv.sandboxOrigin));
   ok('C4 el recinto no es del sitio de Code', new URL(srv.sandboxOrigin).hostname !== new URL(srv.codeOrigin).hostname);
 

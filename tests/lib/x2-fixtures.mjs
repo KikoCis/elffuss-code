@@ -7,6 +7,7 @@
 //   hover     hover con markdown hostil (imágenes, enlaces, HTML)
 //   sym       símbolos de documento (funciones de JavaScript)
 //   diag      diagnósticos (cada «TODO» es un aviso)
+//   ui        pide respuestas al usuario al arrancar (avisos, selector, texto)
 //   noop      un comando que no hace nada
 //   observer  hover, autocompletado y símbolos para todo, siempre vacíos
 //   canary    intenta salir a la red y leer el almacenamiento de Code por
@@ -139,6 +140,28 @@ exports.activate = function (context) {
   },
 };
 
+// Pide cosas al usuario AL ARRANCAR (aviso con botones, aviso modal, selector,
+// cuadro de texto, portapapeles). En B1 todo eso falla cerrado: tiene que
+// recibir «ninguna respuesta» enseguida y terminar de arrancar, no quedarse
+// esperando.
+export const UI = {
+  manifest: base('ui', { activationEvents: ['onStartupFinished'], contributes: { commands: [{ command: 'x2ui.report', title: 'UI report', category: 'X2' }] } }),
+  files: {
+    'extension.js': `const vscode = require('vscode');
+const out = {};
+exports.activate = async function (context) {
+  out.info = await vscode.window.showInformationMessage('x2 asks', 'Yes', 'No');
+  out.modal = await vscode.window.showWarningMessage('x2 modal', { modal: true }, 'OK');
+  out.pick = await vscode.window.showQuickPick(['a', 'b']);
+  out.input = await vscode.window.showInputBox({ prompt: 'x2' });
+  try { await vscode.env.clipboard.writeText('x2 secret'); out.clipboardWrite = 'resolved'; } catch (e) { out.clipboardWrite = 'threw'; }
+  out.clipboardRead = await vscode.env.clipboard.readText();
+  context.subscriptions.push(vscode.commands.registerCommand('x2ui.report', () => JSON.stringify(out)));
+};
+`,
+  },
+};
+
 export const NOOP = {
   manifest: base('noop', { contributes: { commands: [{ command: 'x2noop.hello', title: 'Hello (fixture)', category: 'X2' }] } }),
   files: { 'extension.js': `const vscode = require('vscode');\nexports.activate = c => c.subscriptions.push(vscode.commands.registerCommand('x2noop.hello', () => 'hello'));\n` },
@@ -207,7 +230,7 @@ exports.activate = function (context) {
   },
 };
 
-export const ALL = { SORT, FMT, HOVER, SYM, DIAG, NOOP, OBSERVER, CANARY };
+export const ALL = { SORT, FMT, HOVER, SYM, DIAG, UI, NOOP, OBSERVER, CANARY };
 
 // Registro tal como lo guarda store.js (nivel 2): `runs` encendido y el
 // código bajo id@versión/code/<ruta>. Se usa dentro de la página:

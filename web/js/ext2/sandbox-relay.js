@@ -88,7 +88,17 @@ export async function start({ m, port, config, sandbox = {} }) {
     try { actors.set(identifier.sid || m.getStringIdentifierForProxy(identifier.nid), value); } catch { /* — */ }
     return setOriginal.call(this, identifier, value);
   };
+  // los fallos al activar una extensión llegan por aquí y no quedan en el
+  // estado de VS Code: se apuntan para decir por qué no arranca
+  const activationErrors = new Map();               // id → texto
   proto._doInvokeHandler = function (rpcId, methodName, args) {
+    if (methodName === '$onExtensionActivationError') {
+      try {
+        const id = String((args[0] && (args[0].value || args[0]._lower)) || args[0]).toLowerCase();
+        activationErrors.set(id, errText(args[1]) + (args[2] && args[2].dependency ? ` (missing dependency ${String(args[2].dependency).slice(0, 200)})` : ''));
+        setTimeout(() => status(id), 0);
+      } catch { /* — */ }
+    }
     fromExtHost++;
     try { return invokeOriginal.call(this, rpcId, methodName, args); }
     finally { fromExtHost--; }
@@ -123,17 +133,21 @@ export async function start({ m, port, config, sandbox = {} }) {
     const closed = emitter(), visible = emitter();
     return { close() { closed.fire(); }, onDidClose: closed.event, onDidChangeVisibility: visible.event, progress: { infinite() {}, total() {}, worked() {}, done() {} }, updateSeverity() {}, updateMessage() {}, updateActions() {} };
   };
+  // v1 aún no pinta avisos: cuentan como enseñados y cerrados en el acto, así
+  // una extensión que espera la respuesta del usuario recibe «ninguna» en vez
+  // de quedarse esperando para siempre (la parte B2 los lleva a la página)
+  const dismissed = () => { const h = noHandle(); setTimeout(() => h.close(), 0); return h; };
   const filterChanged = emitter();
   const msgText = msg => (typeof msg === 'string' ? msg : msg instanceof Error ? msg.message : msg && typeof msg.value === 'string' ? msg.value : String(msg));
   const notifications = {
     _serviceBrand: undefined,
     onDidChangeFilter: filterChanged.event,
     setFilter() {}, getFilter: () => 0, getFilters: () => [], removeFilter() {},
-    notify(n) { log('info', 'notification: ' + msgText(n && n.message)); return noHandle(); },
+    notify(n) { log('info', 'notification: ' + msgText(n && n.message)); return dismissed(); },
     info(msg) { log('info', 'notification: ' + [].concat(msg).map(msgText).join(' ')); },
     warn(msg) { log('warn', 'notification: ' + [].concat(msg).map(msgText).join(' ')); },
     error(msg) { log('error', 'notification: ' + [].concat(msg).map(msgText).join(' ')); },
-    prompt(sev, message) { log('info', 'prompt: ' + msgText(message)); return noHandle(); },
+    prompt(sev, message) { log('info', 'prompt: ' + msgText(message)); return dismissed(); },
     status(message) { log('info', 'status: ' + msgText(message)); return { close() {} }; },
   };
   const dialogShown = emitter(), dialogWill = emitter();
@@ -317,11 +331,16 @@ export async function start({ m, port, config, sandbox = {} }) {
     const all = extensionService.getExtensionsStatus ? extensionService.getExtensionsStatus() : {};
     const key = Object.keys(all).find(k => k.toLowerCase() === id);
     const st = key ? all[key] : null;
-    const errors = st ? [...(st.runtimeErrors || []).map(errText), ...(st.messages || []).filter(x => x && x.type === 3).map(x => errText(x.message))] : [];
-    const state = errors.length ? 'error' : st && st.activationTimes ? 'active' : st && st.activationStarted ? 'activating' : 'installed';
-    if (state === e.state && !errors.length) return;
+    // no arrancó: el error de activación; arrancada: los errores que haya
+    // tenido después solo se cuentan en el texto
+    const failed = activationErrors.get(id);
+    const errors = [...(failed ? [failed] : []), ...(st ? [...(st.runtimeErrors || []).map(errText), ...(st.messages || []).filter(x => x && x.type === 3).map(x => errText(x.message))] : [])];
+    const state = failed ? 'error' : st && st.activationTimes ? 'active' : st && st.activationStarted ? 'activating' : 'installed';
+    const text = errors.slice(0, 3).join(' · ').slice(0, 1000);
+    if (state === e.state && text === (e.text || '')) return;
     e.state = state;
-    send({ t: 'ext.status', id, state, text: errors.slice(0, 3).join(' · ').slice(0, 1000), providersLater: later.n, openRefused: openRefused.n });
+    e.text = text;
+    send({ t: 'ext.status', id, state, text, providersLater: later.n, openRefused: openRefused.n });
   }
   if (extensionService.onDidChangeExtensionsStatus) extensionService.onDidChangeExtensionsStatus(ids => { for (const x of ids || []) status(String(x.value || x).toLowerCase()); });
 
