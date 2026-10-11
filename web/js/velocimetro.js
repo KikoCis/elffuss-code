@@ -7,9 +7,12 @@
 // (`alMedir`/`ultimaMedida` en provider.js) y aquí solo se pintan.
 //
 // Y dos cifras más que NO salen del motor, porque el motor no sabe de tareas:
-// la tasa de resolución y el tiempo por tarea. Las alimenta el agente llamando
-// a `tarea({ ok, ms })` cuando una termina. Sin eso, el panel diría 0 % y
-// parecería un fallo en vez de una ausencia de datos.
+// la tasa de resolución y el tiempo por tarea. Las cronometra el IDE (la cola de
+// conversaciones) llamando a `tarea({ ok, ms, cerebro })` cuando una termina.
+// Sin eso, el panel diría 0 % y parecería un fallo en vez de una ausencia de
+// datos. Solo cuentan las del motor que está montado, y cada una lleva su
+// modelo: antes también entraban los turnos del modo Básico (o de cualquier
+// otro cerebro), y el panel los daba por tareas del motor.
 //
 // El historial vive en localStorage y es una comodidad POR NAVEGADOR: puede
 // volver vacío en una ventana privada o si el sitio tiene los datos bloqueados,
@@ -19,7 +22,7 @@
 const CLAVE = 'elffuss.velocimetro.v1';
 const MAX = 60;                  // turnos guardados: suficiente para ver forma
 let hist = [];                   // [{ p: prefillTokS, g: genTokS, t: ttftMs }]
-let tareas = [];                 // [{ ok: bool, ms: number }]
+let tareas = [];                 // [{ ok: bool, ms: number, modelo: string }]
 let chip = null, panel = null, prov = null, cancelar = null;
 // Los oyentes del chip y del documento se ponen UNA vez. montar() se llama en
 // cada carga del motor, y antes cada llamada añadía otro par: con dos cargas
@@ -68,19 +71,27 @@ function grafica(key, color, etiqueta) {
   </div>`;
 }
 
+// Qué modelo es el motor montado (la etiqueta del panel y la de cada tarea).
+const SIN_ETIQUETA = 'motor';
+function etiquetaModelo() {
+  try { return prov?.modeloEtiqueta?.() || prov?.name || ''; } catch { return ''; }
+}
+
 function pintarPanel() {
   if (!panel) return;
   const m = prov?.ultimaMedida?.() || null;
-  const hechas = tareas.length;
-  const bien = tareas.filter(t => t.ok).length;
-  const tasa = hechas ? Math.round((bien / hechas) * 100) : null;
-  const tmed = hechas ? mediana(tareas.map(t => t.ms)) : null;
-
   // El modelo, junto a las cifras. Una velocidad sin saber qué modelo la
   // produjo no se puede diagnosticar: llegó una captura con el prefill mucho
   // mas lento de lo esperable y no habia forma de saber de que modelo era.
-  let modelo = '';
-  try { modelo = prov?.modeloEtiqueta?.() || ''; } catch { /* proveedor sin etiqueta */ }
+  const modelo = etiquetaModelo();
+  // Las tareas, solo las de ESTE modelo: la tasa de resolución es del modelo
+  // tanto como de la máquina. (Las guardadas sin modelo son de antes, cuando
+  // también entraban las de otros cerebros: no se sabe de quién son.)
+  const suyas = tareas.filter(t => t.modelo === (modelo || SIN_ETIQUETA));
+  const hechas = suyas.length;
+  const bien = suyas.filter(t => t.ok).length;
+  const tasa = hechas ? Math.round((bien / hechas) * 100) : null;
+  const tmed = hechas ? mediana(suyas.map(t => t.ms)) : null;
   // El contexto EFECTIVO, no el del registro: si no cabe, el motor baja por una
   // escalera y abre con la mitad. En el modelo grande cada peldaño son gigas de
   // cache KV, asi que dos sesiones del mismo modelo pueden rendir muy distinto
@@ -109,10 +120,12 @@ function pintarPanel() {
     ${hechas ? `<div class="vm-filas">
       <div><b>${tasa}%</b><span>se resuelven (${bien} de ${hechas})</span></div>
       <div><b>${ms(tmed)}</b><span>por tarea, mediana</span></div>
-    </div>` : `<div class="vm-vacio">Sin tareas registradas todavía.</div>`}
-    <div class="vm-nota">Son los números de TU equipo en esta sesión, medidos por el
-      propio motor. Cambian con la máquina, con lo que tengas abierto y con la
-      temperatura, así que no son una cifra del producto.</div>`;
+    </div>` : `<div class="vm-vacio">Sin tareas registradas todavía con este modelo.</div>`}
+    <div class="vm-nota">Son los números de TU equipo, guardados en este navegador
+      (siguen ahí al recargar). Las velocidades las mide el propio motor; las
+      tareas (solo las de este modelo) las cronometra el IDE, de principio a fin
+      de cada petición. Cambian con la máquina, con lo que tengas abierto y con
+      la temperatura, así que no son una cifra del producto.</div>`;
 }
 
 function pintarChip(m) {
@@ -130,9 +143,12 @@ function pintarChip(m) {
     : `Leyendo el prompt a ${uno(m.prefillTokS)} tok/s. Pulsa para ver la gráfica.`;
 }
 
-/** Una tarea del agente ha terminado. `ok`: ¿se resolvió? `ms`: lo que costó. */
-export function tarea({ ok, ms: dur }) {
-  tareas.push({ ok: !!ok, ms: Number(dur) || 0 });
+/** Una tarea del agente ha terminado. `ok`: ¿se resolvió? `ms`: lo que costó.
+ *  `cerebro`: el proveedor que la hizo. Solo se apunta si es el motor montado
+ *  aquí (el que mide); la de cualquier otro cerebro no es suya. */
+export function tarea({ ok, ms: dur, cerebro = null }) {
+  if (!cerebro || cerebro !== prov || !prov?.alMedir) return;
+  tareas.push({ ok: !!ok, ms: Number(dur) || 0, modelo: etiquetaModelo() || SIN_ETIQUETA });
   if (tareas.length > MAX) tareas = tareas.slice(-MAX);
   guardar();
   if (panel && !panel.hidden) pintarPanel();

@@ -401,8 +401,10 @@ async function pump(conv) {
         // usuario como error — contar solo excepciones daría un 100 % perpetuo.
         // Una tarea PARADA no cuenta ni como resuelta ni como fallida: la cortó
         // quien la pidió. Contarla como resuelta inflaría la tasa (parar no
-        // emite 'error'), y como fallida la hundiría por pulsar ■.
+        // emite 'error'), y como fallida la hundiría por pulsar ■. Y va con el
+        // cerebro que la empezó: el velocímetro solo apunta las del motor.
         const tTarea = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        const cerebro = providerRef;
         let huboError = false, parada = false;
         const onEvent = ev => {
           if (ev && ev.type === 'error') huboError = true;
@@ -418,7 +420,7 @@ async function pump(conv) {
             try {
               const vm = await import('./velocimetro.js');
               const fin = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-              vm.tarea({ ok: !huboError, ms: fin - tTarea });
+              vm.tarea({ ok: !huboError, ms: fin - tTarea, cerebro });
             } catch { /* sin velocímetro la app funciona igual */ }
           }
         }

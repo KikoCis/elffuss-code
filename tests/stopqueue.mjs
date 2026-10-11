@@ -135,12 +135,16 @@ ok('2 · …y se contesta', r2.respuesta === 'respuesta a la segunda', JSON.stri
 ok('2 · la cola queda vacía', r2.cola === 0, `${r2.cola}`);
 
 // 2b. La tasa de resolución del velocímetro no cuenta una tarea parada (ni como
-// resuelta ni como fallida); una normal sí.
+// resuelta ni como fallida); una normal sí. (El velocímetro solo apunta las
+// tareas del motor, el cerebro que mide: este proveedor de mentira hace de motor.)
 const r2b = await p.evaluate(async () => {
   const conv = await import('/js/conversations.js');
+  const vm = await import('/js/velocimetro.js');
   const cuantas = () => { try { return (JSON.parse(localStorage.getItem('elffuss.velocimetro.v1') || '{}').tareas || []).length; } catch { return -1; } };
   const antes = cuantas();
   const prov = window.__lento({ pasos: 40 });
+  prov.alMedir = () => () => {}; prov.ultimaMedida = () => null; prov.modeloEtiqueta = () => 'motor de prueba';
+  vm.montar(prov);
   conv.setProvider(prov);
   const V = conv.create();
   conv.send(V.id, 'esta se para');
@@ -152,7 +156,9 @@ const r2b = await p.evaluate(async () => {
   conv.send(V.id, 'esta no');
   await window.__hasta(() => !V.pumping);
   await window.__dormir(100);
-  return { antes, trasParar, trasNormal: cuantas() };
+  const trasNormal = cuantas();
+  vm.montar(null);   // el resto de la prueba sigue sin motor
+  return { antes, trasParar, trasNormal };
 });
 ok('2b · el velocímetro no apunta la tarea parada y sí la normal', r2b.antes >= 0 && r2b.antes < 59 && r2b.trasParar === r2b.antes && r2b.trasNormal === r2b.antes + 1, JSON.stringify(r2b));
 

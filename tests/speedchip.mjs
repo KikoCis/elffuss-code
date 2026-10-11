@@ -6,6 +6,8 @@
 //   2. aria-expanded en el chip, y Escape cierra el panel devolviendo el foco.
 //   3. Al pasar a un cerebro que no mide (Básico, ONNX, externo) el chip se
 //      oculta; antes seguía enseñando las cifras del motor.
+//   4. «Tareas» cuenta solo las del motor, de ese modelo: los turnos del modo
+//      Básico entraban como si fueran suyas.
 // El «motor» es de mentira: un proveedor con alMedir/ultimaMedida.
 //
 //   BASE=http://127.0.0.1:8898 node tests/speedchip.mjs
@@ -51,6 +53,45 @@ await p.waitForTimeout(400);
 e = await estado();
 ok('3 · al pasar a Básico el chip y el panel se ocultan', !e.chip && !e.panel, JSON.stringify(e));
 ok('3 · …y se deja de escuchar al motor', await p.evaluate(() => window.__motor.cb === null));
+
+// 4 · «Tareas» son las del motor, no las de cualquier cerebro. Los turnos del
+// modo Básico entraban como tareas del motor, y la nota decía «en esta sesión,
+// medidos por el propio motor», aunque se guardan entre sesiones y las
+// cronometra el IDE.
+{
+  const guardadas = () => p.evaluate(() => JSON.parse(localStorage.getItem('elffuss.velocimetro.v1') || '{}').tareas || []);
+  const antes = (await guardadas()).length;
+  for (const txt of ['hola', 'arbol']) {
+    await p.fill('#prompt', txt);
+    await p.press('#prompt', 'Enter');
+    await p.waitForFunction(() => !window.elffussClaw.conv.isBusy(), null, { timeout: 10000 });
+  }
+  const trasBasico = (await guardadas()).length;
+  ok('4 · los turnos del modo Básico no se apuntan como tareas del motor', trasBasico === antes, `${antes} → ${trasBasico}`);
+  // Tareas guardadas por la versión de antes (sin modelo: no se sabe de qué
+  // cerebro son) y el motor (de mentira, mide) que contesta un turno.
+  await p.evaluate(async () => {
+    localStorage.setItem('elffuss.velocimetro.v1', JSON.stringify({ hist: [], tareas: [{ ok: true, ms: 5 }, { ok: false, ms: 7 }] }));
+    const vm = await import('/js/velocimetro.js');
+    const conv = await import('/js/conversations.js');
+    const medida = { prefillTokS: 240, genTokS: 21, ttftMs: 320, genTokens: 12, procesados: 300, enCurso: false };
+    window.__motor2 = { name: 'motor de prueba', alMedir() { return () => {}; }, ultimaMedida: () => medida, modeloEtiqueta: () => 'Modelo de prueba', chat: async () => 'hecho.' };
+    vm.montar(window.__motor2);
+    conv.setProvider(window.__motor2);
+  });
+  await p.fill('#prompt', 'una tarea para el motor');
+  await p.press('#prompt', 'Enter');
+  await p.waitForFunction(() => !window.elffussClaw.conv.isBusy(), null, { timeout: 10000 });
+  const ultima = (await guardadas()).at(-1);
+  // (sin tiempos en la salida: solo si se resolvió y de qué modelo es)
+  ok('4 · la del motor sí se apunta, con su modelo', ultima?.ok === true && ultima?.modelo === 'Modelo de prueba', JSON.stringify({ ok: ultima?.ok, modelo: ultima?.modelo }));
+  await p.click('#speed-chip');
+  await p.waitForTimeout(100);
+  const texto = await p.evaluate(() => document.getElementById('speed-panel').innerText.replace(/\s+/g, ' '));
+  ok('4 · el panel cuenta solo las de este modelo («1 de 1»), no las guardadas sin modelo', /\(1 de 1\)/.test(texto), (texto.match(/se resuelven \([^)]*\)/) || ['sin tareas'])[0]);
+  const nota = (texto.match(/Son los números[^]*$/) || [''])[0];
+  ok('4 · la nota no dice «en esta sesión» y dice que las tareas las cronometra el IDE', !/en esta sesión/.test(nota) && /las cronometra el IDE/.test(nota), nota.slice(0, 200));
+}
 
 console.log('\n  errores JS:', errs[0] || 'ninguno');
 ok('sin errores de página', errs.length === 0, errs.join(' | '));
