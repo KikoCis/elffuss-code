@@ -176,10 +176,8 @@ async function inlineLocalAssets(html, ownPath) {
   return '<!doctype html>\n' + doc.documentElement.outerHTML;
 }
 
-// Guardián opcional antes de la vista previa HTML. Sin él (lo normal) no
-// cambia nada; el nivel 2 de extensiones pone uno que pregunta si una
-// extensión cambió el fichero, porque la vista previa ejecuta sus scripts con
-// red. Si el guardián falla o dice que no, se vuelve al código fuente.
+// Guardián opcional de la vista previa HTML (lo pone el nivel 2 de extensiones);
+// si falla o dice que no, se vuelve al código.
 let beforePreview = null;
 export function setBeforePreview(fn) { beforePreview = typeof fn === 'function' ? fn : null; }
 async function previewAllowed(path) {

@@ -2381,9 +2381,7 @@ $('prompt').addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowUp') { e.preventDefault(); menuSel = (menuSel - 1 + filas.length) % filas.length; pintaMenuSel(); }
   else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); filas[Math.max(0, menuSel)].click(); }
 });
-// Filas de menú y de paleta: SIEMPRE como texto. Las etiquetas llevan nombres
-// de fichero, mensajes de commit o títulos de comandos de extensiones, y un
-// nombre como «<img src=x onerror=…>.js» no puede convertirse en HTML.
+// Filas de menú y de paleta, siempre como texto (nombres de fichero, commits…)
 function menuRow(row, it) {
   row.appendChild(el('b', null, it.label));
   if (it.hint) row.appendChild(el('span', null, it.hint));
@@ -3171,8 +3169,7 @@ $('act-ext').addEventListener('click', () => openExtensions());
 rebuildSelect();
 skills.initSkills();
 boot();
-// `commands` es la lista viva de la paleta (>): el nivel 2 de extensiones mete
-// y quita ahí los comandos de las extensiones, sin importar este módulo.
+// commands: la lista de la paleta (>), donde el nivel 2 pone los de extensiones
 window.elffussClaw = { conv, get agent() { return conv.getActive()?.agent; }, send, openFile, parseToolCall, skills, commands: COMMANDS };
 
 
