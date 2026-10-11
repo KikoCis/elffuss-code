@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-kW1r66Pg0ghROQ0ZO09cLM+eUrUBOBEcbuRC1gtnExg=' blob: 'wasm-unsafe-eval'; worker-src blob:; child-src blob:; frame-src 'self'; connect-src blob: data:; img-src blob: data:; font-src blob: data:; style-src 'unsafe-inline'; media-src 'none'; object-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Elffuss Code extension sandbox</title>
+</head>
+<body>
+<script>
+// Extension sandbox of Elffuss Code. This document lives on its own site,
+// with no network host in any CSP directive. Code's page frames it, hands it
+// the verified vendor bundle and its own relay script over a MessagePort, and
+// renders nothing that comes out of it except as plain data.
+(() => {
+  'use strict';
+  const CODE_ORIGINS = ['https://code.elffuss.com'];
+  const here = window.location;
+  // Development: Code on http://127.0.0.1:<port>, sandbox on http://localhost:<port>.
+  const devParent = o => here.hostname === 'localhost' && o === 'http://127.0.0.1:' + here.port;
+  const allowedParent = o => CODE_ORIGINS.includes(o) || devParent(o);
+
+  // 1. Run only when framed directly by Code's page, and never on Code's own origin.
+  if (window.parent === window || CODE_ORIGINS.includes(here.origin)) return;
+  const ancestors = here.ancestorOrigins;
+  if (!ancestors || ancestors.length !== 1 || !allowedParent(ancestors[0]) || ancestors[0] === here.origin) return;
+  const parentOrigin = ancestors[0];
+  const tell = msg => window.parent.postMessage(msg, parentOrigin);
+
+  // 3. No popups and no peer connections from this realm.
+  for (const k of ['open', 'RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel']) {
+    try { Object.defineProperty(window, k, { value: undefined, writable: false, configurable: false }); } catch { /* already gone */ }
+  }
+
+  // 4. This document never navigates.
+  let port = null, navBlocked = 0;
+  if (window.navigation) {
+    window.navigation.addEventListener('navigate', e => {
+      navBlocked++;
+      if (e.cancelable) e.preventDefault();
+      try { port && port.postMessage({ t: 'log', level: 'warn', text: 'sandbox navigation blocked' }); } catch { /* port closed */ }
+    });
+  }
+
+  // 2. CSP self-test: a request to a name that never resolves must be refused
+  //    by the policy itself. Without that refusal, nothing starts.
+  const selfTest = () => new Promise(resolve => {
+    let seen = false, settled = false;
+    const done = () => { if (!settled) { settled = true; document.removeEventListener('securitypolicyviolation', onViolation); resolve(seen); } };
+    const onViolation = e => { if (String(e.blockedURI || '').startsWith('https://csp-selftest.invalid')) { seen = true; done(); } };
+    document.addEventListener('securitypolicyviolation', onViolation);
+    fetch('https://csp-selftest.invalid/').catch(() => {}).finally(() => setTimeout(done, 500));
+  });
+
+  let booted = false;
+  async function boot(d) {
+    const urls = {};
+    for (const f of d.vendor) urls[f.role] = URL.createObjectURL(new Blob([f.bytes], { type: 'text/javascript' }));
+    if (!urls.main || !urls.extensionHostWorkerMain || !urls.editorWorkerService) throw new Error('incomplete vendor bundle');
+    self.MonacoEnvironment = {
+      getWorkerUrl: (_, label) => urls[label],
+      getWorkerOptions: () => ({ type: 'module' }),
+    };
+    const m = await import(urls.main);
+    m.registerAssets({
+      'vs/workbench/services/extensions/worker/webWorkerExtensionHostIframe.html': () => here.origin + '/x2/v1/exthost-iframe.html',
+    });
+    const relay = await import(URL.createObjectURL(new Blob([d.relay], { type: 'text/javascript' })));
+    await relay.start({ m, port, config: d.config, sandbox: { navBlocked: () => navBlocked } });
+  }
+
+  function onInit(e) {
+    if (port || e.source !== window.parent || e.origin !== parentOrigin) return;
+    const d = e.data;
+    if (!d || d.x2 !== 'init' || !e.ports || e.ports.length !== 1) return;
+    window.removeEventListener('message', onInit);
+    port = e.ports[0];
+    port.onmessage = ev => {
+      const m = ev.data;
+      if (booted || !m || m.t !== 'boot') return;
+      booted = true;
+      port.onmessage = null;
+      boot(m).catch(err => port.postMessage({ t: 'fatal', reason: 'boot', text: String((err && err.message) || err).slice(0, 500) }));
+    };
+  }
+
+  selfTest().then(ok => {
+    if (!ok) { tell({ x2: 'fatal', reason: 'csp' }); return; }
+    window.addEventListener('message', onInit);
+    tell({ x2: 'hello', v: 1 });
+  });
+})();
+</script>
+</body>
+</html>

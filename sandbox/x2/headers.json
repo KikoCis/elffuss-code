@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "note": "Single source of the sandbox documents' headers. sandbox/x2/headers.mjs turns it into nginx snippets and into the headers the test server sends. {sandbox} is the sandbox origin, {code} the space-separated Code origins, {self-script} the document's pinned inline-script hash. No fetch directive may name a host.",
+  "environments": {
+    "production": {
+      "code": [
+        "https://code.elffuss.com"
+      ],
+      "sandbox": null
+    },
+    "dev": {
+      "code": [
+        "http://127.0.0.1:{port}"
+      ],
+      "sandbox": "http://localhost:{port}"
+    }
+  },
+  "common": {
+    "Permissions-Policy": "accelerometer=(), ambient-light-sensor=(), attribution-reporting=(), autoplay=(), bluetooth=(), browsing-topics=(), camera=(), clipboard-read=(), clipboard-write=(), compute-pressure=(), display-capture=(), encrypted-media=(), fullscreen=(), gamepad=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), local-fonts=(), local-network-access=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), storage-access=(), usb=(), web-share=(), window-management=(), xr-spatial-tracking=()",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-DNS-Prefetch-Control": "off",
+    "Origin-Agent-Cluster": "?1",
+    "Cache-Control": "no-cache",
+    "Content-Type": "text/html; charset=utf-8"
+  },
+  "documents": {
+    "sandbox.html": {
+      "path": "/x2/v1/sandbox.html",
+      "query": "^$",
+      "inlineScript": "sha256-kW1r66Pg0ghROQ0ZO09cLM+eUrUBOBEcbuRC1gtnExg=",
+      "csp": [
+        "default-src 'none'",
+        "script-src {self-script} blob: 'wasm-unsafe-eval'",
+        "worker-src blob:",
+        "child-src blob:",
+        "frame-src {sandbox}/x2/v1/exthost-iframe.html",
+        "connect-src blob: data:",
+        "img-src blob: data:",
+        "font-src blob: data:",
+        "style-src 'unsafe-inline'",
+        "media-src 'none'",
+        "object-src 'none'",
+        "manifest-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors {code}"
+      ],
+      "metaFrameSrc": "'self'"
+    },
+    "exthost-iframe.html": {
+      "path": "/x2/v1/exthost-iframe.html",
+      "query": "^parentOrigin={sandbox-uri}&vscodeWebWorkerExtHostId=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "inlineScript": "sha256-2EBQn+AFduI8Wb0riLwbeshEGP4dJlHornyvuFAgYnA=",
+      "library": "@codingame/monaco-vscode-extensions-service-override/vscode/src/vs/workbench/services/extensions/worker/webWorkerExtensionHostIframe.html",
+      "csp": [
+        "default-src 'none'",
+        "script-src {self-script} blob: 'unsafe-eval' 'wasm-unsafe-eval'",
+        "worker-src blob:",
+        "child-src blob:",
+        "connect-src blob: data:",
+        "img-src blob: data:",
+        "font-src blob: data:",
+        "media-src 'none'",
+        "object-src 'none'",
+        "manifest-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'self' {code}"
+      ]
+    }
+  }
+}
