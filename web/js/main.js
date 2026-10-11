@@ -2245,11 +2245,14 @@ $('btn-settings').addEventListener('click', () => {
   if (!p.hidden) return cierraAjustes();
   renderSettings();
 });
-// clic fuera del panel (o ir a Archivo/chat) lo cierra — antes solo la X lo hacía
+// clic fuera del panel (o ir a Archivo/chat) lo cierra — antes solo la X lo hacía.
+// El selector de tema que se abre desde el panel de extensiones cuelga de
+// <body>, pero es del panel: elegir un tema con el ratón (o pinchar en su
+// buscador) cerraba el panel de debajo y el foco caía en el editor o en <body>.
 document.addEventListener('pointerdown', e => {
   const p = $('settings-panel');
   if (p.hidden) return;
-  if (p.contains(e.target) || e.target.closest('#btn-settings, #act-settings, #model-dot')) return;
+  if (p.contains(e.target) || e.target.closest('#btn-settings, #act-settings, #model-dot, #ext-themepick')) return;
   p.hidden = true;
   volverDeAjustes = null;
 }, true);
@@ -2263,7 +2266,10 @@ const CAPAS = [
   { abierta: () => !$('topmenu').hidden, cerrar: () => cierraMenuBarra({ foco: true }) },
   { abierta: () => !$('modos-menu')?.hidden, cerrar: () => cierraModos({ foco: true }) },
   { abierta: () => !$('history-panel').hidden, cerrar: () => cierraHistorial() },
-  { abierta: () => !$('settings-panel').hidden, cerrar: () => cierraAjustes() },
+  // El panel de extensiones se pinta en la misma caja que Ajustes: se cierra con
+  // lo suyo, que devuelve el foco a quien lo abrió (cierraAjustes no lo sabe y
+  // el foco caía en <body>).
+  { abierta: () => !$('settings-panel').hidden, cerrar: () => ($('ext-panel')?.isConnected && panelExt ? panelExt.close() : cierraAjustes()) },
   { abierta: () => !$('view-overlay').hidden, cerrar: () => closeView({ foco: true }) },
   { abierta: () => document.body.classList.contains('drawer-open'), cerrar: () => abreCajon(false) },
 ];
@@ -3132,10 +3138,12 @@ $('act-skills').addEventListener('click', () => openSkillsPanel());
 // Extensiones de VS Code (temas, gramáticas, snippets, lenguajes): js/ext/.
 // Nada de eso se carga hasta que se usa; el panel y el host llegan al pulsar.
 function extTexto(es, en) { return uiLang() === 'es' ? es : en; }
+let panelExt = null;   // el módulo del panel, una vez cargado (lo usa el Escape global)
 async function openExtensions(opts = {}) {
   const host = await loadExt();
   if (!host) { $('statusbar').textContent = t('openProjFirst'); return; }
-  (await import('./ext/panel.js')).open(host, opts);
+  panelExt = await import('./ext/panel.js');
+  panelExt.open(host, opts);
 }
 $('act-ext').innerHTML = ACTIVITY.extensions;
 $('act-ext').title = extTexto('Extensiones (temas, gramáticas, snippets)', 'Extensions (themes, grammars, snippets)');

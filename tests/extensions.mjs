@@ -189,6 +189,18 @@ await p.waitForSelector('#ext-themepick');
 await p.click('#ext-themepick .tp-item[data-theme="vs"]');
 ok('selector: tema claro de serie elegido', await hasta(async () => (await fondo()) === 'rgb(255, 255, 254)'), await fondo());
 ok('…y la gramática se repinta con colores de Light+', await colorDe('spell', '#AF00DB'), JSON.stringify(await estilo('spell')));
+// El selector cuelga de <body>, fuera de la caja del panel: el «clic fuera
+// cierra Ajustes» tomaba cualquier clic en él por uno de fuera y cerraba el panel
+// de debajo; el foco acababa en el editor (o en <body> en el móvil).
+const trasElegir = () => p.evaluate(() => ({ panel: !document.getElementById('settings-panel').hidden && !!document.getElementById('ext-panel')?.isConnected, foco: document.activeElement?.id || document.activeElement?.className }));
+ok('selector: elegir con el ratón deja el panel abierto y el foco vuelve a su botón', await hasta(async () => { const e = await trasElegir(); return e.panel && e.foco === 'ext-theme-btn'; }), JSON.stringify(await trasElegir()));
+await p.click('#ext-theme-btn');
+await p.waitForSelector('#ext-themepick');
+await p.click('#ext-themepick input');
+await sleep(200);
+ok('selector: pinchar en su buscador tampoco cierra el panel', await p.evaluate(() => !document.getElementById('settings-panel').hidden && !!document.getElementById('ext-themepick')));
+await p.keyboard.press('Escape');
+await hasta(() => p.evaluate(() => !document.getElementById('ext-themepick')));
 // el ● de «sin guardar» con un tema claro (era casi blanco sobre blanco, y es
 // el único aviso: cerrar la pestaña no pregunta)
 await abre('app.js');
@@ -276,6 +288,30 @@ ok('panel: la X de cerrar tiene nombre («Close»), no solo «✕»', (await p.g
 await p.focus('#ext-q');
 await p.keyboard.press('Escape');
 ok('panel: Escape lo cierra y el foco vuelve al botón de Extensiones', await hasta(() => p.evaluate(() => document.getElementById('settings-panel').hidden && document.activeElement?.id === 'act-ext')), JSON.stringify(await activo()));
+// J1b. Es un diálogo con nombre, se haya abierto Ajustes antes o no. La caja es
+// la de Ajustes, y Ajustes le deja aria-labelledby a SU título, que aquí no
+// existe: el panel era un diálogo sin nombre (o, sin pasar por Ajustes, ni
+// siquiera un diálogo).
+const dialogo = async () => ({
+  ...(await p.evaluate(() => { const box = document.getElementById('settings-panel'); const lb = box.getAttribute('aria-labelledby'); return { role: box.getAttribute('role'), nombre: lb ? (document.getElementById(lb)?.textContent ?? 'NO EXISTE') : null }; })),
+  arbol: (await p.locator('#settings-panel').ariaSnapshot()).split('\n')[0],
+});
+await abrePanel();
+let d = await dialogo();
+ok('panel: un diálogo que se llama «Extensions…»', d.role === 'dialog' && /^Extensions\b/.test(d.nombre || '') && /^- dialog "Extensions/.test(d.arbol), JSON.stringify(d));
+await p.click('#settings-close');
+await p.click('#btn-settings');
+await p.waitForSelector('#settings-title');
+await p.keyboard.press('Escape');
+await abrePanel();
+d = await dialogo();
+ok('…también después de abrir y cerrar Ajustes (antes: un diálogo sin nombre)', d.role === 'dialog' && /^Extensions\b/.test(d.nombre || '') && /^- dialog "Extensions/.test(d.arbol), JSON.stringify(d));
+// J1c. Escape con el foco fuera de los controles del panel (tras pinchar en su
+// texto, el foco está en <body>): lo cierra el Escape general de la página, y el
+// foco también vuelve a quien lo abrió (antes se quedaba en <body>).
+await p.click('#ext-panel .ext-intro');
+await p.keyboard.press('Escape');
+ok('panel: Escape con el foco en <body> lo cierra y el foco vuelve al botón de Extensiones', await hasta(() => p.evaluate(() => document.getElementById('settings-panel').hidden && document.activeElement?.id === 'act-ext')), JSON.stringify(await activo()));
 
 // J2. errores en el idioma de la interfaz, como alerta
 await abrePanel();

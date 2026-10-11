@@ -63,6 +63,9 @@ function cierraPanel() {
   $('settings-panel').hidden = true;
   devuelveFoco(abridor, $('act-ext'), document.querySelector('#menubar button[data-menu="view"]'), enfocaEditor, $('prompt'));
 }
+// Para el Escape global de main.js (la capa de más arriba): cerrar el panel de
+// extensiones es esto, no cerrar Ajustes, que no sabe quién lo abrió.
+export function close() { if ($('ext-panel')?.isConnected && !$('settings-panel').hidden) cierraPanel(); }
 
 // ── mensajes legibles (exportados para las pruebas en Node) ──
 const ERRORES = {
@@ -165,6 +168,12 @@ function pinta() {
   const box = $('settings-panel');
   box.hidden = false;
   box.replaceChildren();
+  // Es un diálogo con su propio nombre. La caja la comparten Ajustes y Skills,
+  // y Ajustes le deja role=dialog con aria-labelledby a su título: abierto
+  // Ajustes antes, este panel quedaba como un diálogo sin nombre (ese título
+  // aquí no existe), y si no, sin rol de diálogo.
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-labelledby', 'ext-title');
   const cerrar = el('button', null, '✕');
   cerrar.id = 'settings-close';
   cerrar.type = 'button';
@@ -177,6 +186,7 @@ function pinta() {
   wrap.addEventListener('keydown', conEscape);
   cerrar.addEventListener('keydown', conEscape);
   const h3 = el('h3', null, tx('title') + ' ');
+  h3.id = 'ext-title';
   h3.appendChild(el('span', 'muted', '· ' + tx('sub')));
   wrap.append(h3, el('p', 'muted ext-intro', tx('intro')));
   if (host.paused) wrap.appendChild(el('p', 'ext-paused', tx('paused')));
