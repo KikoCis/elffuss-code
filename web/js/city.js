@@ -141,7 +141,27 @@ export async function renderCity(container, onOpenFile) {
   const loop = () => { raf = requestAnimationFrame(loop); controls.update(); composer.render(); };
   loop();
 
+  // Lo mismo que el lienzo, como lista (la monta main.js al lado): con teclado
+  // o lector de pantalla una ciudad 3D no se puede recorrer. `locate` centra la
+  // cámara en el edificio del fichero y lo resalta un momento.
+  let resaltado = null, apaga = null;
+  const vista = {
+    items: model.files.map(f => ({ path: f.rel, bytes: f.size ?? f.bytes ?? null })),
+    locate(path) {
+      const f = model.files.find(x => x.rel === path);
+      if (!f?.box) return false;
+      controls.target.set(f.box.cx, f.box.cy, f.box.cz);
+      try {
+        if (resaltado != null) city.paintFile?.(resaltado, 0);
+        resaltado = f.id; city.paintFile?.(f.id, 1);
+        clearTimeout(apaga); apaga = setTimeout(() => { try { city.paintFile?.(f.id, 0); } catch { /* ya no está */ } }, 2500);
+      } catch { /* sin resaltado: la cámara ya apunta */ }
+      return true;
+    },
+  };
+
   disposer = () => {
+    clearTimeout(apaga);
     if (raf) cancelAnimationFrame(raf);
     window.removeEventListener('resize', onResize);
     canvas.removeEventListener('pointermove', onMove);
@@ -152,6 +172,7 @@ export async function renderCity(container, onOpenFile) {
     composer.dispose?.();
     renderer.dispose();
   };
+  return vista;
 }
 
 export function disposeCity() { if (disposer) { disposer(); disposer = null; } }

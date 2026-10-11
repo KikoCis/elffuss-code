@@ -1747,9 +1747,84 @@ async function openView(kind) {
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   if (seq !== viewRenderSeq) return; // el usuario cambió de vista mientras tanto
   try {
-    if (kind === 'arch') { const m = await import('./arch.js'); await m.renderArchitecture(body, p => { closeView(); openFile(p); }); }
-    else { const m = await import('./city.js'); await m.renderCity(body, p => { closeView(); openFile(p); }); }
+    const abre = p => { closeView(); openFile(p).then(() => focusEditor()); };
+    let vista = null;
+    if (kind === 'arch') { const m = await import('./arch.js'); vista = await m.renderArchitecture(body, abre); }
+    else { const m = await import('./city.js'); vista = await m.renderCity(body, abre); }
+    if (seq === viewRenderSeq) montaListaVista(body, vista, abre);
   } catch (e) { body.innerHTML = '<div class="view-loading" role="status"></div>'; body.firstChild.textContent = t('viewFailed', { e: e?.message || e }); }
+}
+
+// Lo que hay en la vista 3D, también como LISTA que se busca y se recorre con
+// el teclado: un grafo o una ciudad en un lienzo no los recorre un lector de
+// pantalla ni se buscan escribiendo. Enter (o clic) abre el fichero, como el
+// clic en el lienzo; ◎ lo enseña en la vista. ↓ desde el buscador entra en la
+// lista y ↑/↓ la recorren.
+const MAX_LISTA_VISTA = 200;
+const pesoCorto = n => n < 1024 ? n + ' B' : n < 1048576 ? Math.round(n / 1024) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+function montaListaVista(body, vista, abre) {
+  if (!vista?.items?.length) return;
+  const items = vista.items.slice().sort((a, b) => a.path.localeCompare(b.path));
+  const caja = document.createElement('aside');
+  caja.className = 'view-list';
+  caja.setAttribute('aria-label', t('vlLabel'));
+  const filtro = document.createElement('input');
+  filtro.type = 'search';
+  filtro.className = 'vl-filter';
+  filtro.placeholder = t('vlFilter');
+  filtro.setAttribute('aria-label', t('vlFilter'));
+  filtro.setAttribute('aria-controls', 'vl-items');
+  const cuenta = document.createElement('div');
+  cuenta.className = 'vl-count';
+  cuenta.setAttribute('role', 'status');
+  const lista = document.createElement('ul');
+  lista.id = 'vl-items';
+  lista.className = 'vl-items';
+  const pinta = () => {
+    const q = filtro.value.trim().toLowerCase();
+    const hits = q ? items.filter(it => it.path.toLowerCase().includes(q)) : items;
+    lista.replaceChildren();
+    for (const it of hits.slice(0, MAX_LISTA_VISTA)) {
+      const li = document.createElement('li');
+      const nombre = it.path.split('/').pop(), dir = it.path.slice(0, Math.max(0, it.path.length - nombre.length - 1));
+      const meta = it.conexiones != null ? t('vlLinks', { n: it.conexiones }) : it.bytes != null ? pesoCorto(it.bytes) : '';
+      const abrir = document.createElement('button');
+      abrir.type = 'button';
+      abrir.className = 'vl-open';
+      abrir.dataset.path = it.path;
+      abrir.textContent = nombre;
+      if (dir) { const s = document.createElement('span'); s.className = 'vl-dir'; s.textContent = dir; abrir.append(' ', s); }
+      abrir.setAttribute('aria-label', t('vlOpen', { name: it.path }) + (meta ? ' · ' + meta : ''));
+      abrir.title = it.path + (meta ? ' · ' + meta : '');
+      abrir.onclick = () => abre(it.path);
+      const ver = document.createElement('button');
+      ver.type = 'button';
+      ver.className = 'vl-locate';
+      ver.textContent = '◎';
+      ver.setAttribute('aria-label', t('vlLocate', { name: it.path }));
+      ver.title = ver.getAttribute('aria-label');
+      ver.onclick = () => vista.locate?.(it.path);
+      li.append(abrir, ver);
+      lista.appendChild(li);
+    }
+    cuenta.textContent = t('vlCount', { n: hits.length, total: items.length })
+      + (hits.length > MAX_LISTA_VISTA ? ' · ' + t('vlMore', { n: hits.length - MAX_LISTA_VISTA }) : '');
+  };
+  filtro.addEventListener('input', pinta);
+  filtro.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); lista.querySelector('.vl-open')?.focus(); }
+    else if (e.key === 'Enter') { const primero = lista.querySelector('.vl-open'); if (primero) { e.preventDefault(); primero.click(); } }
+  });
+  lista.addEventListener('keydown', e => {
+    const bs = [...lista.querySelectorAll('.vl-open')];
+    const i = bs.indexOf(document.activeElement);
+    if (i < 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); bs[Math.min(bs.length - 1, i + 1)].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); (i ? bs[i - 1] : filtro).focus(); }
+  });
+  caja.append(filtro, cuenta, lista);
+  body.appendChild(caja);
+  pinta();
 }
 function closeView({ foco = false } = {}) {
   const abierta = [...document.querySelectorAll('#act-arch.on, #act-city.on')][0];
