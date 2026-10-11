@@ -165,6 +165,23 @@ for (const [k, e] of browserOnes.entries()) {
     for (const n of [...files.keys()].slice(0, 12)) await page.evaluate(async n => { await (await import('/js/ide.js')).openFile(n); }, n).catch(() => {});
     const st = await until(() => page.evaluate(async () => { const b = await import('/js/ext2/bridge.js'); const s = b.state(); return s.state === 'running' || s.state === 'error' ? s : null; }), { timeout: 60000 });
     if (st?.state !== 'running') { r.state = 'sandbox-error'; r.error = st?.error?.message || 'no start'; continue; }
+    // Lo que la extensión le pregunte al usuario (avisos, diálogos, selectores,
+    // abrir direcciones) se contesta como lo haría alguien con prisa: cerrar o
+    // cancelar. Una extensión que espera esa respuesta para terminar de
+    // arrancar arranca igual, y se cuenta qué pidió.
+    await page.evaluate(() => {
+      const c = window.__x2asked = { toasts: 0, dialogs: 0, picks: 0, opens: 0 };
+      setInterval(() => {
+        for (const x of document.querySelectorAll('#x2-toasts .x2-toast-close')) { c.toasts++; x.click(); }
+        for (const [sel, k] of [['#x2-dialog', 'dialogs'], ['#x2-pick', 'picks'], ['#x2-input', 'picks'], ['#x2-open', 'opens']]) {
+          const d = document.querySelector(sel);
+          if (!d) continue;
+          c[k]++;
+          // (los selectores escuchan en su campo; los diálogos, en el documento)
+          (d.querySelector('input') || d.querySelector('[role="dialog"]') || d).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        }
+      }, 300);
+    });
     const events = ['onStartupFinished', '*', ...((e.manifest.contributes?.commands || []).map(c => c && typeof c.command === 'string' ? 'onCommand:' + c.command : null).filter(Boolean).slice(0, 50))];
     await page.evaluate(async events => { const b = await import('/js/ext2/bridge.js'); for (const ev of events) b.activate(ev); }, events);
     const ext = await until(async () => {
@@ -192,6 +209,8 @@ for (const [k, e] of browserOnes.entries()) {
     if (unsupportedCalls.length) r.unsupportedCalls = [...new Set(unsupportedCalls)].slice(0, 10);
     const otherErrors = (stats?.errors || []).filter(t => !/not supported/.test(t));
     if (otherErrors.length) r.sandboxErrors = otherErrors.length;
+    const asked = await page.evaluate(() => window.__x2asked || null).catch(() => null);
+    if (asked && Object.values(asked).some(Boolean)) r.askedUser = Object.fromEntries(Object.entries(asked).filter(([, n]) => n));
   } catch (err) {
     r.state = r.state || 'census-error';
     r.error = String(err.message || err).slice(0, 300);
