@@ -56,7 +56,12 @@ for a in "$@"; do
   fi
 done
 
-rsync -az --delete --filter='P blog/***' --filter='P __e4b.litertlm' --exclude='__e4b.litertlm' "${MOTOR[@]}" -e "ssh -i $KEY" web/ "$HOST:$DEST/"
+# El bundle del nivel 2 de extensiones (vendor/x2/<buildId>/) tampoco viaja
+# aquí: lo sube y lo verifica deploy-vendor.sh, ANTES de este script, y el
+# --delete no puede borrar las compilaciones que ya están en el servidor.
+VENDOR=(--filter='P vendor/x2/***' --exclude='vendor/x2/')
+
+rsync -az --delete --filter='P blog/***' --filter='P __e4b.litertlm' --exclude='__e4b.litertlm' "${MOTOR[@]}" "${VENDOR[@]}" -e "ssh -i $KEY" web/ "$HOST:$DEST/"
 
 # anti-caché: versionar assets del index con el commit y sellar el build
 V=$(git rev-parse --short HEAD 2>/dev/null || date +%s)

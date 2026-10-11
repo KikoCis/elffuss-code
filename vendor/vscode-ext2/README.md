@@ -58,6 +58,7 @@ the `buildId`, do not depend on zlib.
 node verify-repro.mjs          # two clean builds in different folders: byte-identical, equal to the committed manifest
 node sweep.mjs                 # sweep the built folder named by the manifest
 node sweep.mjs --list <dir>    # print every generic hit with its context, to review an allowlist change
+node check-output.mjs          # the built folder against the manifest: SRI, sha256, sweep
 ```
 
 `verify-repro.mjs` needs 15 GB of free disk and puts its temporary folders
@@ -90,7 +91,7 @@ Nothing is published to npm or a CDN, and nothing large goes into git.
 
 1. `./deploy-vendor.sh` (repository root; reads `ELFFUSS_HOST` and
    `ELFFUSS_KEY`, like `deploy.sh`). It checks the local files against the
-   manifest, uploads `web/vendor/x2/<buildId>/` with
+   manifest (`check-output.mjs`), uploads `web/vendor/x2/<buildId>/` with
    `rsync --ignore-existing` (never `--delete`), then compares the server's
    sha256 sums with the manifest.
 2. `./deploy.sh`, which ships the manifest naming the new `buildId`. A normal
