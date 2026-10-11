@@ -4,7 +4,7 @@
 // code.write de una web se PIERDE entero. (Un truncado real a media cadena SÍ
 // debe rechazarse: lo cubre toolparse_missingbrace.mjs.)
 import { chromium } from 'playwright';
-const BASE='http://localhost:8790';
+const BASE=process.env.BASE||'http://localhost:8790';
 let fails=0; const ok=(n,c,e='')=>{console.log((c?'✅':'❌')+' '+n+(e?'  — '+e:''));if(!c)fails++;};
 const b=await chromium.launch();const ctx=await b.newContext();
 await ctx.addInitScript(()=>{try{localStorage.setItem('elffusscode.model','rules');}catch{}});
