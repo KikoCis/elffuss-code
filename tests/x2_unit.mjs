@@ -322,6 +322,58 @@ ok('ajustes: desconocidos, de otro tipo, fuera de la lista, JSON roto y no-objet
   && vs('{"p.mode": "c"}').errors[0].code === 'enum' && vs('{').errors[0].code === 'json' && vs('[1]').errors[0].code === 'object' && vs('{"__proto__": {"x": 1}}').ok === false);
 
 // ── 8. ningún fichero del nivel 2 lleva rutas de máquina ──
+// ── textos: los del nivel 2 en js/ext2/strings.js, los del panel en js/ext/i18n.js ──
+const { STRINGS } = await import('../web/js/ext/i18n.js');
+const { STRINGS2 } = await import('../web/js/ext2/strings.js');
+const sameKeys = t => JSON.stringify(Object.keys(t.es).sort()) === JSON.stringify(Object.keys(t.en).sort());
+ok('textos del nivel 2: ES y EN con las mismas claves', sameKeys(STRINGS2), Object.keys(STRINGS2.en).filter(k => !(k in STRINGS2.es)).join(' '));
+ok('textos del nivel 2: ninguno vacío ni con {var} sin cerrar', ['es', 'en'].every(l => Object.values(STRINGS2[l]).every(v => typeof v === 'string' && v.trim() && !/\{[^}]*$/.test(v))));
+// toda clave literal tx('…') de los módulos que la usan existe en algún idioma
+const usados = [];
+for (const f of [...fs.readdirSync(path.join(REPO, 'web/js/ext2')).filter(f => f.endsWith('.js')).map(f => 'web/js/ext2/' + f), 'web/js/ext/panel.js', 'web/js/ext/host.js']) {
+  for (const m of fs.readFileSync(path.join(REPO, f), 'utf8').matchAll(/\btx\(\s*'([A-Za-z0-9_]+)'\s*[,)]/g)) usados.push([f, m[1]]);
+}
+const faltan = usados.filter(([, k]) => !(k in STRINGS.en)).map(([f, k]) => `${path.basename(f)}:${k}`);
+ok(`cada tx('…') literal tiene su texto (${usados.length} usos)`, usados.length > 100 && !faltan.length, faltan.slice(0, 6).join(' '));
+// (y las que se arman: la razón del recinto, el error de un ajuste, la parte de VS Code que no saldrá)
+const prefijos = {
+  x2Unavail_: ['site', 'browser', 'off', 'url'],
+  set_: ['json', 'object', 'unknown', 'type', 'enum', 'big'],
+  wb_: ['views', 'custom_editors', 'notebooks', 'walkthroughs', 'debugger', 'terminal', 'tasks', 'sign_in', 'chat', 'MCP_servers', 'file_labels', 'menus', 'status_bar', 'remote', 'TypeScript_plugins', 'other'],
+};
+ok('las familias de claves que se arman en tiempo de ejecución están completas', Object.entries(prefijos).every(([p, xs]) => xs.every(x => (p + x) in STRINGS.en && (p + x) in STRINGS.es)));
+
+// ── host2.js: el código del paquete, sin salir de él ──
+const { zip } = await import('./ext_fixtures.mjs');
+const h2 = await import('../web/js/ext2/host2.js');
+const paquete = zip([
+  ['extension/package.json', '{"name":"e","publisher":"p","version":"1.0.0","browser":"./dist/web"}'],
+  ['extension/dist/web.js', 'exports.activate = () => {};'],
+  ['extension/dist/web.js.map', '{}'],
+  ['extension/node_modules/x/index.js', 'x'],
+  ['extension/../escape.js', 'no'],
+  ['extension//abs.js', 'no'],
+  ['extension/./dot.js', 'no'],
+  ['other/outside.js', 'no'],
+]);
+const raw = await h2.readVsixRaw(paquete);
+const names = [...raw.files.keys()].sort();
+ok('readVsixRaw: solo lo de extension/, sin node_modules, sin .map y sin rutas que salgan del paquete', JSON.stringify(names) === JSON.stringify(['dist/web.js', 'package.json']), names.join(' '));
+ok('readVsixRaw: cuenta lo descomprimido', raw.bytes === [...raw.files.values()].reduce((n, b) => n + b.length, 0));
+let big = null;
+try { await h2.readVsixRaw(zip([['extension/a.js', 'x'.repeat(2048)]]), { maxEntry: 1024 }); } catch (e) { big = e; }
+ok('readVsixRaw: un fichero por encima del tope se rechaza', !!big, String(big?.message));
+ok('browserEntry: «./dist/web» → dist/web.js; ausente → null', h2.browserEntry({ browser: './dist/web' }, raw.files) === 'dist/web.js'
+  && h2.browserEntry({ browser: './dist/missing' }, raw.files) === null && h2.browserEntry({}, raw.files) === null);
+
+// ── el censo que se publica (web/js/ext2/tested.json) ──
+const results = Object.entries(tested.results);
+const by = st => results.filter(([, v]) => v.state === st).length;
+ok('censo: cada entrada es id@versión en minúsculas, con su estado', results.length === tested.counts.browserEntry && results.every(([k, v]) => /^[a-z0-9-]+\.[a-z0-9._-]+@[\w.+-]+$/.test(k) && typeof v.state === 'string'), String(results.length));
+ok('censo: los recuentos cuadran con las entradas y la baliza a 0', tested.counts.active === by('active') && tested.counts.error === by('error') && tested.counts.beaconHits === 0
+  && tested.counts.installFailed === by('install-failed'), JSON.stringify(tested.counts));
+ok('censo: sin tiempos', !JSON.stringify(tested).match(/"(ms|millis|seconds|duration|elapsed|time)[A-Za-z]*"\s*:/i));
+
 const files = [...fs.readdirSync(path.join(REPO, 'web/js/ext2')).map(f => 'web/js/ext2/' + f), 'sandbox/x2/headers.json', 'sandbox/x2/headers.mjs', 'sandbox/x2/v1/sandbox.html', 'sandbox/x2/v1/exthost-iframe.html'];
 const home = ['/', 'Users', '/'].join(''), linuxHome = ['/', 'home', '/'].join('');
 ok('ni rutas de usuario ni prefijos de home en el nivel 2', files.every(f => { const t = fs.readFileSync(path.join(REPO, f), 'utf8'); return !t.includes(home) && !t.includes(linuxHome); }));
