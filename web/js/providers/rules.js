@@ -1,15 +1,13 @@
 // Modo básico de Elffuss Code: órdenes deterministas sin modelo.
+// La ayuda sale en el idioma de la interfaz (antes siempre en español, también
+// con la interfaz en inglés, que decía «Settings → Brain» donde la ayuda decía
+// «Ajustes → Cerebro»), y las órdenes se entienden en los dos idiomas: una
+// ayuda en inglés que solo entendiera «árbol» mentiría.
+import { t } from '../i18n.js';
 export const name = 'Básico (sin modelo)';
 export async function load() {}
 
 const call = obj => '```tool\n' + JSON.stringify(obj) + '\n```';
-
-const HELP = `Estoy en modo básico (sin modelo). Entiendo:
-• «árbol» / «qué hay en el proyecto»
-• «lee <archivo>» · «abre <archivo>»
-• «busca <texto>»
-• «escribe <archivo>: <contenido>»
-Para programar de verdad, elige un modelo en ⚙️ Ajustes → Cerebro (o pulsa el punto de estado del modelo, arriba a la derecha).`;
 
 export async function chat(history, systemPrompt) {
   const last = history[history.length - 1];
@@ -33,16 +31,16 @@ export async function chat(history, systemPrompt) {
     return body.startsWith('ERROR:') ? 'No pude: ' + body.slice(6).trim() : body;
   }
 
-  const t = text.toLowerCase();
-  if (/(árbol|arbol|estructura|qué hay|que hay)/.test(t))
+  const low = text.toLowerCase();
+  if (/(árbol|arbol|estructura|qué hay|que hay|\btree\b|\bstructure\b|what'?s in)/.test(low))
     return call({ tool: 'code.tree', args: {} });
-  const mRead = text.match(/(?:lee|abre|muestra|cat)\s+([\w./-]+\.\w+)/i);
+  const mRead = text.match(/(?:lee|abre|muestra|cat|read|open|show)\s+([\w./-]+\.\w+)/i);
   if (mRead) return call({ tool: 'code.read', args: { path: mRead[1] } });
-  const mSearch = text.match(/busca(?:r)?\s+(?:d[oó]nde\s+)?(?:se\s+\w+\s+)?["«']?([^"»']{2,60})["»']?$/i);
+  const mSearch = text.match(/(?:busca(?:r)?\s+(?:d[oó]nde\s+)?(?:se\s+\w+\s+)?|(?:search|find)\s+(?:for\s+)?)["«“']?([^"»”']{2,60})["»”']?$/i);
   if (mSearch) return call({ tool: 'code.search', args: { query: mSearch[1].trim() } });
-  const mWrite = text.match(/escribe\s+([\w./-]+\.\w+)\s*[:=]\s*([\s\S]+)/i);
+  const mWrite = text.match(/(?:escribe|write)\s+([\w./-]+\.\w+)\s*[:=]\s*([\s\S]+)/i);
   if (mWrite) return call({ tool: 'code.write', args: { path: mWrite[1], content: mWrite[2] } });
 
-  if (/^(hola|buenas|hey|hi)\b/.test(t)) return '¡Hola! ' + HELP;
-  return HELP;
+  if (/^(hola|buenas|hey|hi|hello)\b/.test(low)) return t('rulesHello') + ' ' + t('rulesHelp');
+  return t('rulesHelp');
 }

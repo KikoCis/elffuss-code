@@ -25,7 +25,7 @@ import * as workspace from './workspace.js';
 
 // Espacio de trabajo (core): qué de Code puede guardarse en tu disco.
 workspace.init({
-  app: 'code', ns: 'elffusscode', db,
+  app: 'code', ns: 'elffusscode', db, opfsName: t('wsOpfsName'),
   stores: [
     { id: 'conversations', label: 'Conversaciones', icon: '💬', kind: 'idb-key', store: 'kv', key: 'conversations',
       files: { ext: '.json', name: c => c.title || c.id } },
@@ -372,7 +372,9 @@ function onConvEvent(kind, id, payload) {
     if (ev.type === 'tool_result') addToolResult(ev.result);
     if (ev.type === 'progress') activeThinking?.tool(ev.text);
     if (ev.type === 'error') addMsg('assistant err', ev.text);
-    if (ev.type === 'aborted') addMsg('assistant muted', ev.text);
+    // «(Parado.)» lo emiten módulos que no saben de idiomas (agent, goal, la
+    // cola…): se pinta en el de la interfaz.
+    if (ev.type === 'aborted') addMsg('assistant muted', t('stoppedNote'));
     // 🎯 Modo Objetivo: la tarjeta de plan se crea con 'plan' y se repinta
     // in-place en cada 'plan_update'/'plan_complete' (mismo nodo, por id).
     if (ev.type === 'plan' || ev.type === 'plan_update' || ev.type === 'plan_complete') renderPlanCard(ev.plan);

@@ -24,8 +24,12 @@ let lastSaveAt = null, lastError = null;
 let autosaveCfg = { enabled: false, debounceMs: 3000 };
 let autosaveTimer = null;
 
-export function init({ app, ns, db, stores }) {
+// `nombreOPFS`: cómo se llama, en el idioma de la interfaz, la carpeta del
+// almacenamiento privado del navegador (no tiene nombre propio). Lo da la app.
+let nombreOPFS = 'OPFS';
+export function init({ app, ns, db, stores, opfsName }) {
   cfg = { app, ns, db, stores: stores || [] };
+  if (opfsName) nombreOPFS = opfsName;
 }
 
 export function supported() {
@@ -40,7 +44,7 @@ export function onChange(fn) { listeners.push(fn); return () => { listeners = li
 
 // La raíz del almacenamiento privado del navegador (OPFS) no tiene nombre: ''
 // se leía como «sin carpeta» y la carpeta elegida no se podía usar.
-const nombreDe = h => h ? (h.name || 'OPFS (navegador)') : null;
+const nombreDe = h => h ? (h.name || nombreOPFS) : null;
 
 function statusSync() {
   return {
