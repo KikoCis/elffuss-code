@@ -247,7 +247,8 @@ export class Features {
               return r ? { ...action, edit: r.edit ?? action.edit, disabled: r.disabled ?? action.disabled, command: r.command ?? action.command } : action;
             },
           } : {}),
-        }, { providedCodeActionKinds: Array.isArray(meta.kinds) ? meta.kinds.filter(k => typeof k === 'string').slice(0, 50) : undefined });
+        // sin tipos declarados, ninguno: Monaco descartaría el proveedor al pedir «solo arreglos»
+        }, { providedCodeActionKinds: Array.isArray(meta.kinds) && meta.kinds.length ? meta.kinds.filter(k => typeof k === 'string').slice(0, 50) : undefined });
         break;
       }
       case 'symbols':

@@ -752,14 +752,35 @@ export async function start({ m, port, config, sandbox = {} }) {
   });
 
   // ── resultados de proveedores → datos planos ──
+  // Los ítems y comandos se quedan aquí, con un número (handle). Una lista de
+  // autocompletados o de acciones sigue viva mientras la página tenga alguno
+  // de sus ítems: sus comandos los guarda el host de extensiones hasta que la
+  // lista se suelta, y Monaco ejecuta el del ítem aceptado justo después de
+  // soltar la lista, así que se suelta con un margen.
   const handles = new Map();                        // handle → objeto que se queda aquí (comandos, ítems)
+  const listOf = new Map();                         // handle de ítem → { list, refs }
   let nextObj = 1;
+  const dropHandle = h => {
+    handles.delete(h);
+    const o = listOf.get(h);
+    if (!o) return;
+    listOf.delete(h);
+    o.refs.delete(h);
+    if (!o.refs.size) { try { o.list.dispose(); } catch { /* — */ } }
+  };
   const keep = obj => {
     const h = nextObj++;
     handles.set(h, obj);
-    if (handles.size > MAX_HANDLES) handles.delete(handles.keys().next().value);
+    if (handles.size > MAX_HANDLES) dropHandle(handles.keys().next().value);
     return h;
   };
+  const adopt = (list, itemHandles) => {
+    if (!list || typeof list.dispose !== 'function') return;
+    if (!itemHandles.length) { try { list.dispose(); } catch { /* — */ } return; }
+    const o = { list, refs: new Set(itemHandles) };
+    for (const h of itemHandles) listOf.set(h, o);
+  };
+  const release = hs => setTimeout(() => { for (const h of hs) dropHandle(h); }, 3000);
   const R = r => (r && typeof r === 'object' && 'startLineNumber' in r ? [r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn] : undefined);
   const md = v => (typeof v === 'string' ? { text: v.slice(0, 65536) } : v && typeof v.value === 'string' ? { md: v.value.slice(0, 65536) } : undefined);
   const cmd = c => (c && typeof c.id === 'string' ? { handle: keep(c), title: str(c.title, 500) || '' } : undefined);
@@ -833,7 +854,7 @@ export async function start({ m, port, config, sandbox = {} }) {
           const list = await pr.provideCompletionItems(model, P(args.position), { triggerKind: num(args.triggerKind) ?? 0, triggerCharacter: str(args.triggerCharacter, 10) }, token);
           if (!list) return null;
           const out = { incomplete: list.incomplete === true, suggestions: (list.suggestions || []).slice(0, 5000).map(completionItem) };
-          try { list.dispose && list.dispose(); } catch { /* — */ }
+          adopt(list, out.suggestions.map(s => s.h));
           return out;
         }
         case 'completion.resolve': {
@@ -862,7 +883,7 @@ export async function start({ m, port, config, sandbox = {} }) {
           const r = await pr.provideCodeActions(model, range, { trigger: args.trigger === 2 ? 2 : 1, only: str(args.only, 200) }, token);
           if (!r) return null;
           const out = { actions: (r.actions || []).slice(0, 500).map(codeAction) };
-          try { r.dispose && r.dispose(); } catch { /* — */ }
+          adopt(r, out.actions.map(a => a.h));
           return out;
         }
         case 'codeAction.resolve': {
@@ -989,7 +1010,7 @@ export async function start({ m, port, config, sandbox = {} }) {
           r(v === true || v === false || okInt(v) ? v : typeof v === 'string' ? v.slice(0, 100000) : Array.isArray(v) && v.length <= 1000 && v.every(okInt) ? v : null);
           break;
         }
-        case 'release': for (const h of msg.handles || []) handles.delete(h); break;
+        case 'release': if (Array.isArray(msg.handles)) release(msg.handles.filter(h => Number.isSafeInteger(h)).slice(0, 5000)); break;
         case 'cmd.exec': {
           let value, ok = true;
           try { value = await execCommand(msg); } catch (e) { ok = false; value = errText(e); }
