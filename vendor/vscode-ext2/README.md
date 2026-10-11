@@ -58,7 +58,7 @@ the `buildId`, do not depend on zlib.
 node verify-repro.mjs          # two clean builds in different folders: byte-identical, equal to the committed manifest
 node sweep.mjs                 # sweep the built folder named by the manifest
 node sweep.mjs --list <dir>    # print every generic hit with its context, to review an allowlist change
-node check-output.mjs          # the built folder against the manifest: SRI, sha256, sweep
+node check-output.mjs          # the built folder against the manifest: only its files, SRI, sha256, sweep
 ```
 
 `verify-repro.mjs` needs 15 GB of free disk and puts its temporary folders
@@ -80,7 +80,7 @@ From Code's own origin, `https://code.elffuss.com/vendor/x2/<buildId>/…`, with
 
 ```
 location ^~ /vendor/x2/ { default_type application/octet-stream; gzip off;
-  add_header Cache-Control "public, max-age=31536000, immutable" always;
+  add_header Cache-Control "public, max-age=31536000, immutable";
   add_header X-Content-Type-Options nosniff always; }
 ```
 
@@ -88,23 +88,40 @@ location ^~ /vendor/x2/ { default_type application/octet-stream; gzip off;
 the page decompresses it with `DecompressionStream`, then checks the sha256 of
 the raw bytes. That works whatever transfer compression a proxy adds.
 
+Cache-Control has no `always`, so nginx adds it only to successful responses.
+With `always`, a 404 for a build that is not on the server yet would be cached
+as immutable for a year; because the `buildId` is a content hash, uploading
+the same bytes afterwards would not reach the browsers that cached the
+failure: only a new `buildId` would. `tests/x2_headers.mjs` (H5) checks that a
+missing file is not cached that way, also against a deployment.
+
 Nothing is published to npm or a CDN, and nothing large goes into git.
 
 ## Deploy
 
+0. **Merge first.** Only this branch's `deploy.sh` protects `vendor/x2/` from
+   its `rsync --delete`; a Code deploy from a tree without that filter (main
+   today) deletes the uploaded bundle. `deploy-vendor.sh` refuses to run until
+   `main`'s `deploy.sh` has the filter.
 1. `./deploy-vendor.sh` (repository root; reads `ELFFUSS_HOST` and
-   `ELFFUSS_KEY`, like `deploy.sh`). It checks the local files against the
-   manifest (`check-output.mjs`), uploads `web/vendor/x2/<buildId>/` with
-   `rsync --ignore-existing` (never `--delete`), then compares the server's
-   sha256 sums with the manifest.
+   `ELFFUSS_KEY`, like `deploy.sh`). It checks the local folder against the
+   manifest (`check-output.mjs`: exactly the manifest's files and nothing
+   else), uploads only those files with `rsync --ignore-existing` (never
+   `--delete`), then requires the server's folder to hold exactly those files
+   with the manifest's sha256 sums.
 2. `./deploy.sh`, which ships the manifest naming the new `buildId`. A normal
-   deploy neither uploads nor deletes anything under `vendor/x2/`.
+   deploy neither uploads nor deletes anything under `vendor/x2/`. Once level
+   2 is live (the manifest enabled and `web/js/ext2/config.js` naming a
+   sandbox for Code), it refuses to ship a manifest whose build the server
+   does not hold, byte for byte (`check-output.mjs --manifest-sums`, from the
+   manifest alone).
 
-If the server lacks the `buildId` the manifest names, level 2 fails closed
-and the default path is unaffected. Old builds stay until a manual prune
-keeps the last three; reverting the manifest and redeploying is the
-rollback. Setting `"enabled": false` in the manifest is the global kill
-switch.
+If a browser still finds a build missing (a partial upload, a pruned
+rollback), level 2 fails closed and the default path is unaffected; the
+failure is not cached as long as Cache-Control has no `always` (above). Old
+builds stay until a manual prune keeps the last three; reverting the
+manifest and redeploying is the rollback. Setting `"enabled": false` in the
+manifest is the global kill switch.
 
 ## Upgrade checklist
 

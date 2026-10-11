@@ -5,7 +5,9 @@
 #   node sandbox/x2/headers.mjs --nginx --sandbox https://x2.SANDBOX_DOMAIN
 #
 # and save them as /etc/nginx/snippets/x2-sandbox.conf and x2-exthost.conf.
-# Order (README, "Extensions that run code"): DNS and certificate, this vhost,
+# Order (README, "Extensions that run code"): main's deploy.sh protecting
+# vendor/x2/ first (deploy-vendor.sh refuses until it does), DNS and
+# certificate for a domain that is not a subdomain of Code's, this vhost,
 # nginx -t and reload, deploy-sandbox.sh, deploy-vendor.sh, then deploy.sh
 # with web/js/ext2/config.js naming the sandbox. Until that last step Code
 # says "not available on this site" and nothing changes for anyone.
@@ -53,9 +55,14 @@ server {
 #   location ^~ /vendor/x2/ {
 #     default_type application/octet-stream;
 #     gzip off;
-#     add_header Cache-Control "public, max-age=31536000, immutable" always;
+#     add_header Cache-Control "public, max-age=31536000, immutable";
 #     add_header X-Content-Type-Options nosniff always;
 #   }
+#
+# No `always` on Cache-Control: nginx then adds it only to successful
+# responses. With `always`, a 404 for a build that is not there yet would be
+# cached as immutable for a year, and since the buildId is a content hash,
+# uploading the same bytes later would not help those browsers.
 #
 # Code's host must never serve /x2/ (the sandbox documents live outside web/,
 # so deploy.sh never uploads them).

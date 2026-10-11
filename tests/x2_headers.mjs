@@ -15,7 +15,12 @@
 //       upper-case id, none), other methods;
 //   H3  Code's site never serves /x2/;
 //   H4  the vendor files of the committed manifest on Code's site: octet-stream,
-//       immutable for a year, nosniff, never re-compressed, and their SRI holds.
+//       immutable for a year, nosniff, never re-compressed, and their SRI holds;
+//   H5  a vendor file that is not there is a 404 that is not cached as
+//       immutable (a cached failure would outlive the upload);
+//   H6  (local only) the generated nginx snippets set the charset the way
+//       headers.json says, and the template's vendor location has no
+//       `always` on Cache-Control.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -125,6 +130,30 @@ if (!remote && !fs.existsSync(local)) {
     if (body.length !== f.gz) problems.push(`${body.length} bytes, manifest says ${f.gz}`);
     ok(`H4 ${f.name}.gz: octet-stream, immutable, nosniff, not re-compressed, SRI as in the manifest`, !problems.length, problems.join(' | '));
   }
+}
+
+// ── H5: un fichero del bundle que no está es un 404 que NO se guarda un año ──
+// (con «always» en el Cache-Control de nginx, el fallo quedaría en la caché
+// del navegador como inmutable, y el buildId es un hash: subir luego los
+// mismos bytes no lo arreglaría)
+{
+  const r = await get(`${code}/vendor/x2/ffffffffffffffff/sandbox-main.js.gz`);
+  await r.arrayBuffer().catch(() => {});
+  const cc = r.headers.get('cache-control') || '';
+  ok('H5 a missing vendor file: 404, and not cached as immutable', r.status === 404 && !/immutable|max-age=[1-9]/.test(cc), `${r.status} cache-control: ${JSON.stringify(cc)}`);
+}
+
+// ── H6: lo que se genera para nginx dice lo mismo que headers.json ──
+if (!remote) {
+  const { nginx } = await import('../sandbox/x2/headers.mjs');
+  const conf = nginx('https://x2.sandbox.example');
+  ok('H6 the nginx snippets set the charset (charset utf-8;), not default_type, and every header with always',
+    (conf.match(/^charset utf-8;$/gm) || []).length === 2 && !/default_type/.test(conf) && (conf.match(/^add_header /gm) || []).every(Boolean)
+    && (conf.match(/^add_header .* always;$/gm) || []).length === (conf.match(/^add_header /gm) || []).length, conf.slice(0, 200));
+  const example = fs.readFileSync(path.join(HERE, '../sandbox/x2/nginx.conf.example'), 'utf8');
+  const vendorBlock = /location \^~ \/vendor\/x2\/ \{[\s\S]*?\}/.exec(example)?.[0] || '';
+  ok('H6 the template for Code’s vendor location adds Cache-Control only to successful responses (no always)',
+    /add_header Cache-Control "public, max-age=31536000, immutable";/.test(vendorBlock) && !/Cache-Control[^\n]*always/.test(vendorBlock), vendorBlock.replace(/\s+/g, ' ').slice(0, 200));
 }
 
 await srv?.close();
