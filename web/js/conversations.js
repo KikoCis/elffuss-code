@@ -299,24 +299,26 @@ export async function descartarPendiente(id) {
   if (conv.queue.length) pump(conv);
 }
 
-export function send(id, text) {
+// Cada mensaje de la cola lleva su id: la UI marca «en cola» (⏳) la burbuja de
+// ESE mensaje y se la quita cuando empieza su turno ('turn' trae el item). Los
+// tres envíos devuelven el id.
+const genQid = () => 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+function encola(id, kind, text) {
   const conv = convs.get(id);
-  if (!conv) return;
-  conv.queue.push({ kind: 'chat', text });
+  if (!conv) return null;
+  const item = { kind, text, id: genQid() };
+  conv.queue.push(item);
   persistConv(conv);
   pump(conv);
+  return item.id;
 }
+
+export function send(id, text) { return encola(id, 'chat', text); }
 
 // 🎯 Modo Objetivo: en vez de un turno de chat normal, el mensaje se trata
 // como un objetivo — se planifica en tareas y se ejecutan una a una (ver
 // goal.js, mismo patrón planificador/ejecutor de clonagent).
-export function startGoal(id, text) {
-  const conv = convs.get(id);
-  if (!conv) return;
-  conv.queue.push({ kind: 'goal', text });
-  persistConv(conv);
-  pump(conv);
-}
+export function startGoal(id, text) { return encola(id, 'goal', text); }
 
 // ⛏ Hard Work: lee el proyecto entero por partes. Va por la MISMA cola que el
 // resto: así el ■ lo para, la conversación se ve ocupada (el cerebro CEO
@@ -325,13 +327,7 @@ export function startGoal(id, text) {
 // Quien sabe leer el proyecto (main.js) registra cómo se ejecuta.
 let hardWorkRunner = null;
 export function setHardWorkRunner(fn) { hardWorkRunner = fn; }
-export function startHardWork(id, text) {
-  const conv = convs.get(id);
-  if (!conv) return;
-  conv.queue.push({ kind: 'hard', text });
-  persistConv(conv);
-  pump(conv);
-}
+export function startHardWork(id, text) { return encola(id, 'hard', text); }
 
 // true cuando le toca el turno; false si la parada llega antes.
 function turnoOParada(turno, signal) {
@@ -436,11 +432,17 @@ async function pump(conv) {
     if (conv.aborter === aborter) conv.aborter = null;
     if (conv.queue[0] === item) conv.queue.shift();
     conv.updatedAt = Date.now();
-    if (conv.parando) { conv.parando = false; onChange('stopping', conv.id, false); }
+    // «Parando…» se quita aquí solo si hay otro turno detrás. Si la cola queda
+    // vacía se quita DESPUÉS del bucle, junto con `pumping`: quitarlo aquí, con
+    // la conversación aún «trabajando» mientras se guarda, devolvía el botón a
+    // un ■ «Parar» habilitado durante ese rato antes de pasar a «Enviar».
+    if (conv.parando && conv.queue.length) { conv.parando = false; onChange('stopping', conv.id, false); }
     await persistConv(conv);
   }
-  conv.parando = false;   // una parada que llegó entre turnos ya no tiene nada que esperar
+  const sueltaParada = conv.parando;   // una parada que llegó entre turnos ya no tiene nada que esperar
+  conv.parando = false;
   conv.pumping = false;
+  if (sueltaParada) onChange('stopping', conv.id, false);
   onChange('pumping', conv.id, false);
 }
 

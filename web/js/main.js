@@ -296,10 +296,21 @@ function renderActiveLog() {
       }
     }
   }
-  if (active.pumping) activeThinking = thinkingBubble();
+  // «Pensando» solo si hay un turno EN MARCHA: esperando el modelo (lo tiene
+  // otra conversación) lo que se ve es el mensaje en cola, no una elfa pensando.
+  if (active.pumping && active.turno) activeThinking = thinkingBubble();
   // Lo que espera en la cola todavía no está en el historial: sin esto, al
   // volver a la pestaña los mensajes encolados desaparecían de la vista.
-  for (const it of active.queue) if (it !== active.turno) addMsg('user queued', typeof it === 'string' ? it : it.text).title = t('queuedTitle');
+  for (const it of active.queue) if (it !== active.turno) burbujaEnCola(typeof it === 'string' ? it : it.text, it?.id);
+}
+
+// Un mensaje que espera su turno (⏳). Lleva el id de su item de la cola para
+// quitarle la marca a ÉL cuando empiece, no a la primera burbuja en cola.
+function burbujaEnCola(text, qid) {
+  const d = addMsg('user queued', text);
+  d.title = t('queuedTitle');
+  if (qid) d.dataset.qid = qid;
+  return d;
 }
 
 // evento del módulo de conversaciones: 'switch' (cambiaste de pestaña o se
@@ -309,16 +320,20 @@ function renderActiveLog() {
 // refleja su punto de «ocupada» en la barra de pestañas.
 function onConvEvent(kind, id, payload) {
   if (kind === 'turn') {
-    // Un mensaje encolado empieza: deja de estar «en cola» y la burbuja de
-    // «pensando» pasa debajo de él (era la del turno anterior, más arriba).
+    // Empieza un mensaje: SU burbuja deja de estar «en cola» (se busca por el
+    // id del item; antes se desmarcaba la primera en cola, que podía ser otra) y
+    // la de «pensando» se pone debajo de él, encima de lo que siga esperando.
     const active = conv.getActive();
     if (!active || id !== active.id) return;
-    const enCola = $('chat-log').querySelector(':scope > .msg.user.queued');
-    if (enCola) {
-      enCola.classList.remove('queued');
-      enCola.removeAttribute('title');
-      if (activeThinking) { activeThinking.remove(); activeThinking = thinkingBubble(); }
+    const log = $('chat-log');
+    const qid = payload && typeof payload === 'object' ? payload.id : null;
+    const burbuja = qid ? log.querySelector(`:scope > .msg.user[data-qid="${CSS.escape(qid)}"]`) : log.querySelector(':scope > .msg.user.queued');
+    if (burbuja?.classList.contains('queued')) {
+      burbuja.classList.remove('queued');
+      burbuja.removeAttribute('title');
     }
+    activeThinking?.remove();
+    activeThinking = thinkingBubble();
     return;
   }
   if (kind !== 'event') renderTabsBar();
@@ -331,9 +346,10 @@ function onConvEvent(kind, id, payload) {
   if (kind === 'pumping') {
     // NO deshabilitar el botón mientras genera: se convierte en PARAR. Antes se
     // ponía disabled=payload, y por eso no había forma de cortar un run largo.
+    // «Pensando» lo pone 'turn', cuando el mensaje empieza de verdad: mientras
+    // espera el modelo (lo tiene otra conversación) no hay nada pensando.
     paintSendButton();
-    if (payload) { if (!activeThinking) activeThinking = thinkingBubble(); }
-    else { activeThinking?.remove(); activeThinking = null; }
+    if (!payload) { activeThinking?.remove(); activeThinking = null; }
     return;
   }
   if (kind === 'stopping') {
@@ -366,12 +382,14 @@ function onConvEvent(kind, id, payload) {
 function send(text, modo) {
   const active = conv.getActive();
   if (!active) return;
-  // Si la elfa ya está con algo, el mensaje espera su turno y se ve así (⏳).
-  const burbuja = addMsg(active.pumping || active.queue.length ? 'user queued' : 'user', text);
-  if (burbuja.classList.contains('queued')) burbuja.title = t('queuedTitle');
-  if (modo === 'hard') conv.startHardWork(active.id, text);
-  else if (goalMode) conv.startGoal(active.id, text);
-  else conv.send(active.id, text);
+  // Si el modelo ya está con algo (en ESTA conversación o en otra: hay un solo
+  // modelo y se turnan), el mensaje espera su turno y se ve así (⏳) hasta que
+  // empiece el suyo.
+  const burbuja = conv.isBusy() ? burbujaEnCola(text) : addMsg('user', text);
+  const qid = modo === 'hard' ? conv.startHardWork(active.id, text)
+    : goalMode ? conv.startGoal(active.id, text)
+    : conv.send(active.id, text);
+  if (qid) burbuja.dataset.qid = qid;
 }
 
 // Pestañas de conversación con semántica de pestañas: la activa entra con Tab,

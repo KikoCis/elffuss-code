@@ -8,6 +8,10 @@
 //   2. La respuesta del turno en curso se pinta ANTES del mensaje encolado.
 //   3. Cuando le toca, deja de estar en cola y el modelo lo recibe.
 //   4. El botón ■ sí para, y lo que esperaba en cola se marca descartado.
+//   5. Con OTRA conversación generando, lo que mandas aquí espera (⏳) también
+//      el primero, y cada burbuja deja de estar en cola cuando empieza SU
+//      turno: antes la marca se decidía por conversación y se le quitaba a la
+//      primera en cola, y la respuesta al primero salía debajo del segundo.
 //
 //   BASE=http://127.0.0.1:8898 node tests/enterqueue.mjs
 import { chromium } from 'playwright';
@@ -28,7 +32,8 @@ await p.evaluate(() => {
   window.__prov = { llamadas: [], abortadas: 0, async chat(h, s, cb, signal) {
     const q = [...h].reverse().find(m => m.role === 'user')?.content || '';
     this.llamadas.push(q);
-    for (let i = 0; i < 40; i++) {
+    const n = this.pasosPara?.(q) ?? 40;
+    for (let i = 0; i < n; i++) {
       if (signal?.aborted) { this.abortadas++; throw new DOMException('Parado', 'AbortError'); }
       cb('·'); await dormir(25);
     }
@@ -79,6 +84,34 @@ const e4 = await estado();
 ok('4 · el botón ■ sí para el turno', e4.abortadas === 1, JSON.stringify(e4));
 ok('4 · lo que esperaba en cola no se manda y se marca descartado', !e4.llamadas.includes('cuarto') && e4.descartados.includes('cuarto') && e4.enCola.length === 0, JSON.stringify(e4));
 ok('4 · «(Parado.)» queda encima del descartado', e4.orden.indexOf('A:(Parado.)') >= 0 && e4.orden.indexOf('A:(Parado.)') < e4.orden.indexOf('U:cuarto'), JSON.stringify(e4.orden));
+
+// 5 · otra conversación tiene el modelo
+await p.evaluate(async () => {
+  const conv = window.elffussClaw.conv;
+  window.__prov.pasosPara = q => q === 'B larga' ? 120 : 30;   // B genera un buen rato
+  const A = conv.create();
+  const B = conv.create();
+  conv.switchTo(A.id);                        // en pantalla, A
+  conv.send(B.id, 'B larga');
+});
+await p.waitForFunction(() => window.__prov.llamadas.includes('B larga'), null, { timeout: 5000 });
+await p.fill('#prompt', 'A-uno');
+await p.press('#prompt', 'Enter');
+await p.fill('#prompt', 'A-dos');
+await p.press('#prompt', 'Enter');
+await p.waitForTimeout(150);
+const pensando = () => p.evaluate(() => document.querySelectorAll('#chat-log > .msg.thinking').length);
+const e5a = { ...(await estado()), pensando: await pensando() };
+ok('5 · con B generando, el PRIMER mensaje de A también espera (⏳), y el segundo', JSON.stringify(e5a.enCola) === '["A-uno","A-dos"]' && e5a.pensando === 0, JSON.stringify({ enCola: e5a.enCola, pensando: e5a.pensando }));
+await p.waitForFunction(() => window.__prov.llamadas.includes('A-uno'), null, { timeout: 10000 });
+await p.waitForTimeout(100);
+const e5b = await estado();
+const ordenA = o => o.filter(x => /^U:A-|^A:respuesta a A-|^\?:/.test(x)).map(x => x.startsWith('?:') ? 'pensando' : x);
+ok('5 · al empezar A-uno solo él deja de estar en cola; A-dos sigue esperando', JSON.stringify(e5b.enCola) === '["A-dos"]', JSON.stringify(e5b.enCola));
+ok('5 · …y «pensando» queda entre los dos', JSON.stringify(ordenA(e5b.orden)) === '["U:A-uno","pensando","U:A-dos"]', JSON.stringify(ordenA(e5b.orden)));
+await p.waitForFunction(() => !window.elffussClaw.conv.isBusy(), null, { timeout: 15000 });
+const e5c = await estado();
+ok('5 · cada respuesta queda debajo de SU mensaje', JSON.stringify(ordenA(e5c.orden)) === '["U:A-uno","A:respuesta a A-uno","U:A-dos","A:respuesta a A-dos"]', JSON.stringify(ordenA(e5c.orden)));
 
 console.log('\n  errores JS:', errs[0] || 'ninguno');
 ok('sin errores de página', errs.length === 0, errs.join(' | '));

@@ -9,7 +9,8 @@
 //      terminaba, y al recargar el mensaje parado se volvía a ejecutar.
 //   4. El botón ■ no se repintaba al cambiar de pestaña.
 //   5. Tras pulsar ■ no cambiaba nada hasta que el turno se soltaba: ahora sale
-//      «Parando…», deshabilitado y con aria-busy.
+//      «Parando…», deshabilitado y con aria-busy, y de ahí pasa a «Enviar» sin
+//      volver un momento a «Parar».
 // Y la tarjeta de un objetivo parado dice «parado», no «completado».
 //
 // Modelo de mentira inyectado por import('/js/conversations.js'): lento, cuenta
@@ -221,6 +222,13 @@ await p.evaluate(async () => {
 await p.fill('#prompt', 'otro trabajo largo');
 await p.click('#btn-send');
 await p.waitForFunction(() => document.getElementById('btn-send').classList.contains('is-stop'), null, { timeout: 5000 }).catch(() => {});
+// Cada nombre accesible que toma el botón desde aquí hasta «Enviar», en orden.
+await p.evaluate(() => {
+  const b = document.getElementById('btn-send');
+  window.__etiquetas5 = [b.getAttribute('aria-label')];
+  window.__obs5 = new MutationObserver(() => { const l = b.getAttribute('aria-label'); if (window.__etiquetas5.at(-1) !== l) window.__etiquetas5.push(l); });
+  window.__obs5.observe(b, { attributes: true, attributeFilter: ['aria-label'] });
+});
 await p.click('#btn-send');
 await p.waitForTimeout(150);   // la región viva se escribe en otro tick
 const parando = await boton();
@@ -240,6 +248,7 @@ const trasPulsarParando = await p.evaluate(async () => {
 await p.waitForFunction(() => !document.getElementById('btn-send').hasAttribute('aria-disabled') && !document.getElementById('btn-send').classList.contains('sending'), null, { timeout: 8000 }).catch(() => {});
 await p.waitForTimeout(150);
 const despues = await boton();
+const etiquetas5 = await p.evaluate(() => { window.__obs5.disconnect(); return window.__etiquetas5; });
 ok('5 · justo tras el clic: «Parando…», aria-disabled y aria-busy, sin disabled', parando.texto === 'Parando…' && parando.ariaDisabled === 'true' && !parando.disabled && parando.aria === 'true', JSON.stringify(parando));
 ok('5 · …el foco sigue en el botón (antes caía a <body>)', parando.foco === 'btn-send', parando.foco);
 ok('5 · …y la región viva dice «Parando…»', parando.anuncio === 'Parando…', JSON.stringify(parando.anuncio));
@@ -247,6 +256,9 @@ ok('5 · pulsar «Parando…» no hace nada: el texto sigue escrito y no entra e
 ok('5 · al soltarse el turno vuelve a «Enviar», sin aria-disabled ni aria-busy', !despues.disabled && despues.ariaDisabled === null && despues.title === 'Enviar' && despues.aria === null, JSON.stringify(despues));
 ok('5 · …con el foco todavía en el botón', despues.foco === 'btn-send', despues.foco);
 ok('5 · …y la región viva dice «Parado.»', despues.anuncio === 'Parado.', JSON.stringify(despues.anuncio));
+// Antes, al soltarse el turno el botón volvía un momento a ■ «Parar» habilitado
+// (mientras se guardaba la conversación) antes de quedar en «Enviar».
+ok('5 · de «Parando…» pasa directo a «Enviar», sin volver a «Parar»', JSON.stringify(etiquetas5) === JSON.stringify(['Parar', 'Parando…', 'Enviar']), JSON.stringify(etiquetas5));
 
 // 5b. Lo mismo con el teclado: Espacio sobre el botón para, y el foco se queda.
 await p.evaluate(async () => {
