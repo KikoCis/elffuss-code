@@ -227,6 +227,14 @@ await p.evaluate(async () => {
 await p.fill('#prompt', 'otro trabajo largo');
 await p.click('#btn-send');
 await p.waitForFunction(() => document.getElementById('btn-send').classList.contains('is-stop'), null, { timeout: 5000 }).catch(() => {});
+// «Parando…» solo existe mientras un turno que YA llegó al modelo se suelta. El
+// ■ se enciende en cuanto el mensaje entra en la cola, antes de que el turno
+// guarde su intento y coja el cerrojo; un clic en ese hueco para un mensaje que
+// aún no ha empezado, y eso pasa a «Enviar» al momento (bien hecho, pero no es
+// lo que se mide aquí). En una máquina cargada el hueco dura lo bastante para
+// caer dentro: se espera a que el modelo tenga el mensaje.
+const empezo5 = await p.waitForFunction(() => window.__prov5.llamadas.length >= 1, null, { timeout: 10000 }).then(() => true, () => false);
+ok('5 · (premisa) el turno llegó al modelo antes de pulsar ■', empezo5);
 // Cada nombre accesible que toma el botón desde aquí hasta «Enviar», en orden.
 await p.evaluate(() => {
   const b = document.getElementById('btn-send');
@@ -399,7 +407,9 @@ ok('7 · A termina con su respuesta, y nadie más llamó al modelo', r7b.respond
   await pe.evaluate(async () => {
     window.__dormir = ms => new Promise(r => setTimeout(r, ms));
     const conv = await import('/js/conversations.js');
+    window.__llamadasEn = 0;
     conv.setProvider({ name: 'lento-en', chat: async (h, s, cb, signal) => {
+      window.__llamadasEn++;
       for (let i = 0; i < 400; i++) {
         if (signal?.aborted) { await window.__dormir(600); throw new DOMException('Stopped', 'AbortError'); }
         cb('·'); await window.__dormir(25);
@@ -410,6 +420,9 @@ ok('7 · A termina con su respuesta, y nadie más llamó al modelo', r7b.respond
   await pe.fill('#prompt', 'long job');
   await pe.click('#btn-send');
   await pe.waitForFunction(() => document.getElementById('btn-send').classList.contains('is-stop'), null, { timeout: 5000 }).catch(() => {});
+  // Como en el 5: que el turno haya llegado al modelo antes de pulsar ■.
+  const empezo8 = await pe.waitForFunction(() => window.__llamadasEn >= 1, null, { timeout: 10000 }).then(() => true, () => false);
+  ok('8 · (premisa) el turno llegó al modelo antes de pulsar ■', empezo8);
   const trabajando = await boton(pe);
   await pe.click('#btn-send');
   await pe.waitForTimeout(150);
