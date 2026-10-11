@@ -373,6 +373,8 @@ export function pagoAux39(valor, opciones = {}) {
       'spec/total-iva.md': '# totalCarrito(lineas, descuento, iva)\nDebe aplicar el IVA al final: totalCarrito([{precio:100,unidades:1}],0,0.21) → 121.',
     },
     task: 'totalCarrito() no aplica el IVA al resultado; arréglalo para que lo aplique después del descuento.',
+    // cambia SOLO la línea del bug (ver «solution» de las duras, al final)
+    fix: [["  return conDescuento;                       // BUG: no aplica el IVA", "  return conDescuento * (1 + iva);"]],
     test: m => Math.round(m.totalCarrito([{precio:100,unidades:1}],0,0.21)) === 121 && Math.round(m.totalCarrito([{precio:50,unidades:2}],10,0.1)) === 99,
   },
   {
@@ -566,6 +568,8 @@ export function textoAux23(valor, opciones = {}) {
     task: 'recortaPie() debe añadir «…» al final cuando recorta. recortaTitulo y recortaResumen deben quedarse EXACTAMENTE como están.',
     // Lo que mide esta tarea es la DISCRIMINACIÓN entre tres cuerpos idénticos, no
     // si el modelo escribe «…» o «...»: las dos son respuestas razonables a la spec.
+    // cambia SOLO la línea del bug (ver «solution» de las duras, al final)
+    fix: [["  return s.slice(0, max);                    // BUG: aquí SÍ hay que poner puntos suspensivos", "  return s.slice(0, max) + '…';"]],
     test: m => { const r = m.recortaPie('a'.repeat(40));
       return r.startsWith('a'.repeat(30)) && /(…|\.\.\.)$/.test(r)
         && m.recortaTitulo('a'.repeat(40)) === 'a'.repeat(30)
@@ -792,6 +796,8 @@ export function fechaAux29(valor, opciones = {}) {
       'spec/dias-entre.md': '# diasEntre(a, b)\ndiasEntre("2026-01-01","2026-01-03") → 2. No se suma un día extra.',
     },
     task: 'diasEntre() devuelve un día de más; quita ese +1.',
+    // cambia SOLO la línea del bug (ver «solution» de las duras, al final)
+    fix: [["\treturn Math.floor(ms / 86400000) + 1;      // BUG: el +1 sobra", "\treturn Math.floor(ms / 86400000);"]],
     test: m => m.diasEntre('2026-01-01','2026-01-03') === 2 && m.diasEntre('2026-01-01','2026-01-01') === 0,
   },
   {
@@ -952,6 +958,8 @@ export function validaAux19(valor, opciones = {}) {
       'spec/dos-sitios.md': '# validaUsuario / validaAlias\nAmbas deben exigir MÁS de 3 caracteres: una cadena de 3 es inválida, una de 4 es válida.',
     },
     task: 'validaUsuario() y validaAlias() aceptan cadenas de 3 caracteres y no deberían: hay que exigir más de 3 en LAS DOS.',
+    // cambia SOLO la línea del bug (ver «solution» de las duras, al final)
+    fix: [["  if (nombre.length < MINIMO) return false;   // BUG: debe ser <= para exigir MÁS de 3", "  if (nombre.length <= MINIMO) return false;"], ["  if (alias.length < MINIMO) return false;    // BUG: mismo fallo aquí", "  if (alias.length <= MINIMO) return false;"]],
     test: m => m.validaUsuario('abc')===false && m.validaUsuario('abcd')===true && m.validaAlias('abc')===false && m.validaAlias('abcd')===true,
   },
   {
@@ -1559,6 +1567,22 @@ export function informeAux84(valor, opciones = {}) {
       'spec/orden-descendente.md': '# ordenaPorFecha(filas)\nDe más reciente a más antigua.',
     },
     task: 'ordenaPorFecha() ordena de más antigua a más reciente; debe ser al revés, la más reciente primero.',
+    // cambia SOLO la línea del bug (ver «solution» de las duras, al final)
+    fix: [["  return filas.slice().sort((a, b) => a.fecha - b.fecha);   // BUG: debe ser descendente", "  return filas.slice().sort((a, b) => b.fecha - a.fecha);"]],
     test: m => { const r = m.ordenaPorFecha([{fecha:1},{fecha:3},{fecha:2}]); return r[0].fecha===3 && r[2].fecha===1; },
   },
 ];
+
+// Las DURAS no traen `solution` escrita a mano (son ficheros de cientos de
+// líneas): se saca de su `fix`, que cambia solo la línea del bug. Sin ella el
+// solucionador de guion (el arnés tests/swe_bench.mjs y el Lab con «Reglas»)
+// escribía un contenido vacío y las cinco fallaban siempre; con ella, además,
+// prueban que reescribir un fichero entero pasa por code.write.
+for (const t of TASKS) {
+  if (t.solution != null || !t.fix) continue;
+  let src = t.files[t.target];
+  if (t.fix.every(([de]) => src.includes(de))) {
+    for (const [de, a] of t.fix) src = src.replace(de, a);
+    t.solution = src;
+  }
+}
