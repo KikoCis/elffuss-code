@@ -9,8 +9,12 @@ import { chromium } from 'playwright';
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
-const b = await chromium.launch({ channel: 'chrome', headless: true });
-const p = await (await b.newContext()).newPage();
+const b = await chromium.launch();
+const ctx = await b.newContext();
+// Modo Básico: sin esto, al abrir la página main.js se pone a cargar el modelo
+// local por defecto (preloadModel) en mitad de la prueba, que no lo necesita.
+await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
+const p = await ctx.newPage();
 // Telemetría: se cuentan los informes en vez de dejarlos salir.
 let informes = 0;
 await p.route('**/proxy/report', route => { informes++; return route.fulfill({ status: 204, body: '' }); });

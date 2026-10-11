@@ -50,7 +50,11 @@ const ayudantes = () => p.evaluate(() => {
   };
 });
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
-await p.waitForTimeout(1500);
+// Que el IDE haya abierto de verdad (Monaco y las conversaciones): con una
+// espera fija, en una máquina cargada se mandaba antes de que existiera la
+// conversación y el mensaje no iba a ninguna parte.
+const listo = pg => pg.waitForFunction(() => window.elffussClaw?.conv?.getActive?.(), null, { timeout: 30000 });
+await listo(p);
 await ayudantes();
 
 // 1. Parar mientras espera el cerrojo → el modelo ni se llama
@@ -169,7 +173,8 @@ const r3 = await p.evaluate(async () => {
 ok('3 · justo después de parar, IndexedDB ya tiene la cola vacía (el turno aún se está soltando)',
   r3.sigueTrabajando && r3.colaGuardada === 0, `cola guardada ${r3.colaGuardada}`);
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
-await p.waitForTimeout(2500);
+await listo(p);
+await p.waitForTimeout(1000);
 await ayudantes();
 const r3b = await p.evaluate(async (id) => {
   const db = await import('/js/db.js');
@@ -336,7 +341,8 @@ ok('6b · justo tras parar (el objetivo aún se suelta), el plan guardado ya est
 // acepta, como haría quien recarga a propósito.
 p.once('dialog', d => d.accept().catch(() => {}));
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
-await p.waitForTimeout(2500);
+await listo(p);
+await p.waitForTimeout(1000);
 await ayudantes();
 const tarjeta6b = await p.evaluate(() => {
   const c = [...document.querySelectorAll('.plan-card')].at(-1);
@@ -388,7 +394,7 @@ ok('7 · A termina con su respuesta, y nadie más llamó al modelo', r7b.respond
   const pe = await ctxEn.newPage({ viewport: { width: 1300, height: 900 } });
   pe.on('pageerror', e => errs.push(e.message.slice(0, 160)));
   await pe.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
-  await pe.waitForTimeout(1500);
+  await listo(pe);
   const inicial = await boton(pe);
   await pe.evaluate(async () => {
     window.__dormir = ms => new Promise(r => setTimeout(r, ms));

@@ -12,7 +12,9 @@ const ctx = await b.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage();
 const errors = [];
-p.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+// El motor propio (web/js/engine) no se publica con este repo: donde no está, sus
+// sondas dan 404, y eso no es un error de este flujo.
+p.on('console', m => { if (m.type() === 'error' && !/\/js\/engine\//.test(m.location()?.url || '')) errors.push(m.text()); });
 p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1500);
 

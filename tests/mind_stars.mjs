@@ -1,5 +1,11 @@
 // Mente v3: estrellas por perfil (no consolas), historial completo, perfiles
 // editables, ciudad de fondo + haces de actividad, y tool-calling REAL del CEO.
+//
+// Lo que depende del tiempo de la animación (estrellas, haces y vuelo viven
+// unos segundos de reloj de fotogramas) se mide en el MISMO paso que lo
+// provoca, no tras una espera fija: con el backend gráfico por defecto (sin
+// ELFFUSS_CHROME_ARGS) un fotograma lento avanza ese reloj de golpe, y un haz de
+// 1,4 s o un vuelo de 1,1 s ya habían terminado cuando se miraban.
 import { chromium } from 'playwright';
 import { CHROME_ARGS } from './chrome-args.mjs';
 const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
@@ -36,15 +42,21 @@ let dbg = await p.evaluate(async () => (await import('/js/mind.js'))._debug());
 ok('ciudad de fondo construida bajo la Mente', dbg.hasCity, JSON.stringify(dbg));
 
 // estrellas: una línea normal vs una tool-call deben crear estrellas (tamaño/estilo distinto por kind, verificado por código)
-const before = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).starCount;
-await p.evaluate(async () => { const m = await import('/js/mind.js'); m.pushThought('arq', { type: 'open', name: 'Arquitectura' }); m.pushThought('arq', { type: 'token', text: 'Esta es una línea de pensamiento normal que se vuelve estrella.\n' }); });
-await p.waitForTimeout(200);
-const afterLine = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).starCount;
-ok('una línea de texto crea una estrella', afterLine > before, `${before}→${afterLine}`);
-await p.evaluate(async (mark) => { const m = await import('/js/mind.js'); m.pushThought('arq', { type: 'tool', text: 'leyendo README.md…', path: 'README.md' }); }, MARK);
-await p.waitForTimeout(200);
-const afterTool = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).starCount;
-ok('una tool-call crea otra estrella', afterTool > afterLine, `${afterLine}→${afterTool}`);
+const linea = await p.evaluate(async () => {
+  const m = await import('/js/mind.js');
+  const antes = m._debug().starCount;
+  m.pushThought('arq', { type: 'open', name: 'Arquitectura' });
+  m.pushThought('arq', { type: 'token', text: 'Esta es una línea de pensamiento normal que se vuelve estrella.\n' });
+  return { antes, despues: m._debug().starCount };
+});
+ok('una línea de texto crea una estrella', linea.despues > linea.antes, `${linea.antes}→${linea.despues}`);
+const tool = await p.evaluate(async () => {
+  const m = await import('/js/mind.js');
+  const antes = m._debug().starCount;
+  m.pushThought('arq', { type: 'tool', text: 'leyendo README.md…', path: 'README.md' });
+  return { antes, dbg: m._debug() };
+});
+ok('una tool-call crea otra estrella', tool.dbg.starCount > tool.antes, `${tool.antes}→${tool.dbg.starCount}`);
 
 // el historial completo muestra TODO (línea + tool)
 const logText = await p.evaluate(() => document.getElementById('mind-log-body').innerText);
@@ -52,8 +64,7 @@ ok('el historial recoge la línea de texto', /línea de pensamiento normal/.test
 ok('el historial recoge la tool-call', /leyendo README\.md/.test(logText));
 
 // haz de actividad sobre la ciudad (README.md existe en el modelo → beam real)
-dbg = await p.evaluate(async () => (await import('/js/mind.js'))._debug());
-ok('la tool-call sobre un fichero real generó un haz + resaltado', dbg.beamCount > 0 && dbg.fileActivityCount > 0, JSON.stringify(dbg));
+ok('la tool-call sobre un fichero real generó un haz + resaltado', tool.dbg.beamCount > 0 && tool.dbg.fileActivityCount > 0, JSON.stringify(tool.dbg));
 
 // editor de perfiles: renombrar Arquitectura y cambiar color, guardar
 await p.click('#mind-config'); await p.waitForTimeout(300);
@@ -99,11 +110,15 @@ ok('el nombre del fichero guardado es DESCRIPTIVO (fecha+tema, no mejoras-NNN)',
 
 // clic en la leyenda → la cámara VUELA a centrarse (posición cambia de verdad)
 const posBefore = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).cameraPos;
-await p.click('.ml-item[data-id="rend"]'); // perfil lejos de la posición inicial de cámara
-await p.waitForTimeout(150);
-const midFly = await p.evaluate(async () => (await import('/js/mind.js'))._debug());
+// el clic, y en el mismo paso, ¿hay vuelo en marcha?
+const midFly = await p.evaluate(async () => {
+  const m = await import('/js/mind.js');
+  document.querySelector('.ml-item[data-id="rend"]').click();   // perfil lejos de la posición inicial de cámara
+  return m._debug();
+});
 ok('el clic dispara el vuelo (flying=true a mitad de camino)', midFly.flying);
-await p.waitForTimeout(1300); // esperar a que termine (dur 1.1s)
+// que termine (dura 1,1 s de reloj de fotogramas)
+await p.waitForFunction(async () => !(await import('/js/mind.js'))._debug().flying, null, { timeout: 15000 }).catch(() => {});
 const posAfter = (await p.evaluate(async () => (await import('/js/mind.js'))._debug())).cameraPos;
 const moved = Math.hypot(posAfter[0] - posBefore[0], posAfter[1] - posBefore[1], posAfter[2] - posBefore[2]);
 ok('la cámara realmente se movió al centrarse en el perfil', moved > 5, `desplazamiento ${moved.toFixed(1)}`);
