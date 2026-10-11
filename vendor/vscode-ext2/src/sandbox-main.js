@@ -17,5 +17,6 @@ export { RPCProtocol } from '@codingame/monaco-vscode-api/vscode/vs/workbench/se
 export { getStringIdentifierForProxy } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/extensions/common/proxyIdentifier';
 export { CommandsRegistry } from '@codingame/monaco-vscode-api/vscode/vs/platform/commands/common/commands';
 export { IContextKeyService } from '@codingame/monaco-vscode-api/vscode/vs/platform/contextkey/common/contextkey.service';
+export { ILanguageStatusService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/languageStatus/common/languageStatusService.service';
 export { URI } from '@codingame/monaco-vscode-api/vscode/vs/base/common/uri';
 export * as monaco from 'monaco-editor';

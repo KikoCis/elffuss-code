@@ -1,15 +1,13 @@
 {
-  "note": "Upstream literals that match a generic path pattern and are not paths of any build machine. Each entry is the sha256 of the hit's context (40 characters either side) and its exact count. Review every change with `node sweep.mjs --list <dir>`; see README.md.",
+  "note": "Upstream literals that match a generic path pattern and are not paths of any build machine. Each entry is the sha256 of the hit's context (the literal around it, up to 40 characters either side, cut at quotes and line breaks) and its exact count. Review every change with `node sweep.mjs --list <dir>`; see README.md.",
   "hits": [
-    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "71bb3c0ff72d69ad5d47d663e66795ef88c199d7483429c3c0b9ef7ad0cc2247", "count": 1, "why": "VS Code help text: example value of the snippet variable for a file's full path" },
-    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "163029398ae0e59218d3b0807941ea4bdd9b1e2920383ce84cac8b4ecc7c71fb", "count": 1, "why": "VS Code help text: example value of the snippet variable for a file's folder" },
-    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "17d900251ccb79c103c850ce7aa45409cbbb4103ac240690fe9a86cd8df52123", "count": 1, "why": "VS Code help text: example value of the snippet variable for a parent folder" },
-    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "38a35abf4d78ed223105f03f48c871bbb85d8e88a613aa5b11d04584c9eea898", "count": 1, "why": "VS Code help text: example value of the snippet variable for the workspace folder" },
-    { "file": "sandbox-main.js", "pattern": "windows-home", "context": "db6a2d811617592f433f9df5e7044d7f14db60f10b11a6ef5215254667c9cad6", "count": 1, "why": "VS Code help text: example literal paths in an agent sandbox setting description" },
-    { "file": "sandbox-main.js", "pattern": "file-url", "context": "1aa051186a4d07a6133fd42dc60da6964ccf84df53de7a8bb7a8146d30f978cb", "count": 1, "why": "VS Code code: case-insensitive check for a file URL prefix" },
-    { "file": "sandbox-main.js", "pattern": "file-url", "context": "25d10d1cd17730cedc52d608fc028ad0957e15794c8dffcc5821c3767d91be65", "count": 1, "why": "VS Code code: case-insensitive check for a file URL prefix (second copy)" },
-    { "file": "exthost-worker.js", "pattern": "file-url", "context": "4f7d2465caac25f04dea71328d46acebdb90dc8aeebc4dcb364811b6e629b8bb", "count": 1, "why": "VS Code code: case-insensitive check for a file URL prefix" },
-    { "file": "exthost-worker.js", "pattern": "file-url", "context": "d8945a5e20568cb2f9acff4b0696f86beb4300e5e792b9ab815efebc7b55bf9e", "count": 1, "why": "VS Code code: case-insensitive check for a file URL prefix (second copy)" },
-    { "file": "exthost-worker.js", "pattern": "file-url", "context": "0c3928778653793832d9c65fc33b5446595da1f144fcf3391a02c17bf30c7048", "count": 1, "why": "VS Code code: the worker's fetch wrapper rewrites file URLs to its own app scheme" }
+    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "21bb4ac98d082d28fa8ae6ce26ab1b20aae44766c5fb5af7022a32e37d7d7113", "count": 1, "why": "VS Code help text: example value of the snippet variable for a file's full path" },
+    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "3fa62197a90229a32ff29958ceee0456500df8f205607f3f730456ed0b5b87b6", "count": 1, "why": "VS Code help text: example value of the snippet variable for a file's folder" },
+    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "c5f45d8ac8337524a265429444738a88ace7181e45a05175d2268d3ac6fd409c", "count": 1, "why": "VS Code help text: example value of the snippet variable for a parent folder" },
+    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "35ee328bb70bcdbc07c66647e4c1b812e4aa0b893875a149d40d18609b16fd65", "count": 1, "why": "VS Code help text: example value of the snippet variable for the workspace folder" },
+    { "file": "sandbox-main.js", "pattern": "windows-home", "context": "8a1ea15f8a108a65a674f2ad973face2dcd00905df6537a7ddd331eef2fe5f62", "count": 1, "why": "VS Code help text: example literal paths in an agent sandbox setting description" },
+    { "file": "sandbox-main.js", "pattern": "file-url", "context": "7cd906927238de0295cb9c4ae6cd009c01fb4f4cb901f6232fa6583b6d68cfbc", "count": 2, "why": "VS Code code: case-insensitive checks for a file URL prefix (a bare file URL literal)" },
+    { "file": "exthost-worker.js", "pattern": "file-url", "context": "0bd9acb5e66d07412e4d0922f5b1d4ba4da416c296d085885f95e3381e3cc94c", "count": 2, "why": "VS Code code: case-insensitive checks for a file URL prefix (a bare file URL literal)" },
+    { "file": "exthost-worker.js", "pattern": "file-url", "context": "d1171537e428ea740b1d65a723f593ce30f7454598e58e8e19717c63d0234bdc", "count": 1, "why": "VS Code code: the worker's fetch wrapper rewrites file URLs to its own app scheme" }
   ]
 }

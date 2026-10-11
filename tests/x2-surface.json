@@ -701,6 +701,7 @@
   "IDialogService",
   "IEditorService",
   "IFileDialogService",
+  "ILanguageStatusService",
   "INotificationService",
   "IOpenerService"
  ],

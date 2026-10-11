@@ -9,8 +9,9 @@
 // Always fatal, wherever they appear: the user name, the home folder and the
 // absolute build folder. Generic patterns (home prefixes of macOS, Linux and
 // Windows, file:// and sourceMappingURL) are fatal unless the exact hit is in
-// sweep-allowlist.json, which stores the sha256 of each hit's context and how
-// many times it appears: a new hit or a changed count fails the sweep. Base64
+// sweep-allowlist.json, which stores the sha256 of each hit's context (the
+// literal around it) and how many times it appears: a new hit or a changed
+// count fails the sweep. Base64
 // data: URLs are decoded and their printable strings swept too, the way
 // `strings` would see them.
 //
@@ -74,9 +75,19 @@ function views(name, bytes) {
   return out;
 }
 
+// The context of a hit: up to 40 characters either side, cut at the nearest
+// quote, backtick or line break, so it is the literal the hit lives in and
+// does not change when the minifier renames the code around it.
 const CONTEXT = 40;
+const STOP = new Set(['"', "'", '`', '\n']);
+function contextOf(text, i, len) {
+  let a = i, b = i + len;
+  while (a > 0 && i - a < CONTEXT && !STOP.has(text[a - 1])) a--;
+  while (b < text.length && b - (i + len) < CONTEXT && !STOP.has(text[b])) b++;
+  return text.slice(a, b);
+}
 const contextHash = (where, id, text, i, len) =>
-  crypto.createHash('sha256').update(`${where}\0${id}\0${text.slice(Math.max(0, i - CONTEXT), i + len + CONTEXT)}`).digest('hex');
+  crypto.createHash('sha256').update(`${where}\0${id}\0${contextOf(text, i, len)}`).digest('hex');
 
 export function collectHits(files) {
   const hits = new Map();                     // key → { file, pattern, context, count, sample }
@@ -88,7 +99,7 @@ export function collectHits(files) {
         while ((m = re.exec(v.text))) {
           const context = contextHash(v.where.replace(/#data\d+$/, '#data'), id, v.text, m.index, m[0].length);
           const key = `${name}|${id}|${context}`;
-          const h = hits.get(key) || { file: name, pattern: id, context, count: 0, sample: v.text.slice(Math.max(0, m.index - CONTEXT), m.index + m[0].length + CONTEXT) };
+          const h = hits.get(key) || { file: name, pattern: id, context, count: 0, sample: contextOf(v.text, m.index, m[0].length) };
           h.count++;
           hits.set(key, h);
         }

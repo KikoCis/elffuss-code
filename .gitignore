@@ -24,3 +24,4 @@ web/vendor/x2/
 vendor/vscode-ext2/node_modules/
 vendor/vscode-ext2/.build/
 vendor/vscode-ext2/.repro/
+tests/.cache/

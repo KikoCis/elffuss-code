@@ -65,6 +65,15 @@ export async function start({ m, port, config, sandbox = {} }) {
   const send = (msg, transfer) => { try { port.postMessage(msg, transfer || []); } catch (e) { try { port.postMessage({ t: 'log', level: 'error', text: 'unserializable message ' + msg.t + ': ' + errText(e) }); } catch { /* cerrado */ } } };
   const log = (level, text, id) => send({ t: 'log', level, text: String(text).slice(0, 2000), ...(id ? { id } : {}) });
 
+  // Errores sin capturar del propio recinto (VS Code o una extensión): al
+  // registro de la página, con lo que se sepa de ellos, y no a la consola.
+  const describe = r => {
+    if (r instanceof Error) return (r.name + ': ' + r.message + ' ' + String(r.stack || '').split('\n').slice(1, 3).join(' ')).slice(0, 500);
+    try { return 'non-error ' + JSON.stringify(r, Object.getOwnPropertyNames(r || {})).slice(0, 500); } catch { return 'non-error ' + String(r).slice(0, 200); }
+  };
+  window.addEventListener('unhandledrejection', e => { e.preventDefault(); log('warn', 'unhandled rejection in the sandbox: ' + describe(e.reason)); });
+  window.addEventListener('error', e => { e.preventDefault(); log('warn', 'uncaught error in the sandbox: ' + describe(e.error || e.message)); });
+
   // ── atribución: lo que llega del host de extensiones (RPC) ──
   // Cada llamada del host de extensiones al hilo principal pasa por aquí. Se
   // usa para saber qué proveedores registra una extensión (y no VS Code) y
@@ -173,6 +182,11 @@ export async function start({ m, port, config, sandbox = {} }) {
   mirrorBox.style.cssText = 'width:400px;height:200px';
   host.appendChild(mirrorBox);
 
+  // estado de lenguaje (lo que VS Code pinta en la barra de estado): Code no
+  // tiene esa barra; se acepta y no se enseña
+  const statusChanged = emitter();
+  const languageStatus = { _serviceBrand: undefined, onDidChange: statusChanged.event, addStatus: () => ({ dispose() {} }), getLanguageStatus: () => [] };
+
   await m.initialize({
     ...m.getExtensionServiceOverride({ enableWorkerExtensionHost: true }),
     ...m.getKeybindingsServiceOverride(),
@@ -183,6 +197,7 @@ export async function start({ m, port, config, sandbox = {} }) {
     [m.INotificationService.toString()]: notifications,
     [m.IDialogService.toString()]: dialogs,
     [m.IFileDialogService.toString()]: fileDialogs,
+    [m.ILanguageStatusService.toString()]: languageStatus,
   }, host);
 
   const commandService = await m.getService(m.ICommandService);
@@ -581,7 +596,7 @@ export async function start({ m, port, config, sandbox = {} }) {
     return {
       actors: out,
       commands: [...m.CommandsRegistry.getCommands().keys()].sort(),
-      overridden: ['IClipboardService', 'IDialogService', 'IEditorService', 'IFileDialogService', 'INotificationService', 'IOpenerService'],
+      overridden: ['IClipboardService', 'IDialogService', 'IEditorService', 'IFileDialogService', 'ILanguageStatusService', 'INotificationService', 'IOpenerService'],
     };
   }
 
