@@ -507,15 +507,17 @@ async function detalle(it, det, boton) {
   } catch (e) { det.replaceChildren(el('div', 'ext-ignored', textoError(e))); }
 }
 
-// «Instalar» sin detalle visto: su manifiesto antes que el .vsix; si solo
-// trae código, la fila enseña su botón de código, con el foco
+// «Instalar» sin detalle visto: su manifiesto antes que el .vsix (si algo se
+// aplica, sin cargar el nivel 2); si solo trae código, su botón, con el foco
 async function antesDeInstalar(it) {
   if (!estado.cls.get(clave(it))) {
     try {
       const ovsx = await import('./openvsx.js');
-      const manifest = await ovsx.manifest(await ovsx.metadata(it.namespace, it.name, it.version));
+      const man = await ovsx.manifest(await ovsx.metadata(it.namespace, it.name, it.version));
+      const a = (await import('./vsix.js')).analyzeManifest(man);
+      if (resumen({ ...a, themes: a.applies.themes }).any) return true;
       m2 ??= await gestor();
-      estado.cls.set(clave(it), (await m2.describe(manifest, { installedIds: new Set(host.list().map(e => e.id)), host })).cls);
+      estado.cls.set(clave(it), (await m2.describe(man, { installedIds: new Set(host.list().map(e => e.id)), host })).cls);
     } catch { return true; }
   }
   if (estado.cls.get(clave(it)).hasDeclarative) return true;

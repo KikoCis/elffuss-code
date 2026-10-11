@@ -232,10 +232,17 @@ await ctx.close();
   const { ctx, page } = await profile();
   const log = [];
   ctx.on('request', r => { if (/open-vsx\.org/.test(r.url())) log.push(r.method() + ' ' + new URL(r.url()).pathname); });
+  const l2 = [];
+  page.on('request', r => { if (/\/js\/ext2\//.test(r.url())) l2.push(new URL(r.url()).pathname); });
   await openIde(page);
   await panel(page);
   await search(page, 'elffuss-ux');
   await until(async () => (await page.locator('#ext-results .ext-row').count()) === fixtures.length);
+  // un tema: su manifiesto dice que algo se aplica y se instala sin cargar nada del nivel 2
+  await row(page, 'elffuss-ux.decl').locator('.ext-install').click();
+  const declMsg = await until(() => page.evaluate(() => document.getElementById('ext-msg')?.textContent || null));
+  ok('X1b Install on a theme reads its manifest and goes on to install it, without loading anything of level 2', l2.length === 0 && log.some(l => /elffuss-ux\/decl\/1\.0\.0\/file\/package\.json$/.test(l)) && !!declMsg,
+    JSON.stringify({ l2, declMsg }));
   await row(page, 'elffuss-ux.webok').locator('.ext-install').click();
   const after = await until(() => page.evaluate(() => {
     const r = [...document.querySelectorAll('#ext-results .ext-row')].find(x => x.dataset.id === 'elffuss-ux.webok');

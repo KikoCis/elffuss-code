@@ -154,9 +154,11 @@ address the dialog showed; and positive controls show the setup does catch leaks
   `ide.js`: the palette list, the preview gate and the list of open tabs); with level 1
   extensions only, the same files and 4.4 KB more (the hooks in `js/ext/host.js` and
   `store.js` that decide when to load `js/ext2/host2.js`); with the Extensions panel open
-  and a search done, the same files and 19.8 KB more (what the panel now tells everyone:
-  what will work, the Works in Code filter, how extensions are isolated, the check before
-  Install). In none of these is anything fetched from `vendor/x2/`, `js/ext2/` or the
+  and a search done, the same files and 20,430 bytes more, within the suite's 20 KB budget
+  (what the panel now tells everyone: what will work, the Works in Code filter, how
+  extensions are isolated, the check before Install, which for a result that applies
+  without code loads nothing of level 2). In none of these is anything fetched from
+  `vendor/x2/`, `js/ext2/` or the
   sandbox site. Once code is on, the runtime is 2.6 MB gzip (from the manifest), fetched
   once and then served from the HTTP cache. `?noext` pauses every extension, `?noext2` only
   their code, `"enabled": false` in the manifest is a global kill switch, and the panel can
