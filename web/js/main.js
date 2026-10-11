@@ -1824,9 +1824,30 @@ $('code-flip').addEventListener('click', () => {
 $('act-arch').innerHTML = UI.graph || UI.code;
 $('act-city').innerHTML = UI.city || UI.code;
 let viewRenderSeq = 0;
+// La vista tapa el editor (y el terminal, si está abierto): mientras se ve, lo
+// de debajo queda INERTE y el foco entra en ella. Antes el foco se quedaba en el
+// botón que la abría, y el Tab, tras la barra de actividad, el árbol y la
+// pestaña del editor, caía en el editor TAPADO: cada Tab sangraba el fichero
+// abierto sin que se viera, y la lista de la vista no se alcanzaba nunca. (La
+// Mente usa modal.js porque tapa la página entera; la vista solo tapa el
+// editor, y la barra de actividad, el árbol y el chat siguen a mano.)
+const TAPADO_POR_VISTA = ['editor', 'terminal-panel'];
+const tapaVista = si => { for (const id of TAPADO_POR_VISTA) { const e = $(id); if (e) e.inert = si; } };
+let abridorVista = null;
+function seVe(e) { return !!e && e !== document.body && e.isConnected && e.getClientRects().length > 0; }
+function entraEnVista(overlay) {
+  // Si mientras se montaba el usuario se puso a escribir en otro sitio (el
+  // chat), no se le quita el foco.
+  const a = document.activeElement;
+  if (a && a !== document.body && !overlay.contains(a) && seVe(a) && a.matches('input, textarea, select, [contenteditable]')) return;
+  // En el móvil, enfocar el buscador sacaría el teclado encima de la lista.
+  const destino = (!matchMedia('(pointer: coarse)').matches && overlay.querySelector('.vl-filter')) || $('view-close');
+  try { destino.focus({ preventScroll: true }); } catch { /* — */ }
+}
 async function openView(kind) {
   const overlay = $('view-overlay'), body = $('view-body');
   const seq = ++viewRenderSeq;
+  if (!overlay.contains(document.activeElement)) abridorVista = document.activeElement;
   // destruir CUALQUIER vista previa (su RAF/canvas seguía vivo al cambiar → la
   // nueva no cargaba bien). Ambas, no solo la del mismo tipo.
   try { (await import('./city.js')).disposeCity(); } catch { /* */ }
@@ -1834,6 +1855,7 @@ async function openView(kind) {
   body.innerHTML = '<div class="view-loading" role="status"></div>';
   body.firstChild.textContent = t('viewBuilding');
   overlay.hidden = false;
+  tapaVista(true);
   document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-' + kind));
   // esperar a que el layout dé tamaño real al overlay (si no, canvas 0×0/mal aspect)
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -1845,6 +1867,7 @@ async function openView(kind) {
     else { const m = await import('./city.js'); vista = await m.renderCity(body, abre); }
     if (seq === viewRenderSeq) montaListaVista(body, vista, abre);
   } catch (e) { body.innerHTML = '<div class="view-loading" role="status"></div>'; body.firstChild.textContent = t('viewFailed', { e: e?.message || e }); }
+  if (seq === viewRenderSeq && !overlay.hidden) entraEnVista(overlay);
 }
 
 // Lo que hay en la vista 3D, también como LISTA que se busca y se recorre con
@@ -1921,10 +1944,16 @@ function montaListaVista(body, vista, abre) {
 function closeView({ foco = false } = {}) {
   const abierta = [...document.querySelectorAll('#act-arch.on, #act-city.on')][0];
   $('view-overlay').hidden = true;
+  tapaVista(false);
   import('./city.js').then(m => m.disposeCity()).catch(() => {});
   import('./arch.js').then(m => m.disposeArch()).catch(() => {});
   document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-files'));
-  if (foco) abierta?.focus();
+  // El foco vuelve a quien la abrió si aún se ve; si no (un menú que ya se
+  // cerró), al botón de la vista en la barra de actividad; en el móvil, donde
+  // esos botones viven en el cajón cerrado, al ☰.
+  const vuelta = [abridorVista, abierta, $('btn-drawer'), $('prompt')].find(seVe);
+  abridorVista = null;
+  if (foco) vuelta?.focus();
 }
 $('act-arch').addEventListener('click', () => openView('arch'));
 $('act-city').addEventListener('click', () => openView('city'));
