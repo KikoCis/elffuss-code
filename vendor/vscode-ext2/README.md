@@ -68,8 +68,11 @@ The sweep fails on the user name, the home folder, the build folder or the
 repository folder anywhere in the output, including inside base64 `data:`
 URLs. Generic patterns (home prefixes of macOS, Linux and Windows, file URLs
 and source-map comments) are allowed only when the exact hit is listed in
-`sweep-allowlist.json` with its count. Today's allowed hits are VS Code's own
-help-text example paths and its file-URL checks.
+`sweep-allowlist.json` with its count. A hit is identified by the sha256 of
+the literal it sits in (up to 40 characters either side, cut at quotes and
+line breaks), so renamed minified code around it does not change the list,
+but any new literal, or a different count, fails the build. Today's allowed
+hits are VS Code's own help-text example paths and its file-URL checks.
 
 ## Where it is served from
 

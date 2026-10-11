@@ -55,8 +55,10 @@ and installs the *declarative* part of VS Code extensions: **color themes** (wit
 Color Theme picker), **TextMate grammars**, **snippets** and **language configurations**
 (comments, brackets, indentation). You can also install a `.vsix` file.
 
-- **No extension code runs.** `main`/`browser` are ignored; the panel says what each
-  extension applies and what would need an extension host (commands, views, debuggers…).
+- **No extension code runs** unless you turn it on for one extension (level 2, below,
+  not available on code.elffuss.com yet). Otherwise `main`/`browser` are ignored; the
+  panel says what each extension applies and what would need an extension host
+  (commands, views, debuggers…).
 - **Your project stays in the browser.** Open VSX only sees what you search for and install.
 - Packages are checked against the SHA-256 that Open VSX publishes and kept in IndexedDB.
 - Grammars run on the same engine as VS Code (vscode-textmate + Oniguruma), loaded only
@@ -68,6 +70,60 @@ Color Theme picker), **TextMate grammars**, **snippets** and **language configur
   images), regular expressions that repeat a repetition are dropped, and `firstLine`
   patterns run in a Worker with a time limit. The panel lists anything it had to skip.
 - `?noext` starts with every extension paused (to rescue a tab from a bad grammar).
+
+### Extensions that run code (level 2, in development)
+
+Web extensions (a `browser` entry, never Node) can run their code in a **sealed sandbox**:
+a headless VS Code (`@codingame/monaco-vscode-api` 37.3.11, VS Code 1.138.0) inside an
+invisible iframe on **another site**, with no network host in any CSP. Code's own editor
+stays Monaco 0.52; it only talks to the sandbox through one validated message channel and
+renders what extensions return as plain text or escaped markdown.
+
+- **Nothing loads by default.** Only `js/ext/host.js`, which already only loads for people
+  who use extensions, imports `js/ext2/` once an extension has its code turned on. The
+  runtime's size (about 2.6 MB gzip, from the manifest) is shown before anything is
+  downloaded. `?noext2` turns code off; `"enabled": false` in the manifest is a global
+  kill switch.
+- **No network, no access to Code's storage.** The sandbox is a different site (separate
+  storage, cookies and process); its CSPs name no host, not even its own; it refuses to
+  start if a self-test request is not blocked. Extension files are fetched and verified
+  by Code's page at install time and handed over as blobs.
+- **Open documents only.** Extensions see the files you have open, as
+  `file:///<project path>`; their edits go to the active document as one undo step and
+  stay unsaved until you save. They cannot save, and the agent's tools are unchanged.
+- **The runtime is verified at load:** SRI on each `.gz`, then the sha256 of the inflated
+  bytes against the committed `web/js/ext2/vendor-manifest.json`. It is built by a
+  pinned, reproducible script and deployed separately; see
+  [`vendor/vscode-ext2/README.md`](vendor/vscode-ext2/README.md).
+- **Not available on code.elffuss.com yet:** the sandbox needs its own domain first.
+  Locally, open Code on `http://127.0.0.1:<port>` with `tests/lib/x2-server.mjs`, which
+  serves the sandbox on `localhost:<port>` (a different site).
+
+**What actually runs (runtime census, 2026-10-11).** Of the 500 most downloaded extensions
+on Open VSX, 89 have a browser entry. `tests/x2_census.mjs` installed each one from its
+verified package (the web build, when the publisher ships one) and started it alone in the
+real sandbox with a beacon listening:
+
+| Result | Extensions |
+|---|---|
+| Too large to install (over 32 MiB per file or 64 MiB per extension) | 8 |
+| Start | 49 |
+| …and register a command, a language feature or diagnostics | 33 |
+| …and register language features (completion, hover, formatting…) | 12 |
+| Fail while starting (Node modules or globals in their browser build, services Code doesn't have, blocked network requests) | 22 |
+| Never start (nothing in Code triggers them: previews, custom editors, sign-in) | 9 |
+| Refused: Vim replaces typing | 1 |
+| Requests that reached the beacon | 0 |
+
+Some extensions that start still need things Code doesn't have (webviews, the network, a
+workspace), so the census is an upper bound; per-extension results are in
+`web/js/ext2/tested.json`. Across the whole catalog (19,320 extensions) a static sample of
+2,000 manifests puts the share with a browser entry at about 5%, roughly 470 to 1,430
+extensions: an extrapolation, not a count.
+
+Tests: `node tests/x2_unit.mjs`, `node tests/x2_smoke.mjs` (synthetic extensions, a basic
+canary and positive controls), `node tests/x2_live.mjs` (Tyriar.sort-lines and Prettier
+from Open VSX), and the manual runtime census `node tests/x2_census.mjs`.
 
 ## Run locally
 
@@ -92,11 +148,15 @@ web/
   js/tools/code.js      code.tree / read / search / edit / write  (the only thing touching your files)
   js/bridge.js          optional local Bridge (real node/npm/python)
   js/ext/               VS Code extensions: Open VSX, .vsix reader, themes, grammars, snippets
+  js/ext2/              level 2: loader, sandbox bridge, editor adapter (buildless)
   js/providers/         onnx (transformers.js) · api (OpenAI/Anthropic/Ollama)
+sandbox/x2/             the extension sandbox's two documents and their headers (another site)
+vendor/vscode-ext2/     pinned build of the level 2 runtime (the only place npm runs)
 server/serve.py         static server + CORS proxy (dev)
 ```
 
-No framework, no build step. The agent talks to the tools with
+No framework, no build step for Code's own code (only the optional level 2 runtime is a
+prebuilt, verified vendor bundle). The agent talks to the tools with
 ` ```tool {"tool":…,"args":…} ``` ` blocks — the same protocol across every provider.
 
 ## Shares a core with Elffuss
