@@ -25,9 +25,14 @@ export function configure(key) {
 }
 
 let engine = null, conversation = null, sentCount = 0, sys = '';
-// Tras una parada, cuánto historial había ya (ver soltarTrasParada): la próxima
-// conversación se rehace con eso dentro. 0 = no hay nada pendiente.
-let rehacerHasta = 0;
+// Lo que la conversación de LiteRT ya lleva dentro, en mensajes del historial de
+// quien llama: rol y texto de cada uno (ver huellaDe). null = no hay conversación
+// de la que fiarse. `respondio`: el modelo ya contestó detrás de eso.
+let dentro = null, respondio = false;
+// Tras una parada, lo que llevaba la conversación que se tiró (ver
+// soltarTrasParada): si la llamada siguiente es esa misma conversación, se
+// rehace con eso dentro. null = no hay nada pendiente.
+let trasParada = null;
 
 // Muestreo. Por defecto VORAZ, que es como venía: mismo prompt, misma salida.
 // Eso hace que generar N veces cueste N y devuelva una sola respuesta distinta,
@@ -44,7 +49,7 @@ export function setSampling(opts) {        // {temperature, seed, p} o null
     : null;
   // cambiar el muestreo exige rehacer la conversación: la sesión ya está creada
   // con los parámetros de antes y no los relee.
-  if (JSON.stringify(muestreo) !== antes) { conversation = null; sentCount = 0; }
+  if (JSON.stringify(muestreo) !== antes) { conversation = null; sentCount = 0; dentro = null; }
   return muestreo;
 }
 export function getSampling() { return muestreo; }
@@ -176,7 +181,7 @@ function fmtBytes(loaded, total, t0) {
 // Liberar el modelo (vigilante de RAM).
 export async function unload() {
   try { engine?.close?.(); } catch { /* mejor esfuerzo */ }
-  engine = null; conversation = null; sentCount = 0;
+  engine = null; conversation = null; sentCount = 0; dentro = null; respondio = false; trasParada = null;
 }
 
 // El 4º argumento es la señal sola o `{ signal, onPrefill }` (ver senalDe). Sin
@@ -189,33 +194,47 @@ export async function chat(history, system, onToken = () => {}, opciones = null)
   // Comparar solo la parte estática del prompt: el CONTEXTO AHORA va al final
   // y cambia cada turno — recrear la conversación tiraría el KV-cache.
   const sysKey = system.slice(0, 200);
-  // Una conversación NUEVA llega con el historial reiniciado (más corto que lo
-  // ya enviado). Sin esta comprobación, el KV-cache conservaba el chat anterior
-  // entero: el modelo seguía «viendo» los ficheros y respuestas del chat de
-  // antes y contestaba sobre ellos. Se notaba como alucinación («ese fichero no
-  // existe») cuando en realidad era memoria de la conversación previa — y es
-  // además una fuga: un chat nuevo no debe ver el contenido del anterior.
-  const reiniciada = history.length <= sentCount;
-  if (!conversation || sysKey !== sys || reiniciada) {
+  // ¿Es ESTA la conversación que LiteRT tiene dentro? Todas las pestañas del
+  // chat (y el cerebro CEO, Hard Work, el Lab…) comparten este proveedor, y
+  // antes solo se miraba si el historial era más corto que lo ya enviado: el
+  // turno de otra pestaña con un historial más LARGO seguía dentro de la
+  // conversación de la primera. El modelo veía lo hablado allí (una fuga entre
+  // conversaciones) y lo anterior de esta no le llegaba nunca. Ahora se compara
+  // el contenido: se sigue solo si el historial empieza por lo que la
+  // conversación ya lleva dentro (ver dondeSigue). Un chat nuevo, más corto,
+  // tampoco empieza así: tampoco hereda el anterior.
+  let desde = conversation && sysKey === sys ? dondeSigue(history) : -1;
+  const rehecha = desde < 0;
+  if (rehecha) {
     sys = sysKey;
-    // Tras una parada la conversación se tiró (ver soltarTrasParada), pero las
-    // respuestas y llamadas de antes siguen siendo parte de la conversación del
-    // agente. Antes se rehacía mandando SOLO los mensajes de usuario del
-    // historial, todos juntos en uno: el modelo perdía todo lo que ya había
-    // contestado y hecho. Ahora lo anterior entra en el prefacio, empaquetado
-    // como cuando no cabe (lo que falta de la respuesta parada no está en el
-    // historial, así que no entra), y solo se manda lo nuevo. Si el historial es
-    // más corto que entonces, es otra conversación: se empieza de cero.
-    const previos = rehacerHasta && history.length > rehacerHasta ? rehacerHasta : 0;
-    rehacerHasta = 0;
-    if (previos) {
-      await rehacerCompactada(history, previos, system, history.slice(previos).filter(m => m.role === 'user'), CABECERA_TRAS_PARADA);
-      sentCount = previos;
+    // Si no, se rehace desde ESTE historial: lo anterior entra en el prefacio,
+    // empaquetado como cuando no cabe, y solo se manda lo nuevo (los mensajes de
+    // usuario del final). Antes una conversación nueva recibía SOLO los mensajes
+    // de usuario de todo el historial, juntos en uno: el modelo perdía todo lo
+    // que ya había contestado y hecho.
+    //
+    // Tras una parada de esta misma conversación (ver soltarTrasParada), lo que
+    // había al parar, la pregunta parada incluida, va al prefacio con su propia
+    // cabecera; lo que falta de la respuesta parada no está en el historial, así
+    // que no entra. Si entre medias habló otra conversación, esto espera a que
+    // vuelva la parada.
+    const parada = cubre(trasParada, history);
+    const trasPararla = parada > 0 && parada < history.length;
+    if (trasPararla) trasParada = null;
+    const nuevo = inicioDeLoNuevo(history);
+    desde = trasPararla ? Math.max(parada, nuevo) : nuevo;
+    if (desde > 0) {
+      await rehacerCompactada(history, desde, system, history.slice(desde).filter(m => m.role === 'user'),
+        trasPararla ? CABECERA_TRAS_PARADA : CABECERA_RETOMADA);
     } else {
+      // La que había se borra: cada cambio de conversación dejaba una atrás.
+      tirar(conversation);
+      conversation = null; dentro = null;
       conversation = await crearConversacion(system);
-      sentCount = 0;
+      dentro = []; respondio = false;
     }
   }
+  sentCount = desde;
   if (signal?.aborted) return '';   // parado mientras se preparaba: aún no se ha mandado nada
   // La conversación LiteRT mantiene su propio KV-cache: enviamos solo lo nuevo.
   const fresh = history.slice(sentCount).filter(m => m.role === 'user');
@@ -223,10 +242,12 @@ export async function chat(history, system, onToken = () => {}, opciones = null)
   let text = nuevos.map(m => m.content).join('\n');
 
   // ¿Cabe? Si no: compactar lo anterior y, si ni así, recortar (ver CONTEXTO).
+  // Recién rehecha, lo anterior ya va compactado: hacerlo otra vez daría el
+  // mismo prefacio y costaría procesarlo dos veces.
   let antes = await tokensUsados();
   if (antes != null && estimaTokens(text) > ctxTokens - antes - RESERVA_SALIDA) {
     const ocupaba = estimaTokens(text);
-    if (sentCount > 0) { await rehacerCompactada(history, sentCount, system, nuevos); antes = await tokensUsados(); }
+    if (sentCount > 0 && !rehecha) { await rehacerCompactada(history, sentCount, system, nuevos); antes = await tokensUsados(); }
     if (signal?.aborted) return '';
     const largo = text.length;
     text = ajustarAlContexto(nuevos, libreEnCaracteres(antes, 0.9));
@@ -290,6 +311,7 @@ export async function chat(history, system, onToken = () => {}, opciones = null)
   // Se marca como enviado DESPUÉS de enviarlo. Antes se marcaba al principio, y
   // un envío fallido dejaba el mensaje por enviado sin haber llegado nunca.
   sentCount = history.length;
+  dentro = huellaDe(history); respondio = true;
   const despues = await tokensUsados();
   if (antes != null && despues != null && despues - antes > 64)
     charsPorToken = Math.min(2, Math.max(1.2, (text.length + out.length) / (despues - antes)));
@@ -302,9 +324,56 @@ export async function chat(history, system, onToken = () => {}, opciones = null)
 // suelta cuando termina, y este turno no tiene por qué esperarlo.
 function soltarTrasParada(history) {
   const vieja = conversation;
-  conversation = null; sentCount = 0;
-  rehacerHasta = history.length;
-  try { Promise.resolve(vieja?.delete?.()).catch(() => {}); } catch { /* ya no estaba */ }
+  conversation = null; sentCount = 0; dentro = null; respondio = false;
+  trasParada = huellaDe(history);
+  tirar(vieja);
+}
+function tirar(c) {
+  try { Promise.resolve(c?.delete?.()).catch(() => {}); } catch { /* ya no estaba */ }
+}
+
+// ── ¿De qué conversación es este historial? ─────────────────────────────────
+// La huella de un historial: rol y texto de cada mensaje. Guardarla no copia
+// nada (los textos son inmutables y son los mismos del historial). Se salta el
+// estado vivo del IDE («CONTEXTO AHORA», marcado `efimero` en agent.js): va
+// justo antes del último mensaje en CADA llamada y en la siguiente ya no está,
+// así que no forma parte de la conversación.
+const huellaDe = h => h.filter(m => !m.efimero).map(m => [m.role, m.content]);
+
+// Si `h` empieza por `huella`, cuántos mensajes de `h` cubre (contando el
+// estado vivo que haya en medio). Si no, -1.
+function cubre(huella, h) {
+  if (!huella) return -1;
+  let i = 0;
+  for (const [rol, texto] of huella) {
+    while (i < h.length && h[i].efimero) i++;
+    if (i >= h.length || h[i].role !== rol || h[i].content !== texto) return -1;
+    i++;
+  }
+  return i;
+}
+
+// ¿Este historial es la conversación que LiteRT ya lleva, con algo nuevo
+// detrás? Lo nuevo es la respuesta que dio el modelo (si quien llama la apuntó)
+// y, después, solo mensajes de usuario. Devuelve dónde empieza lo que hay que
+// mandar, o -1 si es otra conversación (o la misma sin nada nuevo). Una
+// respuesta de asistente que el modelo no dio aquí (el informe del cerebro CEO,
+// la de Hard Work) tampoco la tiene: se rehace para que entre.
+function dondeSigue(h) {
+  let i = cubre(dentro, h);
+  if (i < 0) return -1;
+  if (respondio && h[i]?.role === 'assistant') i++;
+  if (i >= h.length) return -1;
+  for (let j = i; j < h.length; j++) if (h[j].role !== 'user') return -1;
+  return i;
+}
+
+// Dónde empieza lo que el usuario (o las herramientas) han dicho desde la
+// última respuesta: los mensajes de usuario del final. Siempre deja al menos uno.
+function inicioDeLoNuevo(h) {
+  let i = h.length;
+  while (i > 0 && h[i - 1].role === 'user') i--;
+  return Math.min(i, Math.max(0, h.length - 1));
 }
 
 // El 4º argumento de chat() llega de dos formas y las dos valen, igual que en
@@ -369,6 +438,7 @@ const libreEnCaracteres = (usados, fraccion) =>
 
 const CABECERA_COMPACTADA = 'CONVERSACIÓN HASTA AHORA (no cabía entera: va lo más relevante para lo que se pide ahora):';
 const CABECERA_TRAS_PARADA = 'CONVERSACIÓN HASTA AHORA (la última respuesta se interrumpió; si no cabe entera, va lo más relevante para lo que se pide ahora):';
+const CABECERA_RETOMADA = 'CONVERSACIÓN HASTA AHORA (si no cabe entera, va lo más relevante para lo que se pide ahora):';
 
 async function rehacerCompactada(history, hasta, system, nuevos, cabecera = CABECERA_COMPACTADA) {
   let bloque = '';
@@ -388,7 +458,9 @@ async function rehacerCompactada(history, hasta, system, nuevos, cabecera = CABE
       empaquetado.map(m => `${m.role === 'assistant' ? 'Elffuss' : 'Usuario'}: ${m.content}`).join('\n');
   }
   try { await conversation?.delete?.(); } catch { /* ya no estaba */ }
+  conversation = null; dentro = null;
   conversation = await crearConversacion(system + bloque);
+  dentro = huellaDe(history.slice(0, hasta)); respondio = false;
 }
 
 function ajustarAlContexto(nuevos, maxCaracteres) {
@@ -421,5 +493,6 @@ function recortarPorElMedio(s, max) {
 // motor cargado por nada.
 export function __usarMotor(motor, contexto) {
   if (!globalThis.__ELFFUSS_PRUEBAS__) throw new Error('__usarMotor es solo para pruebas');
-  engine = motor; ctxTokens = contexto; conversation = null; sentCount = 0; sys = ''; charsPorToken = 2; rehacerHasta = 0;
+  engine = motor; ctxTokens = contexto; conversation = null; sentCount = 0; sys = ''; charsPorToken = 2;
+  dentro = null; respondio = false; trasParada = null;
 }

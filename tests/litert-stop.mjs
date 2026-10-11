@@ -11,6 +11,10 @@
 // como mensaje. Parar también corta el prefill (cancel()), y lo que se para antes
 // de mandar no se manda.
 //
+// Y cada conversación es la suya: las pestañas del chat comparten este
+// proveedor, y el turno de una no puede seguir dentro de la conversación de
+// otra (partes 4, 4b y 4c).
+//
 // Sin GPU ni navegador: chat() contra un motor de mentira que emite la
 // respuesta en varios trozos (como sendMessageStreaming).
 //
@@ -212,5 +216,94 @@ const SISTEMA = 'Eres Elffuss: '.padEnd(200, '·') + '\nreglas…';
     `${m.conversaciones.length} conversaciones · reintento ${JSON.stringify(m.conversaciones[1]?.enviados)}`);
 }
 
-console.log(fallos ? `\n❌ ${fallos} FALLO(S)` : '\n✅ LITERT OK — parar no deja una respuesta a medias dentro de la conversación');
+// 4. Dos conversaciones con el mismo proveedor (las pestañas del chat lo
+// comparten). Antes solo se miraba si el historial era más corto que lo ya
+// enviado: el de otra pestaña, más LARGO, seguía dentro de la conversación de la
+// primera. El modelo veía lo de la otra y no recibía lo anterior de esta.
+{
+  const m = motor(); L.__usarMotor(m, 4096);
+  const A = [{ role: 'user', content: 'A1: el sueldo de Ana es 4.200' }];
+  A.push({ role: 'assistant', content: await L.chat(A, SISTEMA) });
+  A.push({ role: 'user', content: 'A2: y el de Luis 3.900' });
+  A.push({ role: 'assistant', content: await L.chat(A, SISTEMA) });
+  const B = [
+    { role: 'user', content: 'B1: hola' }, { role: 'assistant', content: 'hola' },
+    { role: 'user', content: 'B2: que tal' }, { role: 'assistant', content: 'bien' },
+    { role: 'user', content: 'B3: resume lo que sabes' },
+  ];
+  await L.chat(B, SISTEMA);
+  const deB = m.conversaciones.at(-1);
+  ok('dos pestañas: la otra conversación, más larga, no sigue dentro de la primera',
+    m.conversaciones.length === 2 && !deB.enviados.join('|').includes('A1') && !deB.sistema.includes('A1'),
+    `${m.conversaciones.length} conversaciones · enviado ${JSON.stringify(deB.enviados)}`);
+  ok('  …lo anterior de ESA conversación va en el prefacio y solo se manda lo nuevo',
+    deB.sistema.includes('B1: hola') && deB.sistema.includes('B2: que tal') && JSON.stringify(deB.enviados) === '["B3: resume lo que sabes"]',
+    JSON.stringify(deB.enviados));
+  ok('  …y la de la primera se borra', m.conversaciones[0].borrada === true);
+  A.push({ role: 'user', content: 'A3: ¿y el de Ana?' });
+  await L.chat(A, SISTEMA);
+  const deA = m.conversaciones.at(-1);
+  ok('  al volver a la primera, se rehace desde SU historial, sin nada de la otra',
+    m.conversaciones.length === 3 && deA.sistema.includes('A1: el sueldo de Ana') && deA.sistema.includes('A2: y el de Luis')
+      && !deA.sistema.includes('B1') && JSON.stringify(deA.enviados) === '["A3: ¿y el de Ana?"]',
+    JSON.stringify(deA.enviados));
+}
+
+// 4b. Lo mismo con el agente de verdad: dos Agent (dos pestañas) con este
+// proveedor. El agente mete el estado vivo del IDE («CONTEXTO AHORA») antes del
+// último mensaje en cada llamada; en la siguiente ya no está, y eso no puede
+// contar como «otra conversación» (si contara, se rehará en cada turno).
+{
+  const m = motor(); L.__usarMotor(m, 4096);
+  const { Agent, mensajeContexto } = await import(process.env.AGENT_JS ? 'file://' + process.env.AGENT_JS : '../web/js/agent.js');
+  const vivo = mensajeContexto('Proyecto abierto: x', 'CONTEXTO AHORA:');
+  ok('agente · el estado vivo va marcado efímero, y la marca no sale en el JSON de una API',
+    vivo?.efimero === true && !JSON.stringify(vivo).includes('efimero'), JSON.stringify(vivo));
+  const A = new Agent(L), B = new Agent(L);
+  // B viene de antes (una conversación guardada que se vuelve a abrir)
+  B.history = [
+    { role: 'user', content: 'B1: el proyecto se llama Ballena' }, { role: 'assistant', content: 'Apuntado.' },
+    { role: 'user', content: 'B2: usa tabuladores' }, { role: 'assistant', content: 'De acuerdo.' },
+  ];
+  const turno = (ag, texto) => ag.handle(texto, () => {});
+  await turno(A, 'A1: el sueldo de Ana es 4.200');
+  await turno(B, 'B3: ¿cómo se llama el proyecto?');
+  const deB = m.conversaciones.at(-1);
+  const enviadoB = deB.enviados.join('\n');
+  ok('agente · el turno de la pestaña B no sigue dentro de la conversación de A',
+    m.conversaciones.length === 2 && !enviadoB.includes('A1') && !deB.sistema.includes('A1'),
+    `${m.conversaciones.length} conversaciones · enviado ${JSON.stringify(enviadoB.slice(0, 120))}`);
+  ok('  …a B le llega lo suyo de antes (B1 y B2, en el prefacio) y su pregunta',
+    deB.sistema.includes('B1: el proyecto se llama Ballena') && deB.sistema.includes('B2: usa tabuladores')
+      && deB.enviados.length === 1 && enviadoB.includes('B3: ¿cómo se llama el proyecto?') && !enviadoB.includes('B1'),
+    JSON.stringify(enviadoB.slice(0, 160)));
+  await turno(B, 'B4: gracias');
+  ok('  …y el turno siguiente de B sigue en SU conversación, con solo lo nuevo (el estado vivo no la rompe)',
+    m.conversaciones.length === 2 && deB.enviados.length === 2 && deB.enviados[1].includes('B4: gracias') && !deB.enviados[1].includes('B3'),
+    `${m.conversaciones.length} conversaciones · ${JSON.stringify(deB.enviados.map(t => t.slice(-30)))}`);
+  await turno(A, 'A2: ¿y el sueldo de Ana?');
+  const deA = m.conversaciones.at(-1);
+  ok('  al volver a A: su conversación, rehecha con lo suyo y nada de B',
+    m.conversaciones.length === 3 && deA.sistema.includes('A1: el sueldo de Ana') && !deA.sistema.includes('Ballena')
+      && !deA.enviados.join('\n').includes('B'),
+    JSON.stringify(deA.enviados.map(t => t.slice(-40))));
+}
+
+// 4c. Una respuesta que el modelo no dio aquí (el informe del cerebro CEO entra
+// en el historial de la conversación por appendMessage) también hay que
+// dársela: antes se saltaba como si fuera la suya y el modelo no la veía nunca.
+{
+  const m = motor(); L.__usarMotor(m, 4096);
+  const h = [{ role: 'user', content: 'revisa el proyecto' }];
+  h.push({ role: 'assistant', content: await L.chat(h, SISTEMA) });
+  h.push({ role: 'assistant', content: 'Informe del cerebro: falta un test de suma.' });
+  h.push({ role: 'user', content: '¿qué decía el informe?' });
+  await L.chat(h, SISTEMA);
+  const ultimaC = m.conversaciones.at(-1);
+  ok('una respuesta que el modelo no dio (el informe) le llega, en el prefacio',
+    m.conversaciones.length === 2 && ultimaC.sistema.includes('Informe del cerebro') && JSON.stringify(ultimaC.enviados) === '["¿qué decía el informe?"]',
+    `${m.conversaciones.length} conversaciones · ${JSON.stringify(ultimaC.enviados)}`);
+}
+
+console.log(fallos ? `\n❌ ${fallos} FALLO(S)` : '\n✅ LITERT OK — parar no deja una respuesta a medias dentro de la conversación, y cada conversación es la suya');
 process.exit(fallos ? 1 : 0);
