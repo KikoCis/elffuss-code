@@ -33,7 +33,9 @@
 //   · no level 2 errors: the bridge never in "error", no [x2] warnings, no page
 //     error from js/ext2/;
 //   · nothing requested from the sandbox site but its two documents.
-// A failed check makes the suite exit 1 whatever it said itself.
+// A failed check makes the suite exit 1 whatever it said itself. When no page
+// opened the IDE at all, the suite says "x2-mode: not exercised" and
+// run-modes.sh shows that instead of a plain PASS.
 //
 // X2_SEEDED (set here) names the two seeded extensions, for the one suite
 // that counts installed extensions itself (extensions.mjs).
@@ -93,6 +95,7 @@ const INIT = `(() => {
 
 const browsers = [];                       // { id, contexts: [] }
 let anyBrowser = false;
+let ideSeen = 0;                           // páginas que abrieron el IDE (con el código encendido)
 
 async function track(browserRec, ctx) {
   const st = {
@@ -207,6 +210,7 @@ function report(browserRec) {
       say(!ran.length, `with ?noext or ?noext2 the sandbox stayed off (${switched.length} pages)` + (ran.length ? ' — it ran in: ' + ran.map(d => d.at).join(', ') : ''));
     }
     const ide = [...st.docs.values()].filter(d => d.ide && !off(d));
+    ideSeen += ide.length;
     if (!st.seeded.size && !ide.length) { note('this context never opened Code'); continue; }
     if (!ide.length) { note('no page opened the IDE in this context'); }
     else {
@@ -272,6 +276,9 @@ function finish() {
   finished = true;
   for (const rec of browsers) if (!rec.reported) { rec.reported = true; report(rec); }
   if (!anyBrowser) note('no browser in this suite');
+  // Sin ninguna página que abriera el IDE, el recinto nunca corrió: la suite
+  // pasó, pero el modo extensiones no la ha probado. run-modes.sh lo enseña así.
+  if (!ideSeen) console.log('   x2-mode: not exercised: no page opened the IDE, so the sandbox never ran in this suite');
 }
 process.exit = code => { finish(); return origExit(failed ? 1 : code); };
 process.on('exit', code => { finish(); if (failed && !code) process.exitCode = 1; });

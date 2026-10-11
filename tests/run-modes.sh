@@ -80,22 +80,24 @@ run() {   # name mode → sets RC, OKS, BAD, SKIP
   BAD=$(( $(grep -c '❌' "$log") + $(grep -c '^ *✗ ' "$log") ))
   SKIP=$(grep -c 'NOT RUN' "$log")
 }
-verdict() {   # → PASS | FAIL | NOT RUN
-  if [ "$RC" -eq 0 ] && [ "$BAD" -eq 0 ] && [ "$OKS" -gt 0 ]; then echo PASS
+verdict() {   # → PASS | FAIL | NOT RUN, and "no IDE" when extension mode was not exercised
+  if [ "$RC" -eq 0 ] && [ "$BAD" -eq 0 ] && [ "$OKS" -gt 0 ]; then
+    if [ "${2:-}" = ext ] && grep -q 'x2-mode: not exercised' "$LOGS/$1.ext.log"; then echo "PASS, no IDE"; else echo PASS; fi
   elif [ "$RC" -eq 0 ] && [ "$BAD" -eq 0 ] && [ "$SKIP" -gt 0 ]; then echo "NOT RUN"
   else echo FAIL; fi
 }
 
-fails=0 suites=0
-printf '\n%-24s %-22s %-22s\n' suite default extension
+fails=0 suites=0 noide=""
+printf '\n%-24s %-22s %-30s\n' suite default extension
 for n in $BOTH; do
   suites=$((suites + 1))
   cols=""
   for m in default ext; do
     if [ "$MODE" != both ] && [ "$MODE" != "$m" ]; then cols="$cols$(printf '%-22s ' '-')"; continue; fi
     run "$n" "$m"
-    v=$(verdict)
+    v=$(verdict "$n" "$m")
     [ "$v" = FAIL ] && fails=$((fails + 1))
+    [ "$v" = "PASS, no IDE" ] && noide="$noide $n"
     cols="$cols$(printf '%-22s ' "$v $OKS ok $BAD bad")"
   done
   printf '%-24s %s\n' "$n" "$cols"
@@ -115,5 +117,7 @@ for n in $ONCE_LIST; do
 done
 
 echo
+# (sin IDE el recinto no corrió: pasan, pero el modo extensiones no las probó)
+if [ -n "$noide" ]; then echo "ℹ️  extension mode not exercised (no page opened the IDE, the sandbox never ran):$noide"; fi
 if [ "$fails" -eq 0 ]; then echo "✅ run-modes: $suites suites, no failures"; else echo "❌ run-modes: $fails failing runs in $suites suites (logs: $LOGS)"; fi
 [ "$fails" -eq 0 ]

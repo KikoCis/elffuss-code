@@ -59,6 +59,7 @@ retry-test
 run-bateria
 sendfeedback
 stop
+stop_ide
 streampreview
 swe_bench
 swe_style
@@ -72,6 +73,7 @@ toolparse_missingbrace
 [once]
 x2_unit
 x2_headers
+x2_deploy
 x2_smoke
 x2_bytes
 x2_canary
