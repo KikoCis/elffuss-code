@@ -116,8 +116,10 @@ switch.
 3. Check that the library's `webWorkerExtensionHostIframe.html` still matches
    `sandbox/x2/v1/exthost-iframe.html` apart from the CSP meta, and that its
    inline-script hash is unchanged.
-4. Diff the API-surface snapshot (`tests/x2-surface.json`) and review the RPC
-   allowlist.
+4. Diff the API-surface snapshot (`tests/x2-surface.json`, rewritten with
+   `node tests/x2_smoke.mjs --update`) and review the RPC allowlist
+   (`web/js/ext2/rpc-allowlist.json`): every actor must be either allowed or
+   listed in `deniedActors`, and `node tests/x2_unit.mjs` fails until it is.
 5. Run all suites in both modes, plus the canary.
 6. Re-run the runtime census (`tests/x2_census.mjs`).
 

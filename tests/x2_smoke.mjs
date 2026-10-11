@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { startServer } from './lib/x2-server.mjs';
 import { startBeacon } from './lib/beacon.mjs';
-import { seed, recordFor, SORT, FMT, HOVER, SYM, DIAG, UI, NOOP, CANARY } from './lib/x2-fixtures.mjs';
+import { seed, recordFor, SORT, FMT, HOVER, SYM, DIAG, UI, DENY, NOOP, CANARY } from './lib/x2-fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UPDATE = process.argv.includes('--update');
@@ -128,7 +128,7 @@ const sandboxRequests = (server, since = 0) => server.requests.slice(since).filt
 // ── C. extensiones sintéticas ──
 {
   const { ctx, page, requests, errors } = await freshPage();
-  await seed(page, [SORT, FMT, HOVER, SYM, DIAG, UI, NOOP, CANARY]);
+  await seed(page, [SORT, FMT, HOVER, SYM, DIAG, UI, DENY, NOOP, CANARY]);
   const since = srv.requests.length;
   requests.length = 0;
   await openIde(page);
@@ -230,6 +230,13 @@ const sandboxRequests = (server, since = 0) => server.requests.slice(since).filt
   ok('C24 canario: no ve el almacenamiento de Code (IndexedDB, OPFS)', report.filter(r => ['indexedDB', 'opfs'].includes(r.channel)).every(r => !/SAW CODE/.test(r.detail)), JSON.stringify(report.filter(r => ['indexedDB', 'opfs'].includes(r.channel))));
   ok('C25 canario: openExternal no abre nada; el portapapeles se lee vacío', report.find(r => r.channel === 'openExternal')?.detail === 'refused' && /read 0 chars/.test(report.find(r => r.channel === 'clipboard-api')?.detail || ''), JSON.stringify(report.filter(r => /open|clip/.test(r.channel))));
   ok('C26 baliza: 0 visitas', beacon.hits.length === 0, JSON.stringify(beacon.hits));
+
+  // cortafuegos de RPC: lo que no está en la lista se rechaza, la extensión
+  // recibe el error y la página lo cuenta
+  const deny = JSON.parse(await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('x2deny.report')) || '{}');
+  ok('C26b guardar desde una extensión: rechazado por el cortafuegos', /does not let extensions call MainThreadWorkspace\.\$saveAll/.test(deny.saveAll || ''), JSON.stringify(deny));
+  const dn = await until(async () => { const d = (await bridgeState(page)).denials; return d.top.some(([k]) => k === 'MainThreadWebviewPanels.$createWebviewPanel') ? d : null; });
+  ok('C26c la página cuenta los rechazos (webview incluida)', !!dn && dn.n >= 2 && dn.top.some(([k]) => k === 'MainThreadWorkspace.$saveAll'), JSON.stringify(dn));
 
   // foto de la superficie de la API
   const surface = await page.evaluate(async () => (await import('/js/ext2/bridge.js')).surface());

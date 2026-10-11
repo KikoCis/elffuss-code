@@ -76,11 +76,15 @@ export async function start({ m, port, config, sandbox = {} }) {
   window.addEventListener('unhandledrejection', e => { e.preventDefault(); sandboxError('unhandled rejection in the sandbox: ' + describe(e.reason)); });
   window.addEventListener('error', e => { e.preventDefault(); sandboxError('uncaught error in the sandbox: ' + describe(e.error || e.message)); });
 
-  // ── atribución: lo que llega del host de extensiones (RPC) ──
-  // Cada llamada del host de extensiones al hilo principal pasa por aquí. Se
-  // usa para saber qué proveedores registra una extensión (y no VS Code) y
-  // para la foto de la superficie de la API. El cortafuegos (lista de
-  // llamadas permitidas) se monta sobre este mismo punto.
+  // ── cortafuegos y atribución: lo que llega del host de extensiones (RPC) ──
+  // Cada llamada del host de extensiones al hilo principal pasa por aquí. El
+  // código de las extensiones comparte el worker con el protocolo, así que
+  // puede fabricar tramas a mano (parcheando MessagePort.prototype) y VS Code
+  // llamaría a CUALQUIER función del actor con ese nombre. Aquí solo pasan los
+  // métodos «$…» que la página permite para cada actor (rpc-allowlist.json);
+  // el resto se rechaza (la extensión recibe un error) y se cuenta. También
+  // sirve para saber qué proveedores registra una extensión (y no VS Code) y
+  // para la foto de la superficie de la API.
   const proto = m.RPCProtocol.prototype;
   const actors = new Map();                         // nombre → actor
   let fromExtHost = 0;
@@ -90,10 +94,38 @@ export async function start({ m, port, config, sandbox = {} }) {
     try { actors.set(identifier.sid || m.getStringIdentifierForProxy(identifier.nid), value); } catch { /* — */ }
     return setOriginal.call(this, identifier, value);
   };
+  const allowed = new Map();                        // actor → Set(métodos); sin lista, nada pasa
+  for (const [a, ms] of Object.entries((config.rpc && typeof config.rpc.actors === 'object' && config.rpc.actors) || {})) {
+    if (Array.isArray(ms)) allowed.set(a, new Set(ms.filter(x => typeof x === 'string' && x.startsWith('$'))));
+  }
+  const NONE = new Set();
+  const actorName = rpcId => { try { return String(m.getStringIdentifierForProxy(rpcId)); } catch { return 'actor#' + rpcId; } };
+  const denials = { n: 0, by: new Map(), timer: null };
+  const calls = new Map();                          // «Actor.$método» → veces (diagnóstico para el censo)
+  function deny(actor, method) {
+    denials.n++;
+    const k = (actor + '.' + method).slice(0, 160);
+    denials.by.set(k, (denials.by.get(k) || 0) + 1);
+    if (denials.by.size > 200) denials.by.delete(denials.by.keys().next().value);
+    if (!denials.timer) {
+      denials.timer = setTimeout(() => {
+        denials.timer = null;
+        send({ t: 'rpc.denied', n: denials.n, top: [...denials.by].sort((a, b) => b[1] - a[1]).slice(0, 10) });
+      }, 100);
+    }
+  }
   // los fallos al activar una extensión llegan por aquí y no quedan en el
   // estado de VS Code: se apuntan para decir por qué no arranca
   const activationErrors = new Map();               // id → texto
   proto._doInvokeHandler = function (rpcId, methodName, args) {
+    const actor = actorName(rpcId);
+    const method = typeof methodName === 'string' ? methodName : String(methodName);
+    if (!method.startsWith('$') || !(allowed.get(actor) || NONE).has(method)) {
+      deny(actor, method);
+      throw new Error('Elffuss Code does not let extensions call ' + actor + '.' + method.slice(0, 100));
+    }
+    const ck = actor + '.' + method;
+    if (calls.has(ck) || calls.size < 1000) calls.set(ck, (calls.get(ck) || 0) + 1);
     if (methodName === '$onExtensionActivationError') {
       try {
         const id = String((args[0] && (args[0].value || args[0]._lower)) || args[0]).toLowerCase();
@@ -679,6 +711,7 @@ export async function start({ m, port, config, sandbox = {} }) {
           send({ t: 'result', req: msg.req, ok: true, value: {
             commands: [...extCommands].filter(c => typeof c === 'string').slice(0, 2000), providers: { ...kindCount }, later: { ...laterKinds },
             markers: markersSent, errors: seenErrors.slice(-20), openRefused: openRefused.n, unsupported: [...unsupported], extensions: exts2,
+            denied: denials.n, deniedBy: Object.fromEntries([...denials.by].slice(0, 50)), calls: Object.fromEntries([...calls].slice(0, 300)),
           } });
           break;
         }

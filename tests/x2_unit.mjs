@@ -214,6 +214,29 @@ const sm = sandboxManifest({ name: 'n', publisher: 'p', version: '1.0.0', main: 
 ok('manifiesto del recinto: sin main, atajos, menús, temas ni vistas', !('main' in sm) && Object.keys(sm.contributes).sort().join() === 'commands,configuration');
 ok('manifiesto del recinto: dependencias solo instaladas, onLanguage de sus lenguajes', sm.extensionDependencies.join() === 'p.dep' && sm.activationEvents.includes('onLanguage:toml') && sm.activationEvents.includes('onCommand:x'));
 
+// ── 7b. cortafuegos de RPC: lista de llamadas permitidas ──
+const { validAllowlist, allowedCalls } = await import('../web/js/ext2/bridge.js');
+const rpcList = JSON.parse(fs.readFileSync(path.join(REPO, 'web/js/ext2/rpc-allowlist.json'), 'utf8'));
+const surfaceSnap = JSON.parse(fs.readFileSync(path.join(HERE, 'x2-surface.json'), 'utf8'));
+ok('rpc-allowlist.json válido', validAllowlist(rpcList));
+const calls = allowedCalls(rpcList);
+const outside = Object.entries(calls).flatMap(([a, ms]) => ms.filter(x => !(surfaceSnap.actors[a] || []).includes(x)).map(x => a + '.' + x));
+ok('cada llamada permitida existe en la foto de la superficie (subconjunto)', outside.length === 0, outside.join(', '));
+ok('solo métodos «$…»', Object.values(calls).flat().every(x => /^\$\w+$/.test(x)));
+const classified = new Set([...Object.keys(rpcList.actors), ...rpcList.deniedActors]);
+const unclassified = Object.keys(surfaceSnap.actors).filter(a => !classified.has(a));
+ok('cada actor de la superficie está permitido o denegado (nada sin revisar)', unclassified.length === 0, unclassified.join(', '));
+ok('ningún actor está a la vez permitido y denegado', rpcList.deniedActors.every(a => !(a in rpcList.actors)));
+const MUST_DENY = ['MainThreadWebviews', 'MainThreadWebviewPanels', 'MainThreadWebviewViews', 'MainThreadCustomEditors', 'MainThreadEditorInsets', 'MainThreadTerminalService',
+  'MainThreadDebugService', 'MainThreadSCM', 'MainThreadTask', 'MainThreadAuthentication', 'MainThreadLanguageModels', 'MainThreadChatAgents2', 'MainThreadTunnelService',
+  'MainThreadNotebook', 'MainThreadNotebookKernels', 'MainThreadComments', 'MainThreadTimeline', 'MainThreadDownloadService', 'MainThreadManagedSockets', 'MainThreadUriOpeners'];
+ok('denegados: webviews, terminal, depurador, SCM, tareas, autenticación, modelos, chat, túneles, notebooks, comentarios, línea de tiempo, descargas, sockets',
+  MUST_DENY.every(a => rpcList.deniedActors.includes(a) && !(a in rpcList.actors)), MUST_DENY.filter(a => !rpcList.deniedActors.includes(a)).join(', '));
+ok('de los denegados solo pasan las llamadas de arranque del propio host (hostSetup)', Object.keys(rpcList.hostSetup).every(a => rpcList.deniedActors.includes(a))
+  && Object.values(rpcList.hostSetup).flat().every(x => /^\$(register|get)\w+$/.test(x)));
+ok('ni guardar ni tocar el espacio de trabajo ni la red', !calls.MainThreadDocuments.includes('$trySaveDocument') && ['$save', '$saveAll', '$updateWorkspaceFolders', '$resolveProxy', '$loadCertificates'].every(x => !calls.MainThreadWorkspace.includes(x)));
+ok('lista rota no pasa', !validAllowlist({ schema: 1, actors: { MainThreadX: ['dispose'] } }) && !validAllowlist({ schema: 1, actors: [] }) && !validAllowlist(null));
+
 // ── 8. ningún fichero del nivel 2 lleva rutas de máquina ──
 const files = [...fs.readdirSync(path.join(REPO, 'web/js/ext2')).map(f => 'web/js/ext2/' + f), 'sandbox/x2/headers.json', 'sandbox/x2/headers.mjs', 'sandbox/x2/v1/sandbox.html', 'sandbox/x2/v1/exthost-iframe.html'];
 const home = ['/', 'Users', '/'].join(''), linuxHome = ['/', 'home', '/'].join('');

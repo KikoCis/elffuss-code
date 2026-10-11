@@ -162,6 +162,22 @@ exports.activate = async function (context) {
   },
 };
 
+// Pide cosas que el cortafuegos de RPC del recinto rechaza: una webview y
+// guardar todo. La extensión recibe el error; la página cuenta el rechazo.
+export const DENY = {
+  manifest: base('deny', { activationEvents: [], contributes: { commands: [{ command: 'x2deny.report', title: 'Deny report', category: 'X2' }] } }),
+  files: {
+    'extension.js': `const vscode = require('vscode');
+exports.activate = c => c.subscriptions.push(vscode.commands.registerCommand('x2deny.report', async () => {
+  const out = {};
+  try { const p = vscode.window.createWebviewPanel('x2', 'x2', vscode.ViewColumn.One, {}); out.webview = 'returned'; p.dispose(); } catch (e) { out.webview = 'threw: ' + (e && e.message); }
+  try { out.saveAll = await vscode.workspace.saveAll(); } catch (e) { out.saveAll = 'threw: ' + (e && e.message); }
+  return JSON.stringify(out);
+}));
+`,
+  },
+};
+
 export const NOOP = {
   manifest: base('noop', { contributes: { commands: [{ command: 'x2noop.hello', title: 'Hello (fixture)', category: 'X2' }] } }),
   files: { 'extension.js': `const vscode = require('vscode');\nexports.activate = c => c.subscriptions.push(vscode.commands.registerCommand('x2noop.hello', () => 'hello'));\n` },
@@ -230,7 +246,7 @@ exports.activate = function (context) {
   },
 };
 
-export const ALL = { SORT, FMT, HOVER, SYM, DIAG, UI, NOOP, OBSERVER, CANARY };
+export const ALL = { SORT, FMT, HOVER, SYM, DIAG, UI, DENY, NOOP, OBSERVER, CANARY };
 
 // Registro tal como lo guarda store.js (nivel 2): `runs` encendido y el
 // código bajo id@versión/code/<ruta>. Se usa dentro de la página:

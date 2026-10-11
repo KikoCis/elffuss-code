@@ -40,6 +40,19 @@ export function sandboxManifest(manifest, installed = new Set()) {
   return out;
 }
 
+// rpc-allowlist.json: { schema: 1, actors: { Actor: ['$método', …] }, hostSetup: { … } }
+const validActorMap = o => !!o && typeof o === 'object' && !Array.isArray(o)
+  && Object.entries(o).every(([a, ms]) => /^MainThread\w{1,80}$/.test(a) && Array.isArray(ms) && ms.length <= 200 && ms.every(x => typeof x === 'string' && /^\$\w{1,100}$/.test(x)));
+export function validAllowlist(j) {
+  return !!j && j.schema === 1 && validActorMap(j.actors) && (j.hostSetup === undefined || validActorMap(j.hostSetup));
+}
+// lo que manda al recinto: las dos listas juntas (actor → métodos)
+export function allowedCalls(j) {
+  const out = {};
+  for (const src of [j.actors, j.hostSetup || {}]) for (const [a, ms] of Object.entries(src)) out[a] = [...new Set([...(out[a] || []), ...ms])];
+  return out;
+}
+
 const listeners = new Set();
 let session = null;
 let lastError = null;
@@ -47,9 +60,10 @@ const emit = () => { for (const f of listeners) { try { f(); } catch { /* — */
 export const onChange = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 
 export function state() {
-  if (!session) return { state: lastError ? 'error' : 'stopped', error: lastError, extensions: [], commands: [] };
+  if (!session) return { state: lastError ? 'error' : 'stopped', error: lastError, extensions: [], commands: [], denials: { n: 0, top: [] } };
   return {
     state: session.state, error: session.error, violations: session.violations,
+    denials: { n: session.denials.n, top: session.denials.top.map(x => [...x]) },
     extensions: [...session.status.values()].map(s => ({ ...s })),
     commands: session.commands ? session.commands.entries().map(({ id, label, hint }) => ({ id, label, hint })) : [],
   };
@@ -76,6 +90,7 @@ class Session {
     this.disposables = [];
     this.markerOwners = new Map();                 // uri → Set(owner)
     this.contextKeys = new Map();
+    this.denials = { n: 0, top: [] };              // llamadas que el cortafuegos de RPC rechazó
     this.readyPromise = new Promise((res, rej) => { this.onReady = res; this.onFail = rej; });
   }
 
@@ -95,6 +110,10 @@ class Session {
     const relayRes = await fetch(new URL('./sandbox-relay.js', import.meta.url), { cache: 'no-cache', credentials: 'same-origin' });
     if (!relayRes.ok) throw Object.assign(new Error('relay: HTTP ' + relayRes.status), { code: 'network' });
     const relay = await relayRes.text();
+    // lista de llamadas permitidas del cortafuegos de RPC: sin ella no se arranca
+    const rpc = await fetch(new URL('./rpc-allowlist.json', import.meta.url), { cache: 'no-cache', credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null)).catch(() => null);
+    if (!validAllowlist(rpc)) throw Object.assign(new Error('the extension sandbox\'s call list is missing or broken'), { code: 'manifest' });
     if (this.state === 'stopped') return;
     this.frame = await openSandbox(origin, { onLost: e => this.fail(e) });
     if (this.state === 'stopped') { this.frame.close(); return; }
@@ -105,6 +124,7 @@ class Session {
       lang: document.documentElement.lang || 'en',
       theme: 'dark',
       languages: this.monaco.languages.getLanguages().slice(0, 1000).map(l => ({ id: l.id, extensions: (l.extensions || []).slice(0, 50), aliases: (l.aliases || []).slice(0, 10) })),
+      rpc: { actors: allowedCalls(rpc) },
     };
     this.post({ t: 'boot', vendor: vendor.map(f => ({ role: f.role, name: f.name, bytes: f.bytes })), relay, config }, vendor.map(f => f.bytes));
     let timer;
@@ -183,6 +203,9 @@ class Session {
       case 'doc.need': this.docs?.need(msg.uri); break;
       case 'markers': this.markers(msg); break;
       case 'ctx.set': this.context(msg.key, msg.value); break;
+      case 'rpc.denied':
+        if (msg.n >= this.denials.n) { this.denials = { n: msg.n, top: msg.top }; emit(); }
+        break;
       case 'pong': break;
       default: break;
     }

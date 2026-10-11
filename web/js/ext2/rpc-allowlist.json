@@ -1,0 +1,326 @@
+{
+ "schema": 1,
+ "note": "RPC firewall of the extension sandbox. The relay (sandbox-relay.js) refuses every call from the extension host to the sandbox main thread unless the method starts with $ and is listed here under its actor. Every other actor is refused whole (deniedActors lists them so a review sees each one). This list must stay a subset of tests/x2-surface.json; a library upgrade that changes the surface fails the tests until someone reviews it.",
+ "library": "@codingame/monaco-vscode-api@37.3.11",
+ "actors": {
+  "MainThreadBulkEdits": [
+   "$tryApplyWorkspaceEdit"
+  ],
+  "MainThreadClipboard": [
+   "$readText",
+   "$writeText"
+  ],
+  "MainThreadCommands": [
+   "$executeCommand",
+   "$fireCommandActivationEvent",
+   "$getCommands",
+   "$registerCommand",
+   "$unregisterCommand"
+  ],
+  "MainThreadConfiguration": [
+   "$removeConfigurationOption",
+   "$updateConfigurationOption"
+  ],
+  "MainThreadConsole": [
+   "$logExtensionHostMessage"
+  ],
+  "MainThreadDecorations": [
+   "$onDidChange",
+   "$registerDecorationProvider",
+   "$unregisterDecorationProvider"
+  ],
+  "MainThreadDiaglogs": [
+   "$showOpenDialog",
+   "$showSaveDialog"
+  ],
+  "MainThreadDiagnostics": [
+   "$changeMany",
+   "$clear"
+  ],
+  "MainThreadDocumentContentProviders": [
+   "$onVirtualDocumentChange",
+   "$registerTextContentProvider",
+   "$unregisterTextContentProvider"
+  ],
+  "MainThreadDocumentDiff": [
+   "$computeDocumentDiff"
+  ],
+  "MainThreadDocuments": [
+   "$tryCreateDocument",
+   "$tryOpenDocument"
+  ],
+  "MainThreadEditorTabs": [
+   "$closeGroup",
+   "$closeTab",
+   "$moveTab"
+  ],
+  "MainThreadErrors": [
+   "$onUnexpectedError"
+  ],
+  "MainThreadExtensionService": [
+   "$activateExtension",
+   "$asBrowserUri",
+   "$getAllStaticBrowserUris",
+   "$getExtension",
+   "$onDidActivateExtension",
+   "$onExtensionActivationError",
+   "$onExtensionRuntimeError",
+   "$onWillActivateExtension",
+   "$setPerformanceMarks"
+  ],
+  "MainThreadFileSystem": [
+   "$copy",
+   "$delete",
+   "$ensureActivation",
+   "$mkdir",
+   "$onFileSystemChange",
+   "$readFile",
+   "$readdir",
+   "$registerFileSystemProvider",
+   "$rename",
+   "$stat",
+   "$unregisterProvider",
+   "$writeFile"
+  ],
+  "MainThreadFileSystemEventService": [
+   "$unwatch",
+   "$watch"
+  ],
+  "MainThreadLabelService": [
+   "$registerResourceLabelFormatter",
+   "$unregisterResourceLabelFormatter"
+  ],
+  "MainThreadLanguageFeatures": [
+   "$emitCodeLensEvent",
+   "$emitDocumentRangeSemanticTokensEvent",
+   "$emitDocumentSemanticTokensEvent",
+   "$emitFoldingRangeEvent",
+   "$emitInlayHintsEvent",
+   "$emitInlineCompletionModelInfoChange",
+   "$emitInlineCompletionProviderOptionsChange",
+   "$emitInlineCompletionsChange",
+   "$emitInlineValuesEvent",
+   "$registerCallHierarchyProvider",
+   "$registerCodeActionSupport",
+   "$registerCodeLensSupport",
+   "$registerCompletionsProvider",
+   "$registerDeclarationSupport",
+   "$registerDefinitionSupport",
+   "$registerDocumentColorProvider",
+   "$registerDocumentFormattingSupport",
+   "$registerDocumentHighlightProvider",
+   "$registerDocumentLinkProvider",
+   "$registerDocumentOnDropEditProvider",
+   "$registerDocumentRangeSemanticTokensProvider",
+   "$registerDocumentSemanticTokensProvider",
+   "$registerDocumentSymbolProvider",
+   "$registerEvaluatableExpressionProvider",
+   "$registerFoldingRangeProvider",
+   "$registerHoverProvider",
+   "$registerImplementationSupport",
+   "$registerInlayHintsProvider",
+   "$registerInlineCompletionsSupport",
+   "$registerInlineValuesProvider",
+   "$registerLinkedEditingRangeProvider",
+   "$registerMultiDocumentHighlightProvider",
+   "$registerNavigateTypeSupport",
+   "$registerNewSymbolNamesProvider",
+   "$registerOnTypeFormattingSupport",
+   "$registerPasteEditProvider",
+   "$registerRangeFormattingSupport",
+   "$registerReferenceSupport",
+   "$registerRenameSupport",
+   "$registerSelectionRangeProvider",
+   "$registerSignatureHelpProvider",
+   "$registerTypeDefinitionSupport",
+   "$registerTypeHierarchyProvider",
+   "$resolveDocumentOnDropFileData",
+   "$resolvePasteFileData",
+   "$setLanguageConfiguration",
+   "$unregister"
+  ],
+  "MainThreadLanguages": [
+   "$changeLanguage",
+   "$computeFullSyntaxHighlighting",
+   "$removeLanguageStatus",
+   "$setLanguageStatus",
+   "$tokensAtPosition"
+  ],
+  "MainThreadLocalizationShape": [
+   "$fetchBuiltInBundleUri",
+   "$fetchBundleContents"
+  ],
+  "MainThreadLogger": [
+   "$createLogger",
+   "$deregisterLogger",
+   "$flush",
+   "$log",
+   "$registerLogger",
+   "$setVisibility"
+  ],
+  "MainThreadMessageService": [
+   "$showMessage"
+  ],
+  "MainThreadOutputService": [
+   "$close",
+   "$dispose",
+   "$register",
+   "$reveal",
+   "$update"
+  ],
+  "MainThreadProgress": [
+   "$progressEnd",
+   "$progressReport",
+   "$startProgress"
+  ],
+  "MainThreadQuickOpen": [
+   "$createOrUpdate",
+   "$dispose",
+   "$input",
+   "$setError",
+   "$setItems",
+   "$show"
+  ],
+  "MainThreadSecretState": [
+   "$deletePassword",
+   "$getKeys",
+   "$getPassword",
+   "$setPassword"
+  ],
+  "MainThreadStatusBar": [
+   "$disposeEntry",
+   "$setEntry"
+  ],
+  "MainThreadStorage": [
+   "$initializeExtensionStorage",
+   "$registerExtensionStorageKeysToSync",
+   "$setValue"
+  ],
+  "MainThreadTelemetry": [
+   "$publicLog",
+   "$publicLog2"
+  ],
+  "MainThreadTextEditors": [
+   "$getDiffInformation",
+   "$registerTextEditorDecorationType",
+   "$removeTextEditorDecorationType",
+   "$tryApplyEdits",
+   "$tryHideEditor",
+   "$tryInsertSnippet",
+   "$tryRevealRange",
+   "$trySetDecorations",
+   "$trySetDecorationsFast",
+   "$trySetOptions",
+   "$trySetSelections",
+   "$tryShowEditor",
+   "$tryShowTextDocument"
+  ],
+  "MainThreadTreeViews": [
+   "$disposeTree",
+   "$logResolveTreeNodeFailure",
+   "$refresh",
+   "$registerTreeViewDataProvider",
+   "$resolveDropFileData",
+   "$reveal",
+   "$setBadge",
+   "$setMessage",
+   "$setTitle"
+  ],
+  "MainThreadUrls": [
+   "$createAppUri",
+   "$registerUriHandler",
+   "$unregisterUriHandler"
+  ],
+  "MainThreadWindow": [
+   "$asExternalUri",
+   "$getInitialState",
+   "$openUri"
+  ],
+  "MainThreadWorkspace": [
+   "$checkExists",
+   "$isResourceTrusted",
+   "$registerCanonicalUriProvider",
+   "$registerEditSessionIdentityProvider",
+   "$requestResourceTrust",
+   "$requestWorkspaceTrust",
+   "$resolveDecoding",
+   "$resolveEncoding",
+   "$startFileSearch",
+   "$startTextSearch",
+   "$unregisterCanonicalUriProvider",
+   "$unregisterEditSessionIdentityProvider",
+   "$validateDetectedEncoding"
+  ]
+ },
+ "hostSetupNote": "Calls the extension host itself makes when it starts, before any extension runs. They only record flags (process support, task and debug types, the chat tool list). Every other method of these actors stays refused.",
+ "hostSetup": {
+  "MainThreadChatSkills": [
+   "$getTools"
+  ],
+  "MainThreadDebugService": [
+   "$registerDebugTypes"
+  ],
+  "MainThreadTask": [
+   "$registerSupportedExecutions",
+   "$registerTaskSystem"
+  ],
+  "MainThreadTerminalService": [
+   "$registerProcessSupport"
+  ]
+ },
+ "deniedActors": [
+  "MainThreadAgentEditorComments",
+  "MainThreadAiEmbeddingVector",
+  "MainThreadAiRelatedInformation",
+  "MainThreadAiSettingsSearch",
+  "MainThreadAuthentication",
+  "MainThreadBrowserTunnelProxy",
+  "MainThreadBrowsers",
+  "MainThreadChatAgents2",
+  "MainThreadChatContext",
+  "MainThreadChatDebug",
+  "MainThreadChatInputNotification",
+  "MainThreadChatOutputRenderer",
+  "MainThreadChatQuota",
+  "MainThreadChatSessions",
+  "MainThreadChatSkills",
+  "MainThreadChatStatus",
+  "MainThreadCodeMapper",
+  "MainThreadComments",
+  "MainThreadCustomEditors",
+  "MainThreadDataChannels",
+  "MainThreadDebugService",
+  "MainThreadDownloadService",
+  "MainThreadEditorInsets",
+  "MainThreadEmbeddings",
+  "MainThreadGitExtension",
+  "MainThreadInteractive",
+  "MainThreadLanguageModels",
+  "MainThreadManagedSockets",
+  "MainThreadMcpShape",
+  "MainThreadMeteredConnection",
+  "MainThreadNotebook",
+  "MainThreadNotebookDocumentsShape",
+  "MainThreadNotebookEditorsShape",
+  "MainThreadNotebookKernels",
+  "MainThreadNotebookRenderers",
+  "MainThreadPower",
+  "MainThreadProfileContentHandlers",
+  "MainThreadQuickDiff",
+  "MainThreadSCM",
+  "MainThreadSearch",
+  "MainThreadShare",
+  "MainThreadSpeechProvider",
+  "MainThreadTask",
+  "MainThreadTerminalService",
+  "MainThreadTerminalShellIntegration",
+  "MainThreadTesting",
+  "MainThreadTheming",
+  "MainThreadTimeline",
+  "MainThreadTunnelService",
+  "MainThreadUriOpeners",
+  "MainThreadWebviewPanels",
+  "MainThreadWebviewViews",
+  "MainThreadWebviews"
+ ]
+}

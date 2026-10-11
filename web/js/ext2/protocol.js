@@ -67,6 +67,8 @@ const FROM_SANDBOX = {
   markers: m => isUri(m.uri) && isStr(m.owner, 200) && Array.isArray(m.markers) && m.markers.length <= LIMITS.markers,
   'ctx.set': m => isStr(m.key, 100) && /^[\w.:-]{1,100}$/.test(m.key) && (m.value === null || ['string', 'number', 'boolean'].includes(typeof m.value)) && (typeof m.value !== 'string' || m.value.length <= 1000),
   pong: m => isInt(m.n),
+  'rpc.denied': m => isPos(m.n) && Array.isArray(m.top) && m.top.length <= 10
+    && m.top.every(x => Array.isArray(x) && x.length === 2 && isStr(x[0], 200) && isPos(x[1])),
 };
 
 export function validate(msg) {
