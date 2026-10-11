@@ -14,10 +14,12 @@
 // Se usa un fichero pequeño servido en local, no el modelo de 7 GB: lo que se
 // prueba es la lógica de reanudación, y para eso da igual el tamaño.
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir, tmpdir } from 'node:os';
+import { existsSync, readFileSync, mkdtempSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { chromium } from 'playwright';
 
 let fails = 0;
 const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
@@ -69,8 +71,10 @@ const PUERTO = srv.address().port;
 const BASE = `http://127.0.0.1:${PUERTO}`;
 
 // La página tiene que servirse por HTTP para tener OPFS: se sirve desde el
-// mismo servidor una página mínima que importa el almacén de verdad.
-const RAIZ = join(homedir(), 'work2026/elffuss-code/web');
+// mismo servidor una página mínima que importa el almacén de verdad — el de
+// ESTE árbol. Antes se servía una ruta fija a otra copia del repo, así que la
+// prueba no probaba el model-store.js que tenía al lado.
+const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const srv2 = createServer((req, res) => {
   const ruta = req.url.split('?')[0];
   if (ruta === '/') {
@@ -85,13 +89,10 @@ const srv2 = createServer((req, res) => {
 await new Promise(r => srv2.listen(0, '127.0.0.1', r));
 const APP = `http://127.0.0.1:${srv2.address().port}`;
 
-const rutas = [join(homedir(), 'work2026/elffuss-claw/tests/node_modules/playwright-core/index.mjs'),
-  join(homedir(), '.claude/skills/browser-post/node_modules/playwright-core/index.mjs')];
-const { chromium } = await import(rutas.find(existsSync));
+// Playwright y su navegador, los de estas pruebas (antes se buscaban en otros
+// proyectos y se lanzaba el Chrome instalado).
 const perfil = mkdtempSync(join(tmpdir(), 'reanuda-'));
-const ctx = await chromium.launchPersistentContext(perfil, {
-  channel: 'chrome', ignoreDefaultArgs: ['--use-mock-keychain'],
-});
+const ctx = await chromium.launchPersistentContext(perfil, {});
 const p = await ctx.newPage();
 p.on('pageerror', e => console.log('· PAGEERROR: ' + e.message.slice(0, 120)));
 

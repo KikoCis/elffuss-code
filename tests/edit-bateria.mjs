@@ -113,7 +113,9 @@ const CASOS = [
 
 const b = await chromium.launch({ channel: 'chrome', headless: true });
 const p = await (await b.newContext()).newPage();
-await p.goto('https://code.elffuss.com/', { waitUntil: 'domcontentloaded' });
+// Por defecto contra producción, como siempre; BASE=… la corre contra otro
+// servidor (un árbol local), que es lo que hace falta antes de desplegar.
+await p.goto((process.env.BASE || 'https://code.elffuss.com') + '/', { waitUntil: 'domcontentloaded' });
 await p.waitForTimeout(1200);
 
 const res = await p.evaluate(async (CASOS) => {
