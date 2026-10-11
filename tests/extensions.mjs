@@ -194,7 +194,7 @@ ok('…y la gramática se repinta con colores de Light+', await colorDe('spell',
 await abre('app.js');
 await p.evaluate(() => { const ed = window.monaco.editor.getEditors()[0]; ed.focus(); ed.trigger('t', 'type', { text: ' ' }); });
 const punto = await hasta(() => p.evaluate(() => {
-  const tab = document.querySelector('#tabs-bar .tab.active'), dot = tab?.querySelector('b.dirty');
+  const tab = document.querySelector('#tabs-bar .tab.active'), dot = tab?.querySelector('.tab-x.dirty');
   if (!dot) return null;
   const num = c => c.match(/[\d.]+/g).map(Number);
   const [r, g, b, a = 1] = num(getComputedStyle(dot).color), fondo = num(getComputedStyle(tab).backgroundColor);

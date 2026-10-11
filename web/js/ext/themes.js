@@ -337,8 +337,9 @@ export function chromeCss(theme) {
     `#tabs-bar .tab { color: ${texto};${borde ? ` border-right-color: ${borde};` : ''} }`,
     `#tabs-bar .tab.active { background: ${activa}; color: ${textoActiva};${acento ? ` box-shadow: inset 0 2px 0 ${acento};` : ''} }`,
     // el ● de «sin guardar» lleva el color claro del IDE (code.css): con un
-    // tema claro desaparecería, y es el único aviso de cambios sin guardar
-    `#tabs-bar .tab b.dirty { color: inherit; }`,
+    // tema claro desaparecería, y es el único aviso de cambios sin guardar. Es
+    // el botón .tab-x desde que la × dejó de ser un <b> (a02733c).
+    `#tabs-bar .tab .tab-x.dirty { color: inherit; }`,
     `#editor-empty { background: ${bg}; color: ${texto}; }`,
   ].join('\n');
 }
