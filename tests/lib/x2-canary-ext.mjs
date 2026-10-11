@@ -1,7 +1,8 @@
 // La extensión canario del nivel 2 (parte B2): intenta salir por todos los
 // canales que tiene una extensión y deja el resultado de cada intento.
 //
-//   · canary.run(port): cada canal de red y de almacenamiento del worker, con
+//   · canary.run(port): cada canal de red y de almacenamiento del worker
+//     (también fuentes con FontFace, Cache Storage y WebSocketStream), con
 //     nombres *.test únicos (la baliza los recibe si algo sale);
 //   · el «fuzzer» de campos: al activarse registra hover, autocompletado,
 //     firmas, acciones de código, diagnósticos y decoraciones con imágenes,
@@ -62,6 +63,9 @@ async function run(codePort, sandboxPort) {
     } catch (e) { rej(e); }
   }));
   await tryIt('webrtc', () => { if (typeof RTCPeerConnection === 'undefined') throw new Error('no RTCPeerConnection'); return new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.beacon.test:3478' }] }); });
+  await tryIt('websocketstream', () => { if (typeof WebSocketStream !== 'function') throw new Error('no WebSocketStream'); const w = new WebSocketStream(B('wsstream', 'ws')); return Promise.race([w.opened.then(() => 'open'), timeout(3000, 'wsstream')]); });
+  await tryIt('fontface', () => { if (typeof FontFace !== 'function' || !self.fonts) throw new Error('no FontFace in a worker'); const f = new FontFace('canary', 'url(' + B('font') + ')'); self.fonts.add(f); return Promise.race([f.load().then(() => 'loaded'), timeout(3000, 'font')]); });
+  await tryIt('caches-add', async () => { if (!self.caches) throw new Error('no caches'); const c = await caches.open('canary'); await c.add(B('cacheadd')); return 'added'; });
   await tryIt('open-vsx', () => fetch('https://open-vsx.org/api/-/search?query=x2-canary-leak', { mode: 'no-cors' }).then(r => r.type));
   await tryIt('code-server', () => fetch('http://127.0.0.1:' + codePort + '/js/main.js?x2-canary-leak=1', { mode: 'no-cors' }).then(r => r.type));
   await tryIt('sandbox-host', () => fetch('http://localhost:' + sandboxPort + '/x2/v1/sandbox.html?x2-canary-leak=1', { mode: 'no-cors' }).then(r => r.type));

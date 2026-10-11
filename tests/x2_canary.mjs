@@ -140,6 +140,9 @@ const leaksW = report.filter(r => r.outcome === 'ALLOWED' && !/^own:/.test(r.det
 ok(`W ${report.length} intentos desde el worker: todos bloqueados o locales`, report.length >= 30 && leaksW.length === 0, JSON.stringify(leaksW));
 ok('W no ve IndexedDB, OPFS, localStorage ni cookies de Code', report.filter(r => ['indexedDB', 'opfs', 'localStorage', 'cookie'].includes(r.channel)).every(r => !/SAW/.test(r.detail)),
   JSON.stringify(report.filter(r => ['indexedDB', 'opfs', 'localStorage', 'cookie'].includes(r.channel))));
+const tried = ch => report.find(r => r.channel === ch);
+ok('W fuentes (FontFace) y Cache Storage existen en el worker y se intentan: bloqueadas por la política, no por faltar', ['fontface', 'caches-add'].every(ch => tried(ch)?.outcome === 'blocked' && !/^no /.test(tried(ch).detail)),
+  JSON.stringify(['fontface', 'caches-add', 'websocketstream'].map(ch => [ch, tried(ch)?.outcome, tried(ch)?.detail?.slice(0, 120)])));
 ok('W el portapapeles se lee vacío; guardar todo, rechazado', /read 0 chars/.test(report.find(r => r.channel === 'clipboard-api')?.detail || '') && report.find(r => r.channel === 'saveAll')?.outcome === 'blocked');
 
 // ── P: lo que pinta la página ──
