@@ -4,22 +4,22 @@
  "vscode": "1.138.0",
  "library": "@codingame/monaco-vscode-api@37.3.11",
  "buildId": "ad4bdda82184c442",
- "method": "Runtime census: the top 500 Open VSX extensions by downloads (list of 2026-10-11) that have a browser entry, each installed from its verified .vsix and started alone in the real sandbox; activation events fired: the open sample documents' languages, onStartupFinished, * and onCommand for each contributed command (no command was executed).",
+ "method": "Runtime census: the top 500 Open VSX extensions by downloads (list of 2026-10-11) that have a browser entry, each installed from its verified .vsix and started alone in the real sandbox; once the sandbox ran, one sample document per language was opened; activation events fired: those documents' languages, onStartupFinished, * and onCommand for each contributed command (no command was executed).",
  "counts": {
   "topN": 500,
   "listDate": "2026-10-11",
   "browserEntry": 89,
   "installed": 81,
-  "active": 49,
-  "activeAndUseful": 33,
+  "active": 50,
+  "activeAndUseful": 34,
   "activeNothingRegistered": 16,
-  "error": 22,
-  "notActivated": 9,
+  "error": 23,
+  "notActivated": 7,
   "unsupported": 1,
   "installFailed": 8,
   "sandboxOrCensusError": 0,
   "withWorkbenchContributions": 52,
-  "withFormatter": 3,
+  "withFormatter": 5,
   "beaconHits": 0
  },
  "results": {
@@ -439,12 +439,9 @@
    "workbench": [],
    "bytes": 4026898,
    "state": "unsupported",
+   "unsupported": "replaces typing",
    "error": "replaces typing (the \"type\" command), which Elffuss Code does not support",
-   "commands": 69,
-   "contributedCommands": 3,
-   "providers": {},
-   "diagnostics": false,
-   "unsupported": "replaces typing"
+   "contributedCommands": 3
   },
   "davidanson.vscode-markdownlint@0.62.1": {
    "rank": 85,
@@ -620,7 +617,10 @@
    "diagnostics": false,
    "unsupportedCalls": [
     "Wz.setKeysForSync"
-   ]
+   ],
+   "askedUser": {
+    "toasts": 1
+   }
   },
   "tamasfe.even-better-toml@0.21.2": {
    "rank": 146,
@@ -666,7 +666,7 @@
    "later": {
     "codeLensProvider": 1
    },
-   "diagnostics": false,
+   "diagnostics": true,
    "sandboxErrors": 4,
    "askedUser": {
     "toasts": 1
@@ -957,8 +957,9 @@
    "workbench": [],
    "apiProposals": 1,
    "bytes": 737200,
-   "state": "installed",
-   "activation": "no activation event fired",
+   "state": "error",
+   "error": "Activating extension 'vscode.configuration-editing' failed: Extension 'vscode.configuration-editing' CANNOT use API proposal: profileContentHandlers.\nIts package.json#enabledApiProposals-property declares: [] but NOT profileContentHandlers.\n The missing proposal MUST be added and you must start in e",
+   "activation": "failed",
    "commands": 0,
    "contributedCommands": 0,
    "providers": {},
@@ -994,11 +995,26 @@
    "apiProposals": 7,
    "bytes": 40083487,
    "state": "active",
-   "commands": 12,
+   "commands": 24,
    "contributedCommands": 13,
-   "providers": {},
+   "providers": {
+    "completion": 6,
+    "definition": 2,
+    "highlights": 2,
+    "symbols": 2,
+    "formatOnType": 2,
+    "formatRange": 2,
+    "hover": 2,
+    "references": 2,
+    "signature": 2,
+    "typeDefinition": 2
+   },
    "later": {
-    "linkProvider": 2
+    "linkProvider": 2,
+    "multiDocumentHighlightProvider": 2,
+    "foldingRangeProvider": 2,
+    "linkedEditingRangeProvider": 2,
+    "selectionRangeProvider": 2
    },
    "diagnostics": false
   },
@@ -1097,11 +1113,28 @@
    "workbench": [],
    "apiProposals": 1,
    "bytes": 4713199,
-   "state": "installed",
-   "activation": "no activation event fired",
-   "commands": 0,
+   "state": "active",
+   "commands": 1,
    "contributedCommands": 0,
-   "providers": {},
+   "providers": {
+    "completion": 2,
+    "hover": 1,
+    "definition": 1,
+    "references": 1,
+    "highlights": 1,
+    "symbols": 1,
+    "codeAction": 1,
+    "rename": 1,
+    "formatRange": 3
+   },
+   "later": {
+    "linkProvider": 1,
+    "colorProvider": 1,
+    "foldingRangeProvider": 1,
+    "selectionRangeProvider": 1,
+    "documentDropEditProvider": 1,
+    "documentPasteEditProvider": 1
+   },
    "diagnostics": false
   },
   "vscode.emmet@1.95.3": {

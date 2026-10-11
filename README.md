@@ -80,13 +80,19 @@ stays Monaco 0.52; it only talks to the sandbox through one validated message ch
 renders what extensions return as plain text or escaped markdown.
 
 **In the Extensions panel**, before you install anything, each result says what will work:
-the declarative parts, *"Runs in Code's sandbox"* (with its commands, keybindings and
-settings), *"Needs Node: not available in the browser"*, the parts that *won't appear here*
-(views, webviews, debugger…) and *"Tested in Code"* from the runtime census below. The
-**Works in Code** chip hides what cannot work (it reads each result's manifest, which Open
-VSX then sees; the panel says so). **Install and run its code…** first shows what the
-extension will see, that it has no internet and cannot save, and the download sizes;
-nothing is fetched until you accept. Installed extensions with code get: run or turn off
+the declarative parts (counted the way they apply: a language Monaco already has does not
+count), *"Runs in Code's sandbox"* (with its commands, keybindings and settings),
+*"Needs Node: not available in the browser"*, the parts that *won't appear here* (views,
+webviews, debugger…) and *"Tested in Code"* from the runtime census below. Where level 2
+cannot run (code.elffuss.com today, Firefox, Safari, `?noext2`) the line says so with the
+reason, the run button is inert, and the **Works in Code** chip keeps only what works
+there. An extension that declares proposed VS Code APIs is marked: Code does not turn those
+APIs on, so some of its parts may fail (the census shows many such extensions start). The
+chip reads each result's manifest, which Open VSX then sees; the panel says so. **Install**
+on a result that only brings code reads its manifest first (no download) and offers
+**Install and run its code…**, which first shows what the extension will see, that it has no
+internet and cannot save, the runtime's size and the extension's own (from a HEAD request to
+Open VSX); nothing is downloaded until you accept. Installed extensions with code get: run or turn off
 their code (no reload), state, their commands with Run buttons (the way in on a phone),
 settings as JSON checked against what they declare, the formatter per language (theirs
 or the built-in one), keybindings that were not bound and why, a log, and the number of
@@ -112,9 +118,15 @@ What keeps your data in your browser, and what enforces it:
   punctuation character is escaped: no remote image, link or HTML. Decoration styles go
   through a whitelist (no `url()`, no `fontFamily`); gutter icons are not shown.
 - **Every address asks first** and shows the full URL (control and bidi characters made
-  visible, the host in Unicode and punycode): `openExternal`, also when a completion or a
-  code action runs it, and Cmd+click in the editor while extensions run. Links inside what
-  extensions show are plain text. Clipboard writes need a recent click or key.
+  visible, the host in Unicode and punycode, the site repeated next to the buttons, a long
+  address scrolling in its own box): `openExternal`, also when a completion or a code
+  action runs it, and Cmd+click in the editor while extensions run. A `vscode.Uri` opens
+  the way VS Code opens it (`encodeURI(uri.toString(true))`, so `=`, `&` and `+` stay as
+  written). *Block requests for this session* blocks extensions' requests only (your own
+  Cmd+click still asks); each dropped request is reported in the status bar, and the panel
+  shows the block with an *Unblock* button. Links inside what extensions show are plain
+  text. Clipboard writes need a recent click or key. A notification that waits for an
+  answer is reachable from the editor with F6 (F6 again goes back) or from Code's palette.
 - **Open documents only, no saving.** Extensions see the files you have open, as
   `file:///<project path>`; their edits go to the active document as one undo step and stay
   unsaved until you save with Cmd+S as always. An edit computed on text that changed in
@@ -138,12 +150,13 @@ address the dialog showed; and positive controls show the setup does catch leaks
 
 - **Nothing of level 2 loads until you turn an extension's code on.** `tests/x2_bytes.mjs`
   compares Code with the level 1 tip request by request, uncompressed: with no extension
-  it asks for exactly the same files and 817 bytes more (two one-line hooks in `main.js`
-  and `ide.js`); with level 1 extensions only, the same files and 4.4 KB more (the hooks in
-  `js/ext/host.js` and `store.js` that decide when to load `js/ext2/host2.js`); with the
-  Extensions panel open and a search done, the same files and 18 KB more (what the panel
-  now tells everyone: what will work, the Works in Code filter, how extensions are
-  isolated). In none of these is anything fetched from `vendor/x2/`, `js/ext2/` or the
+  it asks for exactly the same files and 881 bytes more (short hooks in `main.js` and
+  `ide.js`: the palette list, the preview gate and the list of open tabs); with level 1
+  extensions only, the same files and 4.4 KB more (the hooks in `js/ext/host.js` and
+  `store.js` that decide when to load `js/ext2/host2.js`); with the Extensions panel open
+  and a search done, the same files and 19.8 KB more (what the panel now tells everyone:
+  what will work, the Works in Code filter, how extensions are isolated, the check before
+  Install). In none of these is anything fetched from `vendor/x2/`, `js/ext2/` or the
   sandbox site. Once code is on, the runtime is 2.6 MB gzip (from the manifest), fetched
   once and then served from the HTTP cache. `?noext` pauses every extension, `?noext2` only
   their code, `"enabled": false` in the manifest is a global kill switch, and the panel can
@@ -157,35 +170,46 @@ address the dialog showed; and positive controls show the setup does catch leaks
   debugger, source control, status bar), the network or the whole project, extensions that
   replace typing (Vim, Emacs), `createQuickPick` and `createInputBox`, gutter icons, and
   Firefox and Safari in this version.
-- **Not available on code.elffuss.com yet:** the sandbox needs its own domain first
-  (`sandbox/x2/nginx.conf.example`, then `deploy-sandbox.sh`, `deploy-vendor.sh` and
-  `deploy.sh`, in that order). Locally, open Code on `http://127.0.0.1:<port>` with
+- **Not available on code.elffuss.com yet:** the sandbox needs its own registrable domain
+  first: `web/js/ext2/config.js` refuses a sandbox on the same site as Code (a subdomain of
+  elffuss.com would share cookies and a process), and `deploy-sandbox.sh` checks it before
+  uploading. In order: merge this branch's `deploy.sh` filter for `vendor/x2/` into main
+  (any deploy without it deletes the bundle; `deploy-vendor.sh` refuses until main has
+  it), then `sandbox/x2/nginx.conf.example` (Code's vendor location sets Cache-Control
+  without `always`, so a missing file is never cached as immutable), `deploy-sandbox.sh`,
+  `deploy-vendor.sh` and `deploy.sh` (which refuses to ship a manifest whose build the
+  server lacks). Locally, open Code on `http://127.0.0.1:<port>` with
   `tests/lib/x2-server.mjs`, which serves the sandbox on `localhost:<port>` (a different
   site).
 
 **What actually runs (runtime census, 2026-10-11).** Of the 500 most downloaded extensions
 on Open VSX, 89 have a browser entry. `tests/x2_census.mjs` installed each one from its
-verified package (the web build, when the publisher ships one) and started it alone in the
-real sandbox with a beacon listening:
+verified package (the web build, when the publisher ships one), started it alone in the
+real sandbox with a beacon listening, and once the sandbox ran opened one sample document
+per language it declares:
 
 | Result | Extensions |
 |---|---|
 | Too large to install (over 32 MiB per file or 64 MiB per extension) | 8 |
-| Start | 49 |
-| …and register a command, a language feature or diagnostics | 33 |
-| …and register language features (completion, hover, formatting…) | 12 |
-| Fail while starting (Node modules or globals in their browser build, services Code doesn't have, blocked network requests) | 22 |
-| Never start (nothing in Code triggers them: previews, custom editors, sign-in) | 9 |
+| Start | 50 |
+| …and register a command, a language feature or diagnostics | 34 |
+| …and register language features (completion, hover, formatting…) | 14 |
+| Fail while starting (Node modules or globals in their browser build, services or proposed APIs Code doesn't have, blocked network requests) | 23 |
+| Never start (what starts them doesn't exist in Code: a workspace, the Markdown preview, custom editors, notebooks, sign-in; one starts and never finishes) | 7 |
 | Refused: Vim replaces typing | 1 |
 | Requests that reached the beacon | 0 |
 
-The census ran again with the finished sandbox (the RPC firewall on, and notifications,
-dialogs and pickers answered the way a hurried user would: closed or cancelled) and gave
-the same counts. 8 of the 89 asked the user something while starting (7 notifications and
-1 picker); one that failed already, GitHub Pull Requests, now stops at the firewall's
-refusal of sign-in. Some extensions that start still need things Code doesn't have
-(webviews, the network, a workspace), so the census is an upper bound; per-extension
-results are in `web/js/ext2/tested.json` and feed the panel's "Tested in Code" lines.
+It ran with the finished sandbox (the RPC firewall on, and notifications, dialogs and
+pickers answered the way a hurried user would: closed or cancelled). 9 of the 89 asked the
+user something while starting (8 notifications and 1 picker); GitHub Pull Requests stops at
+the firewall's refusal of sign-in. An earlier run opened the sample documents while the
+sandbox was still starting, when Code showed extensions only the active tab: CSS and
+configuration-editing were counted as never starting and TypeScript's language features
+were missed. Code now shows extensions every open tab, also the ones opened before the
+sandbox started (`tests/x2_ux.mjs`, X11), and the census opens its samples once the sandbox
+runs. Some extensions that start still need things Code doesn't have (webviews, the
+network, a workspace), so the census is an upper bound; per-extension results are in
+`web/js/ext2/tested.json` and feed the panel's "Tested in Code" lines.
 
 Across the whole catalog (19,335 extensions on 2026-10-11) only a static sample has been
 read: 2,000 manifests put the share with a browser entry at about 5%, roughly 470 to 1,430
@@ -200,23 +224,27 @@ Tests (each starts its own loopback server; nothing goes to production):
 | Suite | What it proves |
 |---|---|
 | `x2_unit` | protocol validators, escaped markdown on a hostile corpus, conversions, keybindings and reserved chords, globs, headers, manifests, the RPC allowlist, the decoration whitelist, URL display, classification, texts, the package reader, the shipped census |
-| `x2_headers` | the sandbox documents' exact headers, 404 for anything else, Code never serves `/x2/`, the vendor files' headers and SRI (also against a deployment) |
+| `x2_headers` | the sandbox documents' exact headers, 404 for anything else, Code never serves `/x2/`, the vendor files' headers and SRI, a missing vendor file not cached (also against a deployment); the generated nginx snippets |
+| `x2_deploy` | the deploy scripts against a folder that plays the server (fake `git`, `ssh` and `rsync`): only the manifest's files go up and nothing else may be there, a stray or corrupt file stops it, main must protect `vendor/x2/` first, the sandbox must be another site |
 | `x2_smoke` | synthetic extensions end to end: commands, formatting, hovers, symbols, diagnostics, decorations, dialogs, the gates, the firewall, tampering, `?noext`/`?noext2`/kill switch |
 | `x2_bytes` | the default path and the level 1 states against the level 1 tip (above) |
 | `x2_canary` | the canary and the drill (above), with positive controls |
 | `x2_manager` | sort-lines and Prettier installed, run, configured and uninstalled through the panel, Open VSX mocked from their pinned packages |
 | `x2_commands` | sort-lines in Code's palette, F1, F9 and the context menu; Cmd+S; reserved chords and conflicts; Code's own shortcuts unchanged; hostile titles stay text |
 | `x2_format` | Prettier: Format Document, Shift+Alt+F, undo, save, settings, the built-in formatter back, a race with an agent write |
-| `x2_ux` | what the panel says before installing, the filter, sizes, a 390 px phone, dialog roles and keys, 25 of Code's elements styled identically with and without level 2 |
+| `x2_ux` | what the panel says before installing (also where level 2 cannot run, and with the filter on first), Install on a code-only result, sizes, phones (390 and 360 px, a long address), keyboard access to notifications, pickers and dialogs, blocking and unblocking requests, tabs opened before the sandbox, Spanish texts, contrast, 25 of Code's elements styled identically with and without level 2 |
 | `x2_live`, `x2_lifecycle` | the real Open VSX: install, update, turn off and on, disable, reload and uninstall, with pinned versions and SHA-256 |
 
 `tests/run-modes.sh` runs every Code suite in `tests/suites.txt` twice, as is and in
 **extension mode** (`tests/lib/x2-mode.mjs` installs two code extensions that run in the
 sandbox while the suite works, then checks the sandbox ran wherever the IDE opened, with
 no level 2 error and nothing but its two documents asked from the sandbox site), plus the
-level 2 suites once. The suites that need a live model, a GPU, a local Bridge, the
-internet or production are listed there with the reason. The runtime census is
-`node tests/x2_census.mjs` (manual).
+level 2 suites once. A suite that never opens the IDE cannot exercise extension mode: it
+shows *PASS, no IDE* and is listed at the end, not counted as covered (`stop_ide` is the
+IDE variant of `stop`). The suites that need a live model, a GPU, a local Bridge, the
+internet or production are listed there with the reason; the Bridge ones need its fixed
+ports (8765, and Code on 8799), so they have not run in extension mode. The runtime census
+is `node tests/x2_census.mjs` (manual).
 
 ## Run locally
 

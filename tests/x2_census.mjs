@@ -10,9 +10,10 @@
 //
 // Por cada una: baja el .vsix y comprueba su SHA-256 (falla cerrado), lo
 // guarda como lo haría una instalación (con sus lenguajes, para que Code
-// reconozca sus ficheros), abre un documento de muestra por lenguaje que
-// aporte, lanza onStartupFinished, «*» y los onCommand de sus comandos (solo
-// activa: no ejecuta ningún comando) y anota:
+// reconozca sus ficheros), espera a que el recinto esté en marcha, abre
+// entonces un documento de muestra por lenguaje que aporte, lanza
+// onStartupFinished, «*» y los onCommand de sus comandos (solo activa: no
+// ejecuta ningún comando) y anota:
 //   · si arranca, o el error con el que no arranca;
 //   · qué comandos y proveedores registra (por tipo), y los de fase 2;
 //   · si pone diagnósticos;
@@ -162,7 +163,6 @@ for (const [k, e] of browserOnes.entries()) {
     await seedReal(page, pkg, { languages: langs });
     await page.goto(srv.codeOrigin + '/?test-opfs', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.monaco?.editor?.getEditors?.().length, null, { timeout: 30000 });
-    for (const n of [...files.keys()].slice(0, 12)) await page.evaluate(async n => { await (await import('/js/ide.js')).openFile(n); }, n).catch(() => {});
     // (una que el recinto rechaza —sustituye el tecleo— se queda fuera y, si era
     // la única, el recinto se desmonta: eso es «no soportada», no un fallo)
     const st = await until(() => page.evaluate(async id => {
@@ -173,6 +173,11 @@ for (const [k, e] of browserOnes.entries()) {
     const refusedNow = st?.extensions?.find(x => x.id === id && x.state === 'unsupported');
     if (refusedNow) { r.state = 'unsupported'; r.unsupported = 'replaces typing'; r.error = (refusedNow.text || '').slice(0, 300); r.contributedCommands = (e.manifest.contributes?.commands || []).length; continue; }
     if (st?.state !== 'running') { r.state = 'sandbox-error'; r.error = st?.error?.message || 'no start'; continue; }
+    // Los documentos de muestra se abren con el recinto YA en marcha, uno a
+    // uno, como los abriría alguien: cada uno llega a las extensiones y
+    // dispara su onLanguage. (Que las pestañas abiertas ANTES de arrancar
+    // también lleguen lo prueba tests/x2_ux.mjs, X11.)
+    for (const n of [...files.keys()].slice(0, 12)) await page.evaluate(async n => { await (await import('/js/ide.js')).openFile(n); }, n).catch(() => {});
     // Lo que la extensión le pregunte al usuario (avisos, diálogos, selectores,
     // abrir direcciones) se contesta como lo haría alguien con prisa: cerrar o
     // cancelar. Una extensión que espera esa respuesta para terminar de
@@ -264,7 +269,7 @@ const counts = {
 };
 const out = {
   schema: 1, date: new Date().toISOString().slice(0, 10), vscode: vendor.vscode, library: vendor.library, buildId: vendor.buildId,
-  method: `Runtime census: the top ${TOP} Open VSX extensions by downloads (list of ${listDate}) that have a browser entry, each installed from its verified .vsix and started alone in the real sandbox; activation events fired: the open sample documents' languages, onStartupFinished, * and onCommand for each contributed command (no command was executed).`,
+  method: `Runtime census: the top ${TOP} Open VSX extensions by downloads (list of ${listDate}) that have a browser entry, each installed from its verified .vsix and started alone in the real sandbox; once the sandbox ran, one sample document per language was opened; activation events fired: those documents' languages, onStartupFinished, * and onCommand for each contributed command (no command was executed).`,
   counts, ...(reruns ? { reruns } : {}), results: merged,
 };
 if (!ONLY || MERGE) fs.writeFileSync(OUT, JSON.stringify(out, null, 1) + '\n');
