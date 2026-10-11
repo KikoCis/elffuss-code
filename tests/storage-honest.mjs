@@ -12,6 +12,10 @@
 //      sin tocar lo demás, diciendo cuánto se liberó. Con un SDK de broker que
 //      sabe del almacén compartido, se cuentan y vacían también el broker por
 //      defecto y los hosts del motor, todos a la vez.
+//   4. Con el teclado, el foco no se pierde: Enviar y «Vaciar caché» lo
+//      conservan mientras trabajan (antes se deshabilitaban con el foco dentro
+//      y caía a <body>), y el chip 💾, que desaparece al vaciar, lo pasa al
+//      control de al lado.
 // Ningún broker de verdad: sus páginas las contesta un doble local.
 //
 //   BASE=http://127.0.0.1:8898 node tests/storage-honest.mjs
@@ -37,8 +41,18 @@ const brokersPedidos = [];
 const ctx = await b.newContext({ locale: 'es-ES' });
 await ctx.route(BROKERS, r => { brokersPedidos.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'text/html', body: BROKER_FALSO }); });
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} window.confirm = () => true; });
+// Cada vez que el foco se pierde sin ir a ningún sitio (un botón que se
+// deshabilita o se esconde con el foco dentro), queda apuntado aquí.
+await ctx.addInitScript(() => {
+  window.__focoPerdido = [];
+  document.addEventListener('focusout', e => { if (!e.relatedTarget) window.__focoPerdido.push(e.target.id || e.target.tagName); }, true);
+});
 const p = await ctx.newPage({ viewport: { width: 1400, height: 900 } });
 const errs = []; p.on('pageerror', e => errs.push(e.message.slice(0, 160)));
+// Pulsa con el teclado (como quien no usa ratón) y dice dónde acabó el foco y
+// si se perdió por el camino.
+const conTeclado = async sel => { await p.focus(sel); await p.evaluate(() => { window.__focoPerdido = []; }); await p.keyboard.press('Enter'); };
+const foco = () => p.evaluate(() => ({ en: document.activeElement?.id || document.activeElement?.tagName, perdido: window.__focoPerdido }));
 
 const MB = 1048576;
 await p.goto(BASE + '/manifest.json');
@@ -56,8 +70,12 @@ await p.waitForFunction(() => window.elffussClaw?.conv?.getActive?.() && !docume
 // 3 · el chip cuenta solo los modelos
 const chip = await p.evaluate(() => ({ txt: document.getElementById('disk-chip').textContent, title: document.getElementById('disk-chip').title }));
 ok('3 · el chip cuenta solo los modelos (3 MB), no los 3 MB de datos del proyecto', /💾 3 MB/.test(chip.txt), JSON.stringify(chip));
-await p.click('#disk-chip');
+await conTeclado('#disk-chip');
 await p.waitForFunction(() => /Liberados/.test(document.getElementById('statusbar').textContent), null, { timeout: 10000 }).catch(() => {});
+await p.waitForFunction(() => document.getElementById('disk-chip').hidden, null, { timeout: 5000 }).catch(() => {});
+const fChip = await foco();
+ok('3 · con el teclado: al desaparecer el chip, el foco pasa al control de al lado, nunca a <body>',
+  fChip.en === 'btn-history' && !fChip.perdido.length, JSON.stringify(fChip));
 const tras = await p.evaluate(async () => {
   const root = await navigator.storage.getDirectory();
   const hay = async (n) => { try { await root.getDirectoryHandle(n); return true; } catch { return false; } };
@@ -83,7 +101,8 @@ await p.click('#btn-settings');
 await p.waitForTimeout(500);
 const tarjeta = await p.evaluate(() => [...document.querySelectorAll('#settings-panel .prov-card')].map(c => c.textContent).find(t => /modelos guardados|Ningún modelo/.test(t)) || '');
 ok('3 · la tarjeta de Ajustes habla de modelos guardados (1 MB)', /1 MB en modelos guardados/.test(tarjeta), tarjeta.slice(0, 120));
-await p.locator('#settings-panel button', { hasText: 'Vaciar caché' }).click();
+await p.evaluate(() => { const b = [...document.querySelectorAll('#settings-panel button')].find(x => x.textContent === 'Vaciar caché'); if (b) b.id = 'prueba-vaciar'; });
+await conTeclado('#prueba-vaciar');
 await p.waitForTimeout(800);
 const ajustes = await p.evaluate(async () => {
   const root = await navigator.storage.getDirectory();
@@ -91,19 +110,31 @@ const ajustes = await p.evaluate(async () => {
   return { hay, msg: [...document.querySelectorAll('#settings-panel [role="status"]')].map(n => n.textContent).join(' | ') };
 });
 ok('3 · «Vaciar caché» de Ajustes vacía los modelos y lo dice', !ajustes.hay && /Liberados 1 MB/.test(ajustes.msg), JSON.stringify(ajustes));
+const fVaciar = await foco();
+ok('3 · …y con el teclado el foco se queda en el botón todo el rato (antes se deshabilitaba y caía a <body>)',
+  fVaciar.en === 'prueba-vaciar' && !fVaciar.perdido.length, JSON.stringify(fVaciar));
 
 // 2 · Feedback: el 404 del servidor local NO es «enviado»
 await p.fill('#tel-feedback', 'un fallo que vi');
-await p.click('#tel-send');
+await conTeclado('#tel-send');
 await p.waitForTimeout(600);
 const f1 = await p.evaluate(() => ({ msg: document.getElementById('tel-msg').textContent, texto: document.getElementById('tel-feedback').value }));
 ok('2 · si el servidor no lo acepta, dice que falló', /No se pudo enviar/.test(f1.msg) && !/enviado, gracias/.test(f1.msg), JSON.stringify(f1));
 ok('2 · …y conserva el texto', f1.texto === 'un fallo que vi', JSON.stringify(f1));
-await p.route('**/proxy/report', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
-await p.click('#tel-send');
-await p.waitForTimeout(600);
+const fEnviar = await foco();
+ok('2 · con el teclado el foco sigue en «Enviar» mientras manda y después (antes caía a <body>)',
+  fEnviar.en === 'tel-send' && !fEnviar.perdido.length, JSON.stringify(fEnviar));
+// El servidor lo acepta (y tarda un poco en contestar): mientras manda, el botón
+// está ocupado (aria-busy) y un segundo Enter no manda otro.
+let envios = 0;
+await p.route('**/proxy/report', async r => { envios++; await new Promise(res => setTimeout(res, 300)); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
+await conTeclado('#tel-send');
+const ocupado = await p.evaluate(() => document.getElementById('tel-send').getAttribute('aria-busy'));
+await p.keyboard.press('Enter');
+await p.waitForFunction(() => /enviado, gracias/.test(document.getElementById('tel-msg').textContent), null, { timeout: 10000 }).catch(() => {});
 const f2 = await p.evaluate(() => ({ msg: document.getElementById('tel-msg').textContent, texto: document.getElementById('tel-feedback').value }));
 ok('2 · si el servidor lo acepta, lo da por enviado y vacía la caja', /enviado, gracias/.test(f2.msg) && f2.texto === '', JSON.stringify(f2));
+ok('2 · mientras manda está ocupado (aria-busy) y un segundo Enter no manda otro', ocupado === 'true' && envios === 1, `aria-busy ${ocupado} · ${envios} envíos`);
 await p.unroute('**/proxy/report');
 
 // 1 · «Guardar solo» guarda de verdad

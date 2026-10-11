@@ -779,9 +779,9 @@ function showModelProgress(text, pct = null, { reintentar = null } = {}) {
   if (reintentar) {
     const acc = document.createElement('div'); acc.className = 'mp-acciones';
     const r = document.createElement('button'); r.type = 'button'; r.textContent = t('retry');
-    r.onclick = () => { acc.remove(); reintentar(); };
+    r.onclick = () => { sueltaFocoPildora(); acc.remove(); reintentar(); };
     const x = document.createElement('button'); x.type = 'button'; x.textContent = '✕'; x.setAttribute('aria-label', t('close'));
-    x.onclick = () => showModelProgress(null);
+    x.onclick = () => { sueltaFocoPildora(); showModelProgress(null); };
     acc.append(r, x);
     box.querySelector('.mp-body').appendChild(acc);
   }
@@ -793,6 +793,21 @@ function showModelProgress(text, pct = null, { reintentar = null } = {}) {
     bar.classList.remove('indet');
     bar.style.width = pct + '%';
   }
+}
+// Reintentar quita sus propios botones y ✕ esconde la píldora: con el foco en
+// ellos, caía en <body> y no volvía. Se devuelve a donde estaba antes de entrar
+// en la píldora y, si eso ya no se ve, al punto del modelo (que dice cómo va la
+// carga). Lo que pasa después lo cuenta la píldora, que es una región viva.
+let antesDePildora = null;
+$('model-progress').addEventListener('focusin', e => {
+  if (!$('model-progress').contains(e.relatedTarget)) antesDePildora = e.relatedTarget;
+});
+function sueltaFocoPildora() {
+  const box = $('model-progress');
+  if (!box.contains(document.activeElement)) return;   // el foco no estaba aquí: no se toca
+  const destino = [antesDePildora, $('model-dot'), $('open-project'), $('prompt')].find(x => seVe(x) && !box.contains(x));
+  antesDePildora = null;
+  destino?.focus();
 }
 
 // El punto de estado del modelo dice con palabras qué modelo es y cómo está
@@ -1357,12 +1372,13 @@ function renderSettings() {
   // creía haberlo mandado y lo había perdido.
   telCard.querySelector('#tel-send').onclick = async () => {
     const btn = telCard.querySelector('#tel-send');
+    if (ocupado(btn)) return;   // ya se está mandando
     const ta = telCard.querySelector('#tel-feedback');
     const msg = telCard.querySelector('#tel-msg');
     const text = ta.value.trim();
     msg.style.color = '';
     if (!text) { msg.textContent = t("setTelEmpty"); return; }
-    btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+    ocupa(btn, true);
     msg.textContent = t('setTelSending');
     const wasEnabled = telemetry.isEnabled();
     if (!wasEnabled) telemetry.setEnabled(true); // el envío manual es explícito, se permite aunque el automático esté apagado
@@ -1370,7 +1386,7 @@ function renderSettings() {
     try { enviado = await telemetry.sendFeedback(text); }
     finally {
       if (!wasEnabled) telemetry.setEnabled(false); // no activa el automático de fondo si no lo pidió
-      btn.disabled = false; btn.removeAttribute('aria-busy');
+      ocupa(btn, false);
     }
     if (!enviado) { msg.textContent = t('setTelFailed'); msg.style.color = '#ff6b8b'; return; }
     ta.value = '';
@@ -3193,22 +3209,44 @@ function avisoMovil(tam, onAccept) {
 // Tamaño legible: MB por debajo de 1 GB.
 function tamano(n) { return n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : Math.round(n / 1048576) + ' MB'; }
 
+// Un botón ocupado (mandando, vaciando) se marca así y NO con `disabled`:
+// deshabilitar el botón que tiene el foco lo saca del foco, y quien va con
+// teclado se quedaba en <body> para siempre (lo mismo que se arregló en el botón
+// de parar, ver paintSendButton). aria-disabled se lo dice al lector, aria-busy
+// que está trabajando, y quien lo usa ignora los clics mientras tanto.
+function ocupa(b, si) {
+  if (si) { b.setAttribute('aria-disabled', 'true'); b.setAttribute('aria-busy', 'true'); }
+  else { b.removeAttribute('aria-disabled'); b.removeAttribute('aria-busy'); }
+}
+function ocupado(b) { return b.getAttribute('aria-busy') === 'true'; }
+
 // Vaciar los modelos guardados: lo usan el chip 💾 y «Vaciar caché» de Ajustes.
 // Devuelve el mensaje con lo que pasó (o null si el usuario canceló).
 async function vaciarModelos(boton) {
-  const m = await modelUsage();
-  if (!confirm(t('clearModelsConfirm', { size: tamano(m.total) }) + (m.sharedOk ? '' : '\n\n' + t('clearModelsShared')))) return null;
+  if (ocupado(boton)) return null;   // ya se está vaciando
   const antes = boton.textContent;
-  boton.disabled = true; boton.setAttribute('aria-busy', 'true');
-  boton.textContent = t('setClearing');
+  ocupa(boton, true);
   let r;
-  try { r = await clearModels(); }
-  finally { boton.disabled = false; boton.removeAttribute('aria-busy'); boton.textContent = antes; }
+  try {
+    const m = await modelUsage();
+    if (!confirm(t('clearModelsConfirm', { size: tamano(m.total) }) + (m.sharedOk ? '' : '\n\n' + t('clearModelsShared')))) return null;
+    boton.textContent = t('setClearing');
+    r = await clearModels();
+  } finally { ocupa(boton, false); boton.textContent = antes; }
   let msg = t('clearModelsDone', { size: tamano(r.liberado) });
   if (r.fallos.length) msg += ' ' + t('clearModelsFailed', { what: r.fallos.join(' · ') });
   if (!r.sharedOk) msg += ' ' + t('clearModelsShared');
   $('statusbar').textContent = msg;
   return msg;
+}
+
+// El control a la vista más cercano a `el` en su grupo (el siguiente o, si no
+// hay, el anterior); si ninguno, el cuadro de texto del chat.
+function vecinoVisible(el) {
+  const vale = x => x.matches('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') && !x.disabled && seVe(x);
+  for (let x = el.nextElementSibling; x; x = x.nextElementSibling) if (vale(x)) return x;
+  for (let x = el.previousElementSibling; x; x = x.previousElementSibling) if (vale(x)) return x;
+  return $('prompt');
 }
 
 // Chip 💾: lo que ocupan los MODELOS (no el origen entero, que mezclaba
@@ -3219,7 +3257,14 @@ function mountDiskChip() {
   async function paint() {
     const { quota } = await cacheEstimate();
     const m = await modelUsage();
-    if (!m.total) { chip.hidden = true; return; }
+    if (!m.total) {
+      // Sin modelos el chip se esconde. Si tenía el foco (acabas de vaciar con
+      // él), el foco caía en <body> y no volvía: pasa antes al control de al lado
+      // en la cabecera. Lo que se liberó lo dice la barra de estado (región viva).
+      if (document.activeElement === chip) vecinoVisible(chip)?.focus();
+      chip.hidden = true;
+      return;
+    }
     chip.hidden = false;
     chip.textContent = '💾 ' + tamano(m.total);
     chip.title = t('diskChipTitle', { size: tamano(m.total), quota: quota ? t('diskChipQuota', { quota: tamano(quota) }) : '' })

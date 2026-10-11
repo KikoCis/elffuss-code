@@ -592,6 +592,9 @@ header { position: relative; }
 .prov-head { display: flex; align-items: center; gap: 8px; }
 .prov-head b { flex: 1; font-size: .84rem; }
 .prov-use { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 6px; padding: 4px 10px; font-size: .74rem; cursor: pointer; }
+/* Ocupado (mandando, vaciando): con aria-disabled y no con disabled, para no
+   sacarlo del foco (ver ocupa() en main.js); esto es lo que se ve. */
+.prov-use[aria-busy="true"], .chip[aria-busy="true"] { opacity: .6; cursor: progress; }
 .prov-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .prov-fields.hide { display: none; }
 .prov-fields input { background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 9px; font-size: .78rem; width: 100%; }

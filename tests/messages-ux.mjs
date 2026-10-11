@@ -2,6 +2,8 @@
 //
 //   1. Fallo al cargar el modelo: en palabras de persona («sin conexión…», no
 //      «Failed to fetch»), en una región viva, con «Reintentar» que reintenta.
+//      Con el teclado, Reintentar y ✕ devuelven el foco a donde estaba (antes
+//      quitaban sus propios botones con el foco dentro y caía a <body>).
 //   2. Skills: sin conexión, «Explorar» lo dice dentro del panel con
 //      «Reintentar»; un repo que no vale se dice en línea, sin alert().
 //   3. El modo Básico manda a ⚙️ Ajustes → Cerebro, no a un «selector 🧠» que
@@ -53,9 +55,23 @@ await p.waitForFunction(() => /No pude cargar/.test(document.getElementById('mod
 const pildora = await p.evaluate(() => ({ txt: document.getElementById('model-progress-text').textContent, rol: document.getElementById('model-progress').getAttribute('role'), reintentar: !!document.querySelector('#model-progress .mp-acciones button') }));
 ok('1 · el fallo se dice en palabras de persona, no «Failed to fetch»', /no se pudo descargar/.test(pildora.txt) && !/Failed to fetch/.test(pildora.txt), JSON.stringify(pildora));
 ok('1 · la píldora es una región viva con «Reintentar»', pildora.rol === 'status' && pildora.reintentar, JSON.stringify(pildora));
-await p.locator('#model-progress .mp-acciones button', { hasText: 'Reintentar' }).click();
-await p.waitForTimeout(600);
+// Con el teclado: desde la tarjeta del modelo se llega a «Reintentar» y se
+// pulsa. Reintentar quita sus propios botones, y el foco caía en <body>; ahora
+// vuelve a donde estaba.
+await p.evaluate(() => { const c = [...document.querySelectorAll('#settings-panel .model-card')].find(x => /Qwen3.5-0.8B/.test(x.textContent)); if (c) c.id = 'tarjeta-qwen'; });
+await p.focus('#tarjeta-qwen');
+await p.locator('#model-progress .mp-acciones button', { hasText: 'Reintentar' }).focus();
+await p.keyboard.press('Enter');
+const trasReintentar = await p.evaluate(() => document.activeElement?.id || document.activeElement?.tagName);
+await p.waitForFunction(() => window.__cargas === 2 && /No pude cargar/.test(document.getElementById('model-progress-text').textContent), null, { timeout: 8000 }).catch(() => {});
 ok('1 · «Reintentar» vuelve a intentar la carga', await p.evaluate(() => window.__cargas) === 2, String(await p.evaluate(() => window.__cargas)));
+const trasFallar = await p.evaluate(() => document.activeElement?.id || document.activeElement?.tagName);
+ok('1 · con el teclado, el foco vuelve a la tarjeta y no a <body>, también cuando vuelve a fallar',
+  trasReintentar === 'tarjeta-qwen' && trasFallar === 'tarjeta-qwen', `${trasReintentar} → ${trasFallar}`);
+await p.locator('#model-progress .mp-acciones button[aria-label]').focus();
+await p.keyboard.press('Enter');
+const trasCerrar = await p.evaluate(() => ({ oculta: document.getElementById('model-progress').hidden, foco: document.activeElement?.id || document.activeElement?.tagName }));
+ok('1 · ✕ esconde la píldora y el foco vuelve a la tarjeta, no a <body>', trasCerrar.oculta && trasCerrar.foco === 'tarjeta-qwen', JSON.stringify(trasCerrar));
 
 // 2 · skills sin conexión y repo que no vale
 await p.evaluate(() => document.getElementById('settings-panel').hidden || document.getElementById('btn-settings').click());
