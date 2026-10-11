@@ -53,12 +53,19 @@ r = await run('terminal.run', { command: 'echo hola-tool > n.txt && cat n.txt' }
 ok('terminal.run · echo> + cat (escribe en disco)', r.ok && r.out.includes('hola-tool'), r.out);
 r = await run('terminal.run', { command: 'cat src/app.js | grep lru' });
 ok('terminal.run · tubería cat|grep', r.ok && /lru/.test(r.out), r.out);
-// 6) web.search — internet real
+// 6) web.search — internet real. Si el servidor no tiene /proxy (producción
+//    hoy: su nginx no tiene la ruta) los sitios sin CORS no se pueden leer, y
+//    eso lo tiene que DECIR la herramienta: antes contestaba «Sin resultados»
+//    como si no hubiera nada. La primera comprobación es esa honestidad; la
+//    segunda, que de verdad busca (falla mientras falte el proxy, y lo dice).
+const SIN_PROXY = 'ESTE SERVIDOR NO TIENE /proxy (falta la ruta en el servidor web) — ';
 r = await run('web.search', { query: 'mdn array map' });
-ok('web.search · búsqueda en internet real', r.ok && /https?:\/\//.test(r.out) && /Resultados/.test(r.out), r.out);
+ok('web.search · si no puede buscar, dice por qué (nunca un «Sin resultados» callado)', r.ok ? /Resultados para|Sin resultados/.test(r.out) : /No pude|bloqueó/.test(r.out), r.out);
+ok('web.search · búsqueda en internet real', r.ok && /https?:\/\//.test(r.out) && /Resultados/.test(r.out), (/no tiene el proxy/.test(r.out) ? SIN_PROXY : '') + r.out);
 // 7) web.fetch — leer una URL
 r = await run('web.fetch', { url: 'https://example.com' });
-ok('web.fetch · lee el texto de una URL', r.ok && /example|domain/i.test(r.out), r.out);
+ok('web.fetch · si no puede leer, dice por qué (no un «HTTP 404» suelto)', r.ok || /No pude leer/.test(r.out), r.out);
+ok('web.fetch · lee el texto de una URL', r.ok && /example|domain/i.test(r.out), (/no tiene el proxy/.test(r.out) ? SIN_PROXY : '') + r.out);
 
 // 8) flujo del agente: un mensaje con varias tool-calls se ejecuta entero
 const ev = await p.evaluate(async () => {
@@ -70,6 +77,6 @@ const ev = await p.evaluate(async () => {
 });
 ok('agente · ejecuta las 2 tool-calls del mismo mensaje', ev === 2, `${ev} ejecutadas`);
 
-console.log(fails ? `\n❌ ${fails} FALLO(S) de ${8}` : '\n✅ TODAS LAS TOOLS OK — code.* + terminal + web + flujo del agente');
+console.log(fails ? `\n❌ ${fails} FALLO(S) de ${10}` : '\n✅ TODAS LAS TOOLS OK — code.* + terminal + web + flujo del agente');
 await b.close();
 process.exit(fails ? 1 : 0);

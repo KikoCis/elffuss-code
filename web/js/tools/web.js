@@ -10,13 +10,26 @@ function toText(html) {
   return ((doc.body?.innerText || doc.body?.textContent || '').replace(/\n{3,}/g, '\n\n').trim()) || html.slice(0, MAX);
 }
 
+// Lee una URL: directa si el sitio permite CORS y, si no, por el proxy del
+// servidor. Cuando las dos fallan, el error dice POR QUÉ. En especial si el
+// proxy no existe en este servidor (404): antes salía «HTTP 404» a secas, que
+// se lee como «esa página no existe», y la búsqueda lo convertía en «Sin
+// resultados», como si internet no tuviera nada que decir.
+const hostDe = url => { try { return new URL(url).host; } catch { return url; } };
 async function proxyGet(url) {
-  let lastErr;
-  for (const target of [url, '/proxy?url=' + encodeURIComponent(url)]) {
-    try { const r = await fetch(target); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.text(); }
-    catch (e) { lastErr = e; }
+  let directo;
+  try { const r = await fetch(url); if (r.ok) return await r.text(); directo = new Error('HTTP ' + r.status); }
+  catch (e) { directo = e; }
+  let r;
+  try { r = await fetch('/proxy?url=' + encodeURIComponent(url)); }
+  catch (e) { throw new Error(`No pude leer ${hostDe(url)}: ni directamente (${directo?.message || 'sin respuesta'}) ni por el proxy del servidor (${e?.message || 'sin respuesta'}).`); }
+  if (r.ok) return await r.text();
+  if (r.status === 404 || r.status === 405 || r.status === 501) {
+    const e = new Error(`No pude leer ${hostDe(url)}: el sitio no deja leerlo directamente desde el navegador (CORS) y este servidor no tiene el proxy de respaldo (/proxy respondió ${r.status}). No es que la página no exista: desde aquí no se puede leer.`);
+    e.sinProxy = true;
+    throw e;
   }
-  throw lastErr || new Error('sin respuesta');
+  throw new Error(`No pude leer ${hostDe(url)}: ni directamente (${directo?.message || 'sin respuesta'}) ni por el proxy del servidor (HTTP ${r.status}).`);
 }
 
 export async function fetchUrl({ url } = {}) {
@@ -27,12 +40,24 @@ export async function fetchUrl({ url } = {}) {
 
 // Búsqueda REAL en DuckDuckGo. Parseo tolerante: cada resultado es un enlace
 // con ?uddg=<url real>. Independiente de clases (robusto a cambios de HTML).
+// Si ningún buscador contesta se dice por qué, en vez de «Sin resultados» (que
+// solo vale cuando el buscador SÍ contestó y no encontró nada). Y la página de
+// verificación anti-bot de DuckDuckGo no es una lista vacía: es un bloqueo.
+const BLOQUEO_DDG = /anomaly|unusual traffic|are you a human|bots use duckduckgo/i;
 export async function search({ query } = {}) {
   if (!query) throw new Error('Falta query');
-  let html = '';
+  let html = '', ultimoError = null, bloqueado = false;
   for (const ep of ['https://html.duckduckgo.com/html/?q=', 'https://lite.duckduckgo.com/lite/?q=']) {
-    try { html = await proxyGet(ep + encodeURIComponent(query)); if (html.includes('uddg=') || html.includes('result')) break; }
-    catch { /* siguiente endpoint */ }
+    try {
+      const h = await proxyGet(ep + encodeURIComponent(query));
+      if (!h.includes('uddg=') && BLOQUEO_DDG.test(h)) { bloqueado = true; continue; }
+      html = h;
+      if (html.includes('uddg=') || html.includes('result')) break;
+    } catch (e) { ultimoError = e; }
+  }
+  if (!html) {
+    if (bloqueado) throw new Error(`El buscador bloqueó la consulta «${query}» (DuckDuckGo pidió una verificación anti-bot a este servidor): no hay resultados que leer. Prueba más tarde, o lee una URL concreta con web.fetch.`);
+    throw ultimoError || new Error(`No pude consultar el buscador para «${query}».`);
   }
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const seen = new Set(), out = [];
