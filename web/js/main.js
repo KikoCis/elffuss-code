@@ -1900,8 +1900,13 @@ async function toggleTerminal(force) {
     pintaCapacidades();
     await terminal.mount($('terminal-host'));
     terminal.refit();
+    pintaSeparadorTerminal();
   }
 }
+// El separador que cambia la altura del terminal dice su valor y su rango
+// desde que se abre (antes aria-valuenow no existía hasta el primer arrastre, y
+// aria-valuemax nunca). Lo pone en marcha el bloque del separador, más abajo.
+let pintaSeparadorTerminal = () => {};
 // La etiqueta del terminal sigue al bridge: antes solo se pintaba al abrir el
 // panel y se quedaba vieja si el bridge conectaba o caía con él abierto.
 function pintaCapacidades() {
@@ -1921,12 +1926,20 @@ document.addEventListener('keydown', e => {
   const panel = $('terminal-panel'), handle = $('term-resize');
   let sy = 0, sh = 0;
   // También con el teclado: es un separador con foco, ↑/↓ cambian la altura.
+  const maxAlto = () => Math.max(120, window.innerHeight - 160);
   const ajusta = h => {
-    h = Math.max(120, Math.min(window.innerHeight - 160, h));
+    h = Math.max(120, Math.min(maxAlto(), h));
     panel.style.height = h + 'px';
     handle.setAttribute('aria-valuenow', String(Math.round(h)));
+    handle.setAttribute('aria-valuemax', String(maxAlto()));
     terminal.refit();
   };
+  pintaSeparadorTerminal = () => {
+    handle.setAttribute('aria-valuemax', String(maxAlto()));
+    if (!panel.hidden && panel.offsetHeight) handle.setAttribute('aria-valuenow', String(Math.round(panel.offsetHeight)));
+  };
+  pintaSeparadorTerminal();
+  window.addEventListener('resize', () => pintaSeparadorTerminal());
   handle.setAttribute('role', 'separator');
   handle.setAttribute('aria-orientation', 'horizontal');
   handle.setAttribute('aria-label', t('termResizeLabel'));
@@ -2299,7 +2312,11 @@ function pintaModos() {
   if (goalMode) activos.push(['🎯', t('modeGoal')]);
   if (hardMode) activos.push(['⛏', t('modeHard')]);
   b.textContent = '⚙︎ ' + t('modesBtn') + (activos.length ? ' · ' + activos.map(a => a[0] === 'Revisar' ? t('reviewTxt') : a[0]).join(' ') : '') + ' ▾';
-  b.setAttribute('aria-label', t('modesBtn') + (activos.length ? ': ' + activos.map(a => a[1]).join(', ') : ': ' + t('modesNone')));
+  // El nombre accesible dice TODOS los modos encendidos, también Auto, que es el
+  // de por defecto: con Auto encendido decía «Modos: ninguno activo» mientras el
+  // menú lo mostraba marcado.
+  const nombres = [autoEdit ? t('modeAuto') : t('modeReview'), ...activos.filter(a => a[0] !== 'Revisar').map(a => a[1])];
+  b.setAttribute('aria-label', t('modesBtn') + ': ' + nombres.join(', '));
   b.classList.toggle('on', activos.length > 0);
   $('btn-autoedit')?.setAttribute('aria-checked', autoEdit ? 'true' : 'false');
   $('btn-goal')?.setAttribute('aria-checked', goalMode ? 'true' : 'false');

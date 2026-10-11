@@ -361,6 +361,9 @@ function renderTabs() {
     // <div> sin foco. La activa entra con Tab; ←/→ se mueven entre ellas.
     el.setAttribute('role', 'tab');
     el.setAttribute('aria-selected', on ? 'true' : 'false');
+    // Nombre propio: sin él, el de la pestaña era el fichero MÁS el botón × que
+    // lleva dentro («app.js Cerrar app.js»).
+    el.setAttribute('aria-label', baseOf(tb.path) + (tb.dirty ? ' ' + t('tabUnsaved') : '') + (tb.deleted ? ' — ' + t('fileDeletedDirty') : ''));
     el.tabIndex = on ? 0 : -1;
     const ico = document.createElement('span');
     ico.className = 'tab-ico';
