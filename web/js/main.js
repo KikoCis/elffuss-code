@@ -1633,6 +1633,7 @@ $('composer').addEventListener('submit', e => {
   const text = $('prompt').value.trim();
   if (!text) return;
   $('prompt').value = '';
+  pintaAdjuntos();                 // lo adjuntado se fue con el mensaje
   pushPromptHistory(text);
   send(text);
 });
@@ -2368,11 +2369,49 @@ function tokenArroba(el) {
 }
 
 $('prompt').addEventListener('input', () => {
+  pintaAdjuntos();
   const tk = tokenArroba($('prompt'));
   if (!tk) { if (arrobaDesde >= 0) cierraMenu(); return; }
   arrobaDesde = tk.desde;
   abreMenuFicheros(tk.frag);
 });
+
+// Lo adjuntado con @ se ve como fichas encima de la caja, cada una con su ×
+// para quitarla. Antes solo era texto dentro del mensaje: para saber qué iba
+// adjunto había que leerlo entero, y para quitarlo, encontrarlo y borrarlo a
+// mano. La ficha vive mientras su @ruta siga en el texto (si la borras a mano,
+// se va también).
+const adjuntos = new Set();
+const tokenDe = ruta => new RegExp('(^|\\s)@' + ruta.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=\\s|$)');
+function pintaAdjuntos() {
+  const box = $('attach-chips');
+  if (!box) return;
+  const v = $('prompt').value;
+  for (const ruta of [...adjuntos]) if (!tokenDe(ruta).test(v)) adjuntos.delete(ruta);
+  box.replaceChildren();
+  box.hidden = !adjuntos.size;
+  box.setAttribute('aria-label', t('attachChips'));
+  for (const ruta of adjuntos) {
+    const ficha = document.createElement('span');
+    ficha.className = 'attach-chip';
+    ficha.setAttribute('role', 'listitem');
+    ficha.append('@' + ruta);
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.textContent = '×';
+    x.setAttribute('aria-label', t('attachRemove', { path: ruta }));
+    x.title = x.getAttribute('aria-label');
+    x.onclick = () => { quitaAdjunto(ruta); $('prompt').focus(); };
+    ficha.appendChild(x);
+    box.appendChild(ficha);
+  }
+}
+function quitaAdjunto(ruta) {
+  const p = $('prompt');
+  p.value = p.value.replace(tokenDe(ruta), '$1').replace(/[ \t]{2,}/g, ' ').replace(/^ +/, '');
+  adjuntos.delete(ruta);
+  pintaAdjuntos();
+}
 
 function attach(path) {
   const p = $('prompt');
@@ -2391,6 +2430,8 @@ function attach(path) {
   }
   arrobaDesde = -1;
   cacheFicheros = null;
+  adjuntos.add(path);
+  pintaAdjuntos();
 }
 
 // </> Auto (Edit automatically): si off, pide confirmación antes de escribir
