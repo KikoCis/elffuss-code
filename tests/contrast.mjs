@@ -13,7 +13,10 @@ const br = await chromium.launch({ args: ['--enable-unsafe-webgpu', ...CHROME_AR
 const ctx = await br.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage({ viewport: { width: 1200, height: 820 } });
-await p.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
+// En '/' solo está la landing: desde 77fb41b el IDE oculto (#ide[hidden]) no
+// se ve detrás, y los botones de Ajustes viven dentro. Se abre el IDE de prueba.
+await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
+await p.waitForSelector('#ide:not([hidden])', { timeout: 15000 });
 await p.waitForTimeout(800);
 // abrir Ajustes
 await p.click('#act-settings').catch(() => p.click('#btn-settings'));

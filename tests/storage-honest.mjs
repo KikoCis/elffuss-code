@@ -128,8 +128,8 @@ const disco = await p.evaluate(async () => {
 });
 ok('1 · con «Guardar solo», el mensaje nuevo acaba en .elffuss/code/ sin pulsar Guardar', disco.razon === 'auto' && disco.contiene, JSON.stringify(disco));
 
-// 3 · con un SDK de broker que SÍ sabe del almacén compartido (como el de main)
-// Doble local: el model-broker.js de este árbol más sharedUsage/clearShared que
+// 3 · con el SDK de broker que sabe del almacén compartido (el de main)
+// Doble local: el model-broker.js de este árbol con sharedUsage/clearShared que
 // apuntan lo que se les pide, y un registro del motor con dos hosts de pesos.
 {
   const DOBLE = `
@@ -145,7 +145,13 @@ export async function clearShared(o) {
   await c2.route(BROKERS, r => { brokersPedidos.push(r.request().url()); return r.fulfill({ status: 200, contentType: 'text/html', body: BROKER_FALSO }); });
   await c2.route('**/js/runtime/model-broker.js*', async route => {
     const r = await route.fetch();
-    await route.fulfill({ response: r, body: (await r.text()) + DOBLE, headers: { ...r.headers(), 'content-type': 'text/javascript' } });
+    // El SDK de main YA trae sharedUsage/clearShared: los suyos se renombran y se
+    // ponen los dobles. Añadir los dobles sin más duplicaba los export y el
+    // módulo entero no cargaba (y model-cache.js se quedaba sin broker).
+    const propio = (await r.text())
+      .replace(/export async function sharedUsage\(/, 'async function sharedUsageReal(')
+      .replace(/export async function clearShared\(/, 'async function clearSharedReal(');
+    await route.fulfill({ response: r, body: propio + DOBLE, headers: { ...r.headers(), 'content-type': 'text/javascript' } });
   });
   await c2.route('**/js/engine/registro.js*', r => r.fulfill({ status: 200, contentType: 'text/javascript',
     body: "export const MODELS = {}; export async function disponible() { return false; } export function origenesAlmacen() { return ['https://m1.elffuss.com/', 'https://m2.elffuss.com/']; }" }));

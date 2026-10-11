@@ -12,7 +12,13 @@ if (!TOKEN) { console.log('❌ falta BRIDGE_TOKEN en el entorno (token real impr
 
 const b = await chromium.launch();
 const ctx = await b.newContext();
-await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
+await ctx.addInitScript(() => {
+  try { localStorage.setItem('elffusscode.model', 'rules'); } catch {}
+  // Para simular una CAÍDA de la conexión hace falta el socket: se apuntan.
+  const W = window.WebSocket;
+  window.__sockets = [];
+  window.WebSocket = class extends W { constructor(...a) { super(...a); window.__sockets.push(this); } };
+});
 const p = await ctx.newPage();
 p.on('console', m => { if (/error/i.test(m.type()) && !/favicon/.test(m.text())) console.log('  [console]', m.text()); });
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
@@ -33,16 +39,16 @@ await p.waitForTimeout(2000);
 const connected2 = await p.evaluate(async () => (await import('/js/bridge.js')).isConnected());
 ok('tras recargar, tryAutoConnect() reconecta con el token guardado', connected2 === true);
 
-// 3) simular una caída (bridge.disconnect() en el cliente, el proceso REAL
-//    sigue vivo) y comprobar que startAutoDetect() lo reconecta solo, sin
-//    tocar nada — antes de este cambio esto se quedaba «desconectado» para
-//    siempre hasta que el usuario reabriera Ajustes y pulsara Conectar.
-await p.evaluate(async () => {
-  const bridge = await import('/js/bridge.js');
-  bridge.disconnect();
-});
+// 3) simular una CAÍDA (se cierra el socket por debajo, el proceso REAL sigue
+//    vivo) y comprobar que startAutoDetect() lo reconecta solo, sin tocar nada
+//    — antes de este cambio esto se quedaba «desconectado» para siempre hasta
+//    que el usuario reabriera Ajustes y pulsara Conectar. (Antes se simulaba con
+//    bridge.disconnect(), pero desde c847a2f/1d78303 eso es el «Desconectar» del
+//    usuario, que se respeta y NO reconecta solo: lo prueba bridge-pause.mjs.)
+await p.evaluate(() => { window.__sockets.at(-1)?.close(); });
+await p.waitForTimeout(300);
 const disconnectedNow = await p.evaluate(async () => (await import('/js/bridge.js')).isConnected());
-ok('bridge.disconnect() desconecta de verdad', disconnectedNow === false);
+ok('la caída de la conexión desconecta de verdad', disconnectedNow === false);
 
 await p.waitForTimeout(6000); // startAutoDetect sondea cada 4s
 const reconnected = await p.evaluate(async () => (await import('/js/bridge.js')).isConnected());

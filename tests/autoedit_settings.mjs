@@ -7,7 +7,8 @@ const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
 const b = await chromium.launch();
-const ctx = await b.newContext();
+// Etiquetas en español (la interfaz sigue al idioma del navegador desde 7d5e790).
+const ctx = await b.newContext({ locale: 'es-ES' });
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage();
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
@@ -29,7 +30,9 @@ await p.waitForTimeout(200);
 const btnText = await p.locator('#btn-autoedit .ae-txt').innerText();
 ok('el botón </> de la barra refleja "Revisar" tras desmarcar en Ajustes', btnText === 'Revisar', btnText);
 
-// volver a marcarlo desde la BARRA debe reflejarse en Ajustes al reabrir
+// volver a marcarlo desde la BARRA debe reflejarse en Ajustes al reabrir. Desde
+// 43f95b7 el interruptor vive en el menú «⚙︎ Modos»: se abre y se pulsa.
+if (await p.locator('#modos-menu').isHidden()) await p.click('#btn-modos');
 await p.click('#btn-autoedit');
 await p.waitForTimeout(150);
 await p.click('#btn-settings');

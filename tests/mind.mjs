@@ -1,5 +1,8 @@
-// Mente v2: mundo audio-reactivo + consolas flotantes + nodos clicables +
+// La Mente: mundo audio-reactivo + estrellas por perfil + nodos clicables +
 // config de cerebro + persistencia (música/animación) + reporte al chat.
+// (Era la suite de la Mente v2: las consolas flotantes desaparecieron con la v3,
+// 603262e, y lo que cada perfil deja ahora es una estrella. mind_stars.mjs
+// prueba la v3 a fondo.)
 import { chromium } from 'playwright';
 import { CHROME_ARGS } from './chrome-args.mjs';
 const OUT = (process.env.SCRATCH || '/tmp/elffuss-test');
@@ -20,14 +23,17 @@ ok('sin subtítulo (solo título)', await p.evaluate(()=>{const t=document.getEl
 ok('música solo a petición (botón, sin reproductor cargado)', await p.locator('.mind-music iframe').count()===0 && await p.locator('.mind-music-btn').count()===1);
 ok('botón de config del cerebro', await p.locator('#mind-config').count()>0);
 
-// inyectar pensamientos + una mejora forjada
-await p.evaluate(async ()=>{ const m=await import('/js/mind.js');
+// inyectar pensamientos + una mejora forjada (las estrellas se cuentan en el
+// mismo paso: viven unos segundos de reloj de fotogramas)
+const estrellas = await p.evaluate(async ()=>{ const m=await import('/js/mind.js');
+  const antes = m._debug().starCount;
   m.pushThought('ceo',{type:'cycle',n:1,text:'Reparto el trabajo…'});
-  for(const [id,name] of [['arq','Arquitectura'],['cal','Calidad'],['rend','Rendimiento'],['dx','Producto/DX']]){ m.pushThought(id,{type:'open',name,focus:'foco'}); m.pushThought(id,{type:'token',text:'analizo '+name+' y propongo una mejora concreta en app.js. '}); m.pushThought(id,{type:'done'}); }
+  for(const [id,name] of [['arq','Arquitectura'],['cal','Calidad'],['rend','Rendimiento'],['dx','Producto/DX']]){ m.pushThought(id,{type:'open',name,focus:'foco'}); m.pushThought(id,{type:'token',text:'analizo '+name+' y propongo una mejora concreta en app.js.\n'}); m.pushThought(id,{type:'done'}); }
   m.pushThought('ceo',{type:'built',text:'Guardado en .elffuss/soul/mejoras-001.md',path:'.elffuss/soul/mejoras-001.md',proposals:[{dept:'Arquitectura',text:'extraer helper'},{dept:'Calidad',text:'añadir test'}]});
+  return { antes, despues: m._debug().starCount };
 });
 await p.waitForTimeout(1000);
-ok('consolas flotantes (ancladas al mundo)', await p.locator('.mind-console').count()>=4, await p.locator('.mind-console').count()+'');
+ok('cada perfil deja su estrella (Mente v3)', estrellas.despues - estrellas.antes >= 4, `${estrellas.antes}→${estrellas.despues}`);
 ok('nodo de pensamiento clicable creado', await p.evaluate(()=>document.querySelectorAll('.mind-node-label').length>0));
 
 // abrir el panel de config y reprogramar la misión
@@ -46,5 +52,5 @@ ok('al cerrar el overlay se oculta (no se destruye)', await p.evaluate(()=>{cons
 await p.locator('#activity img').click(); await p.waitForTimeout(400);
 ok('al reabrir NO se recrea (persistencia música/animación)', await p.evaluate(()=>document.querySelectorAll('#mind-overlay').length===1));
 console.log('captura → mind2.png');
-console.log(fails?`\n❌ ${fails} FALLO(S)`:'\n✅ MENTE v2 OK');
+console.log(fails?`\n❌ ${fails} FALLO(S)`:'\n✅ MENTE OK');
 await b.close(); process.exit(fails?1:0);

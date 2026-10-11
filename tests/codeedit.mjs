@@ -35,7 +35,8 @@ const r2 = await p.evaluate(async () => {
   try { await code.edit({ path: 'dup.py', search: 'x = 1', replace: 'x = 2' }); return 'NO LANZÓ ERROR'; }
   catch (e) { return 'ERROR: ' + e.message; }
 });
-ok('ambigüedad (aparece 2+ veces) se rechaza con mensaje claro', /más de una vez/.test(r2), r2);
+// Desde b418762 el error dice dónde aparece (líneas) en vez de «más de una vez».
+ok('ambigüedad (aparece 2+ veces) se rechaza con mensaje claro', /aparece \d+ veces en dup\.py \(líneas \d+(, \d+)+\)/.test(r2), r2);
 const dupUnchanged = await p.evaluate(async () => (await import('/js/tools/code.js')).read({ path: 'dup.py' }));
 ok('el fichero ambiguo queda INTACTO (no escribió nada al azar)', dupUnchanged === 'x = 1\nx = 1\nx = 1\n');
 

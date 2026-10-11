@@ -23,7 +23,8 @@ ok('el botón de enviar empieza normal (sin "sending")', !(await p.locator('#btn
 await p.fill('#prompt', 'hola');
 await p.press('#prompt', 'Enter');
 await p.waitForTimeout(150);
-ok('el botón de enviar muestra estado "pensando" (clase sending + disabled)', await p.locator('#btn-send').evaluate(el => el.classList.contains('sending') && el.disabled));
+// Desde 2421c1b el botón NO se deshabilita mientras genera: pasa a ■ Parar.
+ok('el botón de enviar pasa a ■ PARAR mientras genera (sending + is-stop, clicable)', await p.locator('#btn-send').evaluate(el => el.classList.contains('sending') && el.classList.contains('is-stop') && !el.disabled));
 await p.waitForTimeout(1500);
 ok('al terminar, el botón vuelve a su estado normal', await p.locator('#btn-send').evaluate(el => !el.classList.contains('sending') && !el.disabled));
 

@@ -8,7 +8,8 @@ const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0; const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
 
 const b = await chromium.launch();
-const ctx = await b.newContext();
+// Estados del plan en español (están localizados desde e4415eb).
+const ctx = await b.newContext({ locale: 'es-ES' });
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
 const p = await ctx.newPage();
 p.on('pageerror', e => console.log('   pageerror:', e.message.slice(0, 160)));
@@ -19,8 +20,10 @@ await p.waitForTimeout(1500);
 ok('el botón 🎯 Goal existe', await p.locator('#btn-goal').count() === 1);
 ok('empieza desactivado', !(await p.locator('#btn-goal').evaluate(el => el.classList.contains('on'))));
 
-// 2) activarlo lo enciende (misma mecánica que </> Auto)
-await p.click('#btn-goal');
+// 2) activarlo lo enciende (misma mecánica que </> Auto). Desde 43f95b7 vive
+// dentro del menú «⚙︎ Modos»: se abre el menú y se pulsa.
+const pulsaObjetivo = async () => { if (await p.locator('#modos-menu').isHidden()) await p.click('#btn-modos'); await p.click('#btn-goal'); };
+await pulsaObjetivo();
 await p.waitForTimeout(100);
 ok('un clic lo enciende', await p.locator('#btn-goal').evaluate(el => el.classList.contains('on')));
 ok('persiste en localStorage', await p.evaluate(() => localStorage.getItem('elffusscode.goalmode') === '1'));
@@ -65,7 +68,7 @@ const statusAfterReload = await p.locator('.plan-card .plan-status').innerText()
 ok('el estado final persiste tras recargar', /completado|con fallos/i.test(statusAfterReload), statusAfterReload);
 
 // 7) apagar Goal vuelve al chat normal
-await p.click('#btn-goal');
+await pulsaObjetivo();
 await p.waitForTimeout(100);
 ok('un segundo clic lo apaga', !(await p.locator('#btn-goal').evaluate(el => el.classList.contains('on'))));
 
