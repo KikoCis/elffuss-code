@@ -246,6 +246,29 @@ ok('de los denegados solo pasan las llamadas de arranque del propio host (hostSe
 ok('ni guardar ni tocar el espacio de trabajo ni la red', !calls.MainThreadDocuments.includes('$trySaveDocument') && ['$save', '$saveAll', '$updateWorkspaceFolders', '$resolveProxy', '$loadCertificates'].every(x => !calls.MainThreadWorkspace.includes(x)));
 ok('lista rota no pasa', !validAllowlist({ schema: 1, actors: { MainThreadX: ['dispose'] } }) && !validAllowlist({ schema: 1, actors: [] }) && !validAllowlist(null));
 
+// ── 7c. puertas: cómo se enseña una dirección, qué órdenes del agente preguntan ──
+const gates = await import('../web/js/ext2/gates.js');
+const RLO = String.fromCodePoint(0x202E), ZWSP = String.fromCodePoint(0x200B), BEL = String.fromCodePoint(7), A_CYR = String.fromCodePoint(0x430);
+ok('dirección: los caracteres bidi y de control se ven', gates.visibleText('https://a.test/' + RLO + 'txt.exe') === 'https://a.test/<U+202E>txt.exe' && gates.visibleText('a' + ZWSP + 'b' + BEL) === 'a<U+200B>b<U+0007>');
+const cyr = new URL('https://' + A_CYR + 'pple.com/').hostname;          // «а» cirílica
+ok('punycode → Unicode', gates.unicodeHost('xn--mnchen-3ya.de') === 'münchen.de' && gates.unicodeHost(cyr) === A_CYR + 'pple.com' && gates.unicodeHost('plain.test') === 'plain.test', cyr);
+const d1 = gates.describeUrl('https://' + A_CYR + 'pple.com/login');
+ok('describeUrl: host en punycode y en Unicode cuando difieren', d1.openable && d1.host === cyr && d1.hostUnicode === A_CYR + 'pple.com' && d1.href === `https://${cyr}/login`);
+ok('describeUrl: solo http, https y mailto se pueden abrir', !gates.describeUrl('javascript:alert(1)').openable && !gates.describeUrl('command:workbench.action.reloadWindow').openable
+  && gates.describeUrl('mailto:a@b.test').openable && gates.describeUrl('mailto:a@b.test').site === 'b.test' && !gates.describeUrl('no es una url').ok);
+ok('agente: un runtime del Bridge en cualquier tramo de la orden pregunta', gates.runsRuntime('ls && node x.js') && gates.runsRuntime('cat a | python3 -') && gates.runsRuntime('echo a; npm i')
+  && !gates.runsRuntime('ls -la; cat node.txt') && !gates.runsRuntime('echo "node; npm"'));
+ok('agente: la búsqueda enseña las dos direcciones que puede pedir', gates.searchUrls('a b').length === 2 && gates.searchUrls('a b')[0] === 'https://html.duckduckgo.com/html/?q=a%20b');
+const fakeTools = { 'web.fetch': { run: async a => 'fetched ' + a.url }, 'web.search': { run: async () => 'searched' }, 'terminal.run': { run: async a => 'ran ' + a.command } };
+const asked = [];
+const restore = gates.installAgentGate(fakeTools, { ask: async (kind, lines) => { asked.push([kind, lines]); return lines[0].includes('ok'); } });
+const r1 = await fakeTools['web.fetch'].run({ url: 'https://x.test/no' }), r2 = await fakeTools['web.fetch'].run({ url: 'https://x.test/ok' });
+const r3 = await fakeTools['terminal.run'].run({ command: 'ls' }), r4 = await fakeTools['terminal.run'].run({ command: 'npm test' });
+restore();
+const r5 = await fakeTools['web.fetch'].run({ url: 'https://x.test/no' });
+ok('agente: denegar devuelve el aviso, permitir ejecuta; al quitar la puerta todo vuelve', r1 === gates.AGENT_DENIED && r2 === 'fetched https://x.test/ok' && r3 === 'ran ls' && r4 === gates.AGENT_DENIED
+  && r5 === 'fetched https://x.test/no' && asked.length === 3, JSON.stringify({ r1, r2, r3, r4, r5, asked }));
+
 // ── 8. ningún fichero del nivel 2 lleva rutas de máquina ──
 const files = [...fs.readdirSync(path.join(REPO, 'web/js/ext2')).map(f => 'web/js/ext2/' + f), 'sandbox/x2/headers.json', 'sandbox/x2/headers.mjs', 'sandbox/x2/v1/sandbox.html', 'sandbox/x2/v1/exthost-iframe.html'];
 const home = ['/', 'Users', '/'].join(''), linuxHome = ['/', 'home', '/'].join('');

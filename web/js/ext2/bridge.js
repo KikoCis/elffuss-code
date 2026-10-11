@@ -15,6 +15,7 @@ import { EditorPort } from './docs.js';
 import { Features } from './features.js';
 import { Commands } from './commands.js';
 import { ExtUI, loadCss, userActive } from './ui.js';
+import { OpenGate, installAgentGate, markTouched } from './gates.js';
 import * as convert from './convert.js';
 
 const READY_TIMEOUT = 60000;
@@ -66,6 +67,7 @@ export function state() {
     state: session.state, error: session.error, violations: session.violations,
     denials: { n: session.denials.n, top: session.denials.top.map(x => [...x]) },
     ui: { dropped: { ...session.ui.dropped } },
+    gate: { shown: session.gate.shown.map(x => ({ ...x })), opened: session.gate.opened, dropped: session.gate.dropped, blocked: session.gate.blocked },
     extensions: [...session.status.values()].map(s => ({ ...s })),
     commands: session.commands ? session.commands.entries().map(({ id, label, hint }) => ({ id, label, hint })) : [],
   };
@@ -95,6 +97,8 @@ class Session {
     this.denials = { n: 0, top: [] };              // llamadas que el cortafuegos de RPC rechazó
     this.names = new Map();                        // id → nombre visible (para decir quién pide algo)
     this.ui = new ExtUI({ nameOf: id => this.names.get(id) || null, log: (level, text, id) => this.log(id || null, level, text) });
+    this.gate = new OpenGate({ log: (level, text) => this.log(null, level, text) });
+    this.restoreAgent = null;
     this.readyPromise = new Promise((res, rej) => { this.onReady = res; this.onFail = rej; });
   }
 
@@ -172,6 +176,7 @@ class Session {
     this.features = new Features({
       monaco, docs: this.docs,
       call: (kind, handle, model, args, token) => this.invoke(kind, handle, model, args, token),
+      touched: model => this.touch(model),
       release: hs => { if (hs.length) this.post({ t: 'release', handles: hs.slice(0, 5000) }); },
       report: (handle, kind, why) => this.log(null, 'warn', `a ${kind} provider was not connected: ${why}`),
     });
@@ -181,6 +186,17 @@ class Session {
       onReport: (id, skipped) => this.log(id, 'warn', `${skipped.length} keybinding(s) skipped: ` + skipped.map(s => `${s.key || '?'} (${s.why})`).join(', ')),
     });
     this.disposables.push(monaco.editor.registerCommand(convert.HANDLE_COMMAND, (_, handle) => this.post({ t: 'cmd.exec', req: this.nextReq++, handle, ...this.docs.activeState() })));
+    // enlaces del editor (Cmd+clic) mientras corren extensiones: una dirección
+    // pudo escribirla una extensión, así que pregunta como open.request
+    // (toString(true): la dirección como está escrita, sin volver a codificarla)
+    this.disposables.push(monaco.editor.registerLinkOpener({
+      open: async uri => { await this.gate.request(typeof uri?.toString === 'function' ? uri.toString(true) : String(uri), { fromEditor: true }); return true; },
+    }));
+    // el agente: sus peticiones web y los runtimes del Bridge preguntan antes
+    import('../tools/index.js').then(({ TOOLS }) => {
+      if (this.state === 'stopped' || this.state === 'error' || this.restoreAgent) return;
+      this.restoreAgent = installAgentGate(TOOLS, { log: (level, text) => this.log(null, level, text) });
+    }).catch(e => this.log(null, 'warn', 'agent gate not installed: ' + (e?.message || e)));
     this.docs.start();
   }
 
@@ -204,7 +220,7 @@ class Session {
       case 'providers.add': this.features?.add(msg); emit(); break;
       case 'providers.remove': this.features?.remove(msg.handle); emit(); break;
       case 'result': { const p = this.pending.get(msg.req); if (p) { this.pending.delete(msg.req); p(msg.ok ? msg.value : (this.log(null, 'warn', 'call failed: ' + msg.error), null)); } break; }
-      case 'doc.edit': this.docs?.applyEdit(msg); break;
+      case 'doc.edit': this.docs?.applyEdit(msg, { onTouched: m => this.touch(m) }); break;
       case 'doc.need': this.docs?.need(msg.uri); break;
       case 'markers': this.markers(msg); break;
       case 'ctx.set': this.context(msg.key, msg.value); break;
@@ -236,9 +252,16 @@ class Session {
     });
   }
 
-  // abrir una dirección externa: en esta parte, siempre no (gates.js la
-  // enseñará con un diálogo)
-  async openRequest() { return false; }
+  // abrir una dirección externa: el diálogo de gates.js, que enseña la
+  // dirección entera; solo se abre si el usuario lo pide
+  openRequest(url) { return this.gate.request(url); }
+
+  // el texto de una extensión entró en este documento: su vista previa HTML
+  // preguntará antes (gates.js)
+  touch(model) {
+    const path = model && this.docs?.pathOf(model);
+    if (path) markTouched(path).catch(() => {});
+  }
 
   // una extensión quiere enseñar un documento abierto: solo se cambia de
   // pestaña si el usuario acaba de hacer algo (un clic, una tecla); si no, el
@@ -374,6 +397,8 @@ class Session {
     for (const p of this.pending.values()) { try { p(null); } catch { /* — */ } }
     this.pending.clear();
     try { this.ui.dispose(); } catch { /* — */ }
+    try { this.restoreAgent?.(); } catch { /* — */ }
+    this.restoreAgent = null;
     try { this.features?.dispose(); } catch { /* — */ }
     try { this.commands?.dispose(); } catch { /* — */ }
     try { this.docs?.dispose(); } catch { /* — */ }

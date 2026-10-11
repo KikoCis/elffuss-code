@@ -167,6 +167,8 @@ export class Features {
             if (!v || !Array.isArray(v.suggestions)) return null;
             const suggestions = v.suggestions.slice(0, 5000).map(it => convert.completionItem(monaco, model, p, it)).filter(Boolean);
             for (const s of suggestions) owners.set(s, model);
+            // aceptar una puede meter texto de la extensión en el documento
+            if (suggestions.length) this.touched(model);
             const hs = suggestions.map(convert.handleOfItem).filter(Number.isSafeInteger);
             return { suggestions, incomplete: v.incomplete === true, dispose: () => this.release(hs) };
           },

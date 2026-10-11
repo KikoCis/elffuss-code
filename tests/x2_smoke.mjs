@@ -60,6 +60,7 @@ async function freshPage(server = srv) {
     const w = async (n, t) => { const f = await o.getFileHandle(n, { create: true }); const s = await f.createWritable(); await s.write(t); await s.close(); };
     await w('app.js', 'function zeta() {}\nfunction alpha() {}\n// TODO    fix\nconst  a  =  1;\n');
     await w('fruits.txt', 'pear\napple\nfig\n');
+    await w('page.html', '<p id="z">z</p>\n<p id="a">a</p>\n');
   });
   return { ctx, page, requests, errors };
 }
@@ -281,12 +282,69 @@ async function uiFlow(page) {
   const readBack = await page.evaluate(async () => (await import('/js/tools/code.js')).read({ path: 'app.js' }));
   ok('C21 code.read lee el fichero, no el editor', readBack === 'function beta() {}\n// b    c\nlet  b  =  2;\n');
 
+  // ── H. puertas: vista previa de un fichero tocado, el agente, enlaces del editor ──
+  beacon.hits.length = 0;
+  await open(page, 'page.html');
+  await page.evaluate(() => { const ed = window.monaco.editor.getEditors()[0]; ed.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 17 }); });
+  await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('x2sort.sortLines'));
+  const marked = await until(() => page.evaluate(async () => ((await (await import('/js/db.js')).get('kv', 'x2.touched')) || {})['page.html'] === true));
+  ok('H1 el texto de una extensión marca el fichero (kv x2.touched)', !!marked);
+  const previewVia = async (label = 'Vista previa') => {
+    await page.click('#tabs-bar .tab.active', { button: 'right' });
+    await page.click(`#tab-menu .tm-item:has-text("${label}")`);
+  };
+  await previewVia();
+  const gateDlg = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-preview [role="dialog"]'); return d ? { text: d.textContent, focused: document.activeElement?.textContent } : null; }));
+  ok('H2 la vista previa de un fichero tocado pregunta antes (Cancelar por defecto)', !!gateDlg && gateDlg.text.includes('page.html') && gateDlg.focused === 'Cancel', JSON.stringify(gateDlg));
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  const after = await page.evaluate(() => ({ frames: document.querySelectorAll('#md-preview-pane iframe').length, preview: !!document.querySelector('#tabs-bar .tab.tab-preview'), editor: getComputedStyle(document.getElementById('editor')).display }));
+  ok('H3 Cancelar: sin vista previa, se queda el código fuente', after.frames === 0 && !after.preview && after.editor !== 'none', JSON.stringify(after));
+  await previewVia();
+  await until(() => page.evaluate(() => !!document.querySelector('#x2-preview')));
+  await page.click('#x2-preview button:has-text("Preview anyway")');
+  const shown = await until(() => page.evaluate(() => document.querySelectorAll('#md-preview-pane iframe').length === 1 && !!document.querySelector('#tabs-bar .tab.tab-preview')));
+  const cleared = await page.evaluate(async () => !((await (await import('/js/db.js')).get('kv', 'x2.touched')) || {})['page.html']);
+  ok('H4 «Previsualizar igualmente» la enseña y quita la marca', !!shown && cleared);
+  await previewVia('Ver código fuente');                     // vuelve al código
+  // el agente: web.fetch y un runtime del Bridge preguntan; Denegar por defecto
+  await page.evaluate(() => { window.__x2fetch = import('/js/tools/index.js').then(m => m.TOOLS['web.fetch'].run({ url: 'https://agent.beacon.test/leak?d=1' })); });
+  const agentDlg = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-agent [role="dialog"]'); return d ? { code: d.querySelector('.x2-code').textContent, focused: document.activeElement?.textContent } : null; }));
+  ok('H5 web.fetch del agente pregunta enseñando la URL entera (Denegar por defecto)', !!agentDlg && agentDlg.code === 'https://agent.beacon.test/leak?d=1' && agentDlg.focused === 'Deny', JSON.stringify(agentDlg));
+  await page.keyboard.press('Escape');
+  ok('H6 denegado: el agente recibe que el usuario no lo permitió', (await page.evaluate(() => window.__x2fetch)) === 'The user did not allow this request.');
+  await page.evaluate(() => { window.__x2run = import('/js/tools/index.js').then(m => m.TOOLS['terminal.run'].run({ command: 'ls && node -e "1"' })); });
+  const runDlg = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-agent [role="dialog"]'); return d ? d.querySelector('.x2-code').textContent : null; }));
+  ok('H7 una orden con un runtime del Bridge (aunque no vaya primero) pregunta con la orden entera', runDlg === 'ls && node -e "1"', String(runDlg));
+  await page.keyboard.press('Escape');
+  ok('H8 denegada', (await page.evaluate(() => window.__x2run)) === 'The user did not allow this request.');
+  const ls = await page.evaluate(async () => (await import('/js/tools/index.js')).TOOLS['terminal.run'].run({ command: 'ls' }));
+  ok('H9 una orden del shell de Code sin runtime no pregunta', /app\.js/.test(ls) && !(await page.evaluate(() => !!document.querySelector('#x2-agent'))), String(ls).slice(0, 80));
+  // Cmd+clic en un enlace del editor, en modo extensiones: el mismo diálogo
+  await open(page, 'fruits.txt');
+  await page.evaluate(() => { const ed = window.monaco.editor.getEditors()[0]; ed.getModel().setValue('see https://link.beacon.test/p?q=1 now\n'); ed.setPosition({ lineNumber: 1, column: 12 }); ed.focus(); });
+  await sleep(400);
+  await page.evaluate(() => window.monaco.editor.getEditors()[0].getAction('editor.action.openLink').run());
+  const linkDlg = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-open [role="dialog"]'); return d ? { code: d.querySelector('.x2-code').textContent, text: d.textContent } : null; }));
+  ok('H10 un enlace del editor pregunta con la dirección entera', !!linkDlg && linkDlg.code === 'https://link.beacon.test/p?q=1' && /links in the editor ask first/.test(linkDlg.text), JSON.stringify(linkDlg));
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.monaco.editor.getEditors()[0].getModel().setValue('pear\napple\nfig\n'));
+  await sleep(500);
+  ok('H11 nada de esto llegó a la baliza', beacon.hits.length === 0, JSON.stringify(beacon.hits));
+  await open(page, 'app.js');
+
   // antes del canario: sus intentos fallidos a propósito sí dejan errores
   const realErrors = errors.slice();
   ok('C22 sin errores de página en todo lo anterior', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
-  // canario básico: desde el worker de extensiones, ningún canal sale
+  // canario básico: desde el worker de extensiones, ningún canal sale. Su
+  // openExternal abre el diálogo de la dirección: enseña la URL entera y se cancela
   beacon.hits.length = 0;
-  const report = JSON.parse(await page.evaluate(async port => (await import('/js/ext2/bridge.js')).runCommand('x2canary.report', port), beacon.port) || '[]');
+  await page.evaluate(port => { window.__x2canary = import('/js/ext2/bridge.js').then(b => b.runCommand('x2canary.report', port)); }, beacon.port);
+  const openDlg = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-open [role="dialog"]'); return d ? { code: d.querySelector('.x2-code')?.textContent, focused: document.activeElement?.textContent, buttons: [...d.querySelectorAll('button')].map(b => b.textContent) } : null; }));
+  ok('C22b openExternal: diálogo con la dirección entera, Cancelar con el foco', !!openDlg && openDlg.code === `http://open.beacon.test:${beacon.port}/x2-canary/open` && openDlg.focused === 'Cancel'
+    && openDlg.buttons.join() === 'Cancel,Copy address,Open in new tab,Block requests for this session', JSON.stringify(openDlg));
+  await page.keyboard.press('Escape');
+  const report = JSON.parse(await page.evaluate(() => window.__x2canary) || '[]');
   await sleep(1500);
   const allowed = report.filter(r => r.outcome === 'ALLOWED' && !/^own: /.test(r.detail) && !['caches', 'asExternalUri', 'openExternal', 'clipboard-api'].includes(r.channel));
   ok('C23 canario: cada canal de red del worker bloqueado', report.length >= 15 && allowed.length === 0, JSON.stringify(allowed));
@@ -324,6 +382,8 @@ async function uiFlow(page) {
     return { actions: ed.getSupportedActions().filter(a => /:x2:/.test(a.id)).length, markers: window.monaco.editor.getModelMarkers({}).filter(m => m.owner.startsWith('x2:')).length, palette: (window.elffussClaw?.commands || []).filter(c => c.x2).length };
   });
   ok('F2 sin acciones, diagnósticos ni entradas de paleta de extensiones', leftovers.actions === 0 && leftovers.markers === 0 && leftovers.palette === 0, JSON.stringify(leftovers));
+  const toolsBack = await page.evaluate(async () => { const { TOOLS } = await import('/js/tools/index.js'); return ['web.fetch', 'web.search', 'terminal.run'].map(n => String(TOOLS[n].run)); });
+  ok('F2b las herramientas del agente vuelven a ser las de siempre', /fetchUrl/.test(toolsBack[0]) && /web\.search/.test(toolsBack[1]) && /runForAgent/.test(toolsBack[2]), toolsBack.map(s => s.slice(0, 40)).join(' | '));
   await page.evaluate(async () => { const ed = window.monaco.editor.getEditors()[0]; ed.getModel().setValue('// c    d\nlet  c  =  3;\n'); await ed.getAction('editor.action.formatDocument').run(); });
   await sleep(1500);
   ok('F3 vuelve el formateador de serie (el de la extensión ya no actúa)', (await value(page)) === '// c    d\nlet c = 3;\n', JSON.stringify(await value(page)));
@@ -394,7 +454,9 @@ for (const q of ['?test-opfs&noext2', '?test-opfs&noext']) {
   let report = [];
   if (s?.state === 'running') {
     await until(async () => (await bridgeState(page)).extensions.some(e => e.state === 'active'), { timeout: 20000 });
-    report = JSON.parse(await page.evaluate(async port => (await import('/js/ext2/bridge.js')).runCommand('x2canary.report', port), beacon.port) || '[]');
+    await page.evaluate(port => { window.__x2canary = import('/js/ext2/bridge.js').then(b => b.runCommand('x2canary.report', port)); }, beacon.port);
+    if (await until(() => page.evaluate(() => !!document.querySelector('#x2-open')))) await page.keyboard.press('Escape');
+    report = JSON.parse(await page.evaluate(() => window.__x2canary) || '[]');
     await sleep(1500);
   }
   ok('G2 sin la CSP del host de extensiones, el canario llega a la baliza', beacon.hits.length > 0 && report.some(r => r.outcome === 'ALLOWED' && r.channel === 'fetch'), `hits ${beacon.hits.length}, state ${s?.state}`);

@@ -14,6 +14,7 @@
 // y lo vuelve a aplicar desde cero, de uno en uno: más simple y sin restos.
 // Las gramáticas solo se rehacen si su lista cambia.
 import * as store from './store.js';
+import * as maindb from '../db.js';
 import { BASES, builtinTheme, toMonacoTheme, toTextMateTheme, chromeCss, themeIdFor } from './themes.js';
 import { registerSnippets } from './snippets.js';
 import { toLanguageConfiguration, matchLanguage, firstLineCandidates } from './languages.js';
@@ -219,8 +220,22 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     })().catch(e => console.warn('[elffuss-ext] nivel 2:', e?.message || e));
   }
 
+  // Vista previa HTML de un fichero en el que entró texto de una extensión
+  // (marca en kv «x2.touched»): mientras haya alguna extensión con código
+  // instalada, pregunta antes (ext2/gates.js, que solo se carga si hay marca).
+  // Sin ninguna, las marcas ya no cuentan y la vista previa es la de siempre.
+  async function guardaVistaPrevia() {
+    const ide = await import('../ide.js');
+    if (!exts.some(e => e.code)) { ide.setBeforePreview(null); return; }
+    ide.setBeforePreview(async path => {
+      const marcas = await maindb.get('kv', 'x2.touched').catch(() => null);
+      if (!marcas || !marcas[path]) return true;
+      return (await import('../ext2/gates.js')).allowPreview(path);
+    });
+  }
+
   function recarga() {
-    const r = cola.then(async () => { exts = await store.list(); await reaplica(); sincronizaCodigo(); });
+    const r = cola.then(async () => { exts = await store.list(); await reaplica(); sincronizaCodigo(); await guardaVistaPrevia(); });
     cola = r.catch(() => {});
     return r.then(emit);
   }
@@ -230,6 +245,7 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   exts = await store.list().catch(() => []);
   await reaplica();
   sincronizaCodigo();
+  guardaVistaPrevia().catch(() => {});
 
   const quitaTemasDe = id => { if (themeIndex.get(pref)?.ext === id) guardaPref('vs-dark'); };
 
