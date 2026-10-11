@@ -163,7 +163,15 @@ for (const [k, e] of browserOnes.entries()) {
     await page.goto(srv.codeOrigin + '/?test-opfs', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => !!window.monaco?.editor?.getEditors?.().length, null, { timeout: 30000 });
     for (const n of [...files.keys()].slice(0, 12)) await page.evaluate(async n => { await (await import('/js/ide.js')).openFile(n); }, n).catch(() => {});
-    const st = await until(() => page.evaluate(async () => { const b = await import('/js/ext2/bridge.js'); const s = b.state(); return s.state === 'running' || s.state === 'error' ? s : null; }), { timeout: 60000 });
+    // (una que el recinto rechaza —sustituye el tecleo— se queda fuera y, si era
+    // la única, el recinto se desmonta: eso es «no soportada», no un fallo)
+    const st = await until(() => page.evaluate(async id => {
+      const b = await import('/js/ext2/bridge.js');
+      const s = b.state();
+      return s.state === 'running' || s.state === 'error' || s.extensions.some(x => x.id === id && x.state === 'unsupported') ? s : null;
+    }, id), { timeout: 60000 });
+    const refusedNow = st?.extensions?.find(x => x.id === id && x.state === 'unsupported');
+    if (refusedNow) { r.state = 'unsupported'; r.unsupported = 'replaces typing'; r.error = (refusedNow.text || '').slice(0, 300); r.contributedCommands = (e.manifest.contributes?.commands || []).length; continue; }
     if (st?.state !== 'running') { r.state = 'sandbox-error'; r.error = st?.error?.message || 'no start'; continue; }
     // Lo que la extensión le pregunte al usuario (avisos, diálogos, selectores,
     // abrir direcciones) se contesta como lo haría alguien con prisa: cerrar o
@@ -204,7 +212,7 @@ for (const [k, e] of browserOnes.entries()) {
     r.providers = stats?.providers || {};
     if (stats && Object.keys(stats.later || {}).length) r.later = stats.later;
     r.diagnostics = (stats?.markers || 0) > 0;
-    if (stats?.unsupported?.length) r.unsupported = 'replaces typing';
+    if (stats?.unsupported?.length || finalState?.state === 'unsupported') r.unsupported = 'replaces typing';
     const unsupportedCalls = (stats?.errors || []).filter(t => /not supported/.test(t)).map(t => (/Unsupported: ([\w$.]+)/.exec(t) || [])[1]).filter(Boolean);
     if (unsupportedCalls.length) r.unsupportedCalls = [...new Set(unsupportedCalls)].slice(0, 10);
     const otherErrors = (stats?.errors || []).filter(t => !/not supported/.test(t));
