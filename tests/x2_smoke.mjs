@@ -174,6 +174,8 @@ const sandboxRequests = (server, since = 0) => server.requests.slice(since).filt
   await page.evaluate(() => { const ed = window.monaco.editor.getEditors()[0]; ed.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 3, endColumn: 4 }); });
   const entries = await page.evaluate(async () => (await import('/js/ext2/bridge.js')).commands().map(e => ({ id: e.id, label: e.label, hint: e.hint })));
   ok('C10 entradas para la paleta de Code', entries.some(e => e.label === 'X2: Sort Lines (fixture)' && e.hint === 'X2 sort') && entries.some(e => e.label === 'X2: Hello (fixture)'), JSON.stringify(entries));
+  const live = await page.evaluate(() => (window.elffussClaw?.commands || []).filter(c => c.x2).map(c => ({ label: c.label, hint: c.hint })));
+  ok('C10b están en la lista viva de la paleta (window.elffussClaw.commands)', live.some(e => e.label === 'X2: Sort Lines (fixture)' && e.hint === 'X2 sort'), JSON.stringify(live));
   const ran = await page.evaluate(async () => { await new Promise(r => setTimeout(r, 200)); const e = (await import('/js/ext2/bridge.js')).commands().find(x => x.id === 'x2sort.sortLines'); return e.run(); });
   ok('C11 el comando corre con activeTextEditor definido', ran === 'sorted:3', JSON.stringify(ran));
   ok('C12 el texto queda ordenado y la pestaña sin guardar', await until(async () => (await value(page)) === 'apple\nfig\npear\n') && await page.evaluate(() => document.querySelector('#tabs-bar .tab.active b')?.className === 'dirty'));
@@ -187,6 +189,15 @@ const sandboxRequests = (server, since = 0) => server.requests.slice(since).filt
   await sleep(200);
   await page.keyboard.press('F9');
   ok('C15 el atajo F9 de la extensión funciona con el foco en el editor', !!(await until(async () => (await value(page)) === 'xx\nyy\nzz\n')));
+  // desde la paleta de Code («>»): la fila lleva el nombre de la extensión y al
+  // elegirla se cierra la paleta y el comando actúa sobre el editor
+  await page.evaluate(() => { const ed = window.monaco.editor.getEditors()[0]; ed.getModel().setValue('b\na\n'); ed.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 2 }); });
+  await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, shiftKey: true, bubbles: true })));
+  await page.fill('#pal-input', '>sort lines (fixture)');
+  const row = await until(() => page.evaluate(() => { const r = [...document.querySelectorAll('#pal-list .pal-item')]; return r.length === 1 ? [r[0].querySelector('.pi-name').textContent, r[0].querySelector('.pi-hint').textContent] : null; }));
+  ok('C15b la paleta de Code lista el comando con el nombre de la extensión', !!row && row[0] === 'X2: Sort Lines (fixture)' && row[1] === 'X2 sort', JSON.stringify(row));
+  await page.keyboard.press('Enter');
+  ok('C15c elegirlo en la paleta la cierra y ordena el editor', !!(await until(async () => (await value(page)) === 'a\nb\n')) && await page.evaluate(() => document.getElementById('palette').hidden), JSON.stringify(await value(page)));
   const skipped = await page.evaluate(async () => (await import('/js/ext2/bridge.js')).state().extensions.find(e => e.id === 'elffuss-test.sort').log.map(l => l.text).join(' | '));
   ok('C16 el atajo reservado Cmd/Ctrl+P de la extensión se salta y se informa', /reserved/.test(skipped), skipped);
   await page.evaluate(() => window.monaco.editor.getEditors()[0].focus());
@@ -240,9 +251,9 @@ const sandboxRequests = (server, since = 0) => server.requests.slice(since).filt
   ok('F1 sin extensiones de código, el iframe desaparece', !!gone);
   const leftovers = await page.evaluate(() => {
     const ed = window.monaco.editor.getEditors()[0];
-    return { actions: ed.getSupportedActions().filter(a => /:x2:/.test(a.id)).length, markers: window.monaco.editor.getModelMarkers({}).filter(m => m.owner.startsWith('x2:')).length };
+    return { actions: ed.getSupportedActions().filter(a => /:x2:/.test(a.id)).length, markers: window.monaco.editor.getModelMarkers({}).filter(m => m.owner.startsWith('x2:')).length, palette: (window.elffussClaw?.commands || []).filter(c => c.x2).length };
   });
-  ok('F2 sin acciones ni diagnósticos de extensiones', leftovers.actions === 0 && leftovers.markers === 0, JSON.stringify(leftovers));
+  ok('F2 sin acciones, diagnósticos ni entradas de paleta de extensiones', leftovers.actions === 0 && leftovers.markers === 0 && leftovers.palette === 0, JSON.stringify(leftovers));
   await page.evaluate(async () => { const ed = window.monaco.editor.getEditors()[0]; ed.getModel().setValue('// c    d\nlet  c  =  3;\n'); await ed.getAction('editor.action.formatDocument').run(); });
   await sleep(1500);
   ok('F3 vuelve el formateador de serie (el de la extensión ya no actúa)', (await value(page)) === '// c    d\nlet c = 3;\n', JSON.stringify(await value(page)));

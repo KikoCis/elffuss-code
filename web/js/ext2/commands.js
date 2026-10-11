@@ -27,20 +27,29 @@ export function commandsOf(manifest) {
   return { commands: list, keybindings: Array.isArray(c.keybindings) ? c.keybindings.slice(0, 500) : [] };
 }
 
+// La lista viva de la paleta de Code (main.js la expone en
+// window.elffussClaw.commands y la relee en cada repintado). Este módulo
+// nunca importa main.js: solo mete y saca sus propias entradas.
+const paletteList = () => {
+  const l = globalThis.window?.elffussClaw?.commands;
+  return Array.isArray(l) ? l : null;
+};
+
 export class Commands {
   constructor({ monaco, editor, run, onReport = () => {} }) {
     this.monaco = monaco;
     this.editor = editor;
     this.run = run;
     this.onReport = onReport;
-    this.byExt = new Map();                        // id → { disposables, entries, skipped }
+    this.byExt = new Map();                        // id → { disposables, entries, palette, skipped }
+    this.chords = new Map();                       // atajo (número de Monaco) → id de la extensión que lo tiene
   }
 
   set(ext) {
     this.remove(ext.id);
     const { monaco, editor } = this;
     const { commands, keybindings } = commandsOf(ext.manifest);
-    const disposables = [], entries = [], skipped = [];
+    const disposables = [], entries = [], palette = [], skipped = [];
     const name = s(ext.displayName || ext.manifest?.displayName || ext.id, 200);
     for (const c of commands) {
       const label = c.category ? `${c.category}: ${c.title}` : c.title;
@@ -51,13 +60,30 @@ export class Commands {
         ...(c.contextGroup ? { contextMenuGroupId: 'x2_' + c.contextGroup.replace(/[^\w]/g, '_'), contextMenuOrder: 1 } : {}),
         run,
       }));
-      if (!c.hidden) entries.push({ id: c.id, label, hint: name, run });
+      if (c.hidden) continue;
+      entries.push({ id: c.id, label, hint: name, run });
+      // en la paleta de Code: se cierra y el comando actúa sobre el editor
+      palette.push({
+        label, hint: name, x2: ext.id,
+        run: () => {
+          const p = document.getElementById('palette');
+          if (p) p.hidden = true;
+          editor.focus();
+          return run();
+        },
+      });
     }
+    const list = paletteList();
+    if (list) list.push(...palette);
     // atajos: un comando global de Monaco + su regla de teclado (ambos se deshacen)
     const registered = new Set();
     for (const [i, kb] of keybindings.entries()) {
       const p = parseKeybinding(monaco, kb);
       if (p.skip) { skipped.push({ command: s(kb?.command, 200), key: s(kb?.key || kb?.mac, 100), why: p.skip }); continue; }
+      // dos extensiones con el mismo atajo: se queda la primera y se avisa
+      const owner = this.chords.get(p.keybinding);
+      if (owner && owner !== ext.id) { skipped.push({ command: s(kb.command, 200), key: p.key, why: 'conflicts with ' + owner, conflict: owner }); continue; }
+      this.chords.set(p.keybinding, ext.id);
       const id = `x2-key:${ext.id}:${i}`;
       if (!registered.has(id)) {
         registered.add(id);
@@ -66,7 +92,7 @@ export class Commands {
       const when = 'editorTextFocus' + (p.when ? ` && (${p.when})` : '');
       disposables.push(monaco.editor.addKeybindingRules([{ keybinding: p.keybinding, command: id, when }]));
     }
-    this.byExt.set(ext.id, { disposables, entries, skipped });
+    this.byExt.set(ext.id, { disposables, entries, palette, skipped });
     if (skipped.length) this.onReport(ext.id, skipped);
   }
 
@@ -74,6 +100,9 @@ export class Commands {
     const e = this.byExt.get(id);
     if (!e) return;
     for (const d of e.disposables) { try { d?.dispose(); } catch { /* ya fuera */ } }
+    const list = paletteList();
+    if (list) for (const p of e.palette) { const i = list.indexOf(p); if (i >= 0) list.splice(i, 1); }
+    for (const [k, owner] of [...this.chords]) if (owner === id) this.chords.delete(k);
     this.byExt.delete(id);
   }
 

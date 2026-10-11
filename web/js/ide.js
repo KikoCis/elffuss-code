@@ -176,9 +176,25 @@ async function inlineLocalAssets(html, ownPath) {
   return '<!doctype html>\n' + doc.documentElement.outerHTML;
 }
 
+// Guardián opcional antes de la vista previa HTML. Sin él (lo normal) no
+// cambia nada; el nivel 2 de extensiones pone uno que pregunta si una
+// extensión cambió el fichero, porque la vista previa ejecuta sus scripts con
+// red. Si el guardián falla o dice que no, se vuelve al código fuente.
+let beforePreview = null;
+export function setBeforePreview(fn) { beforePreview = typeof fn === 'function' ? fn : null; }
+async function previewAllowed(path) {
+  if (!beforePreview) return true;
+  try { return (await beforePreview(path)) === true; } catch { return false; }
+}
+
 async function applyView() {
   const tab = tabs.find(t => t.path === active);
   const lang = tab ? langOf(tab.path) : null;
+  if (tab && tab.preview && lang === 'html' && !(await previewAllowed(tab.path))) {
+    tab.preview = false;
+    renderTabs();
+    return applyView();
+  }
   const showPreview = !!(tab && tab.preview && PREVIEWABLE.has(lang));
   $('editor').style.display = showPreview ? 'none' : '';
   let pane = document.getElementById('md-preview-pane');
