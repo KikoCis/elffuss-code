@@ -57,9 +57,42 @@
 .ext-actions .ghost:hover:not(:disabled):not([aria-disabled="true"]) { color: var(--fg); border-color: var(--accent2); }
 .ext-actions button:disabled, .ext-actions button[aria-disabled="true"] { cursor: default; opacity: .75; }
 .ext-more { display: block; margin: 4px auto 10px; font-size: .76rem; }
+/* nivel 2: extensiones con código (mandos, qué funcionará, filtro) */
+.ext-iso { margin: 0 0 8px; font-size: .74rem; max-width: 760px; }
+.ext-iso summary { cursor: pointer; color: var(--accent2); }
+.ext-iso ul { margin: 4px 0 0 18px; padding: 0; color: #b8c0d4; line-height: 1.45; }
+.ext-works-note { margin: 6px 0 0; font-size: .72rem; }
+.ext-works-note[hidden] { display: none; }
+.ext-x2-lines { margin-top: 3px; }
+.ext-x2-runs, .ext-x2-tested { font-size: .72rem; color: #9ecbff; margin-top: 3px; }
+.ext-x2-untested { font-size: .72rem; color: var(--muted); margin-top: 3px; }
+.ext-actions .ext-install-code { background: none; border: 1px solid var(--accent2); color: var(--fg); }
+.ext-x2 { margin-top: 7px; padding: 7px 9px; border: 1px dashed var(--line); border-radius: 8px; font-size: .74rem; }
+.ext-x2-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: space-between; }
+.ext-x2-state { color: #9ecbff; overflow-wrap: anywhere; }
+.ext-x2 button { font-size: .72rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: none; border: 1px solid var(--line); color: var(--fg); }
+.ext-x2 button[aria-pressed="true"] { border-color: var(--accent2); background: rgba(130,114,255,.18); }
+.ext-x2 button[aria-disabled="true"] { opacity: .6; cursor: default; }
+.ext-x2 details { margin-top: 6px; }
+.ext-x2 summary { cursor: pointer; }
+.ext-x2-json { display: block; width: 100%; margin: 5px 0; min-height: 70px; resize: vertical; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: .74rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ext-x2-msg { margin-top: 4px; color: #9ecbff; overflow-wrap: anywhere; }
+.ext-x2-msg[role="alert"] { color: #ff9db1; }
+.ext-x2-cmds { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.ext-x2-cmds li { display: flex; justify-content: space-between; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.ext-x2-fmtrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+.ext-x2-fmtrow select { background: var(--bg3); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; font-size: .72rem; max-width: 55%; }
+.ext-x2-keys ul { margin: 4px 0 0 18px; padding: 0; color: var(--muted); overflow-wrap: anywhere; }
+.ext-x2-log pre { margin: 4px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .68rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.ext-x2-runtime { margin: 2px 0 4px; font-size: .74rem; }
+.ext-x2-alloff { margin: 0 0 8px; font-size: .72rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: none; border: 1px solid var(--line); color: var(--muted); }
+.ext-x2 button:focus-visible, .ext-x2 summary:focus-visible, .ext-x2-json:focus-visible, .ext-x2-alloff:focus-visible, .ext-iso summary:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
 @media (max-width: 560px) {
   .ext-row { flex-wrap: wrap; }
-  .ext-actions { flex-direction: row; width: 100%; justify-content: flex-end; }
+  .ext-actions { flex-direction: row; width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .ext-x2-fmtrow { flex-direction: column; align-items: stretch; }
+  .ext-x2-fmtrow select { max-width: 100%; }
 }
 
 /* selector de tema: como la paleta de comandos */

@@ -61,7 +61,7 @@ export class Commands {
         run,
       }));
       if (c.hidden) continue;
-      entries.push({ id: c.id, label, hint: name, run });
+      entries.push({ id: c.id, label, hint: name, run, ext: ext.id });
       // en la paleta de Code: se cierra y el comando actúa sobre el editor
       palette.push({
         label, hint: name, x2: ext.id,

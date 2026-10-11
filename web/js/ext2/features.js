@@ -109,13 +109,42 @@ export class Features {
     this.release = release;
     this.report = report;
     this.handles = new Map();                    // handle → { kind, dispose }
+    this.specs = new Map();                      // handle → lo que mandó el recinto (para volver a registrarlo)
+    this.prefs = new Map();                      // id de extensión → { lenguaje: 'builtin' | 'extension' }
   }
 
-  add({ handle, kind, selector, meta = {} }) {
+  // Formateador por lenguaje: «de serie» quita el de esa extensión para ese
+  // lenguaje (Monaco elige el más nuevo, así que si no, ganaría la extensión).
+  setPrefs(prefs) {
+    const next = new Map([...prefs].map(([k, v]) => [String(k).toLowerCase(), v || {}]));
+    if (JSON.stringify([...next]) === JSON.stringify([...this.prefs])) return;
+    this.prefs = next;
+    for (const spec of [...this.specs.values()]) if (spec.kind.startsWith('format')) { this.remove(spec.handle); this.add(spec); }
+  }
+  // lenguajes con formateador de cada extensión (para el panel)
+  formatters() {
+    const out = {};
+    for (const s of this.specs.values()) {
+      if (!s.kind.startsWith('format') || typeof s.meta?.extension !== 'string') continue;
+      const id = s.meta.extension.toLowerCase();
+      const langs = (Array.isArray(s.selector) ? s.selector : []).map(f => f && f.language).filter(l => typeof l === 'string' && l !== '*');
+      out[id] = [...new Set([...(out[id] || []), ...langs])].sort();
+    }
+    return out;
+  }
+
+  add(spec) {
+    const { handle, kind, selector, meta = {} } = spec;
     const { monaco, docs } = this;
+    this.specs.set(handle, spec);
     const sel = compileSelector(selector);
     if (!sel.filters.length) { this.report(handle, kind, 'its selector targets documents Code does not have'); return; }
     if (kind.startsWith('format') && !sel.hasLanguage) { this.report(handle, kind, 'formatters need a language; this one only names file patterns'); return; }
+    if (kind.startsWith('format') && Array.isArray(sel.monacoSelector)) {
+      const pref = this.prefs.get(String(meta.extension || '').toLowerCase()) || {};
+      sel.monacoSelector = sel.monacoSelector.filter(l => pref[l] !== 'builtin');
+      if (!sel.monacoSelector.length) return;      // el usuario prefiere el de serie en todos sus lenguajes
+    }
     const ask = async (k, model, args, token) => {
       const path = docs.pathOf(model);
       if (!path || !selectorMatches(sel.filters, path, model.getLanguageId())) return null;
@@ -268,6 +297,7 @@ export class Features {
   }
 
   remove(handle) {
+    this.specs.delete(handle);
     const h = this.handles.get(handle);
     if (!h) return;
     this.handles.delete(handle);
@@ -275,5 +305,5 @@ export class Features {
   }
 
   kinds() { return [...this.handles.values()].map(h => h.kind); }
-  dispose() { for (const k of [...this.handles.keys()]) this.remove(k); }
+  dispose() { for (const k of [...this.handles.keys()]) this.remove(k); this.specs.clear(); }
 }

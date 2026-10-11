@@ -11,12 +11,7 @@
 import { chromium } from 'playwright';
 import { startServer } from './lib/x2-server.mjs';
 import { startBeacon } from './lib/beacon.mjs';
-import { fetchVsix, readCode, seedReal } from './lib/x2-vsix.mjs';
-
-export const PINNED = [
-  { namespace: 'Tyriar', name: 'sort-lines', version: '1.12.0', sha256: 'feecf004b40c9a9e73ba81347d61b69bb231f24df72d01b6b9a17435542deec9' },
-  { namespace: 'esbenp', name: 'prettier-vscode', version: '12.4.0', sha256: 'fb730ea4306d09cdc0a3aaa9e9baae28058cc97a4fbfce8b056b377a0639a9fe' },
-];
+import { fetchVsix, readCode, seedReal, PINNED } from './lib/x2-vsix.mjs';
 
 let fails = 0;
 const ok = (name, c, extra = '') => { console.log((c ? '✅' : '❌') + ' ' + name + (extra ? '  — ' + extra : '')); if (!c) fails++; };

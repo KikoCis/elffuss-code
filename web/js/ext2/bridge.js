@@ -76,8 +76,9 @@ export function state() {
     denials: { n: session.denials.n, top: session.denials.top.map(x => [...x]) },
     ui: { dropped: { ...session.ui.dropped } },
     gate: { shown: session.gate.shown.map(x => ({ ...x })), opened: session.gate.opened, dropped: session.gate.dropped, blocked: session.gate.blocked },
-    extensions: [...session.status.values()].map(s => ({ ...s })),
-    commands: session.commands ? session.commands.entries().map(({ id, label, hint }) => ({ id, label, hint })) : [],
+    extensions: [...session.status.values()].map(s => ({ ...s, skipped: session.commands ? session.commands.skipped(s.id).map(x => ({ ...x })) : [] })),
+    commands: session.commands ? session.commands.entries().map(({ id, label, hint, ext }) => ({ id, label, hint, ext })) : [],
+    formatters: session.features ? session.features.formatters() : {},
   };
 }
 export const commands = () => (session?.commands ? session.commands.entries() : []);
@@ -403,8 +404,13 @@ class Session {
     }
     const installed = new Set(records.map(r => r.id));
     for (const r of records) this.names.set(r.id, String(r.displayName || r.id).slice(0, 200));
+    this.features?.setPrefs(new Map(records.map(r => [r.id, r.formatter && typeof r.formatter === 'object' ? r.formatter : {}])));
+    // los ajustes de todas, juntos (sin «__proto__», que cambiaría el prototipo)
     const settings = {};
-    for (const r of records) if (r.settings && typeof r.settings === 'object') Object.assign(settings, r.settings);
+    for (const r of records) {
+      if (!r.settings || typeof r.settings !== 'object') continue;
+      for (const [k, v] of Object.entries(r.settings)) if (k !== '__proto__') settings[k] = v;
+    }
     this.post({ t: 'settings', json: JSON.stringify(settings) });
     for (const r of records) {
       if (this.added.has(r.id)) continue;

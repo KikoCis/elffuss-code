@@ -18,6 +18,11 @@ import { resolveNls } from '../../web/js/ext/vsix.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const CACHE = path.join(HERE, '..', '.cache', 'vsix');
+// Las dos extensiones reales de las pruebas, con versión y SHA-256 fijadas
+export const PINNED = [
+  { namespace: 'Tyriar', name: 'sort-lines', version: '1.12.0', sha256: 'feecf004b40c9a9e73ba81347d61b69bb231f24df72d01b6b9a17435542deec9' },
+  { namespace: 'esbenp', name: 'prettier-vscode', version: '12.4.0', sha256: 'fb730ea4306d09cdc0a3aaa9e9baae28058cc97a4fbfce8b056b377a0639a9fe' },
+];
 const API = 'https://open-vsx.org';
 const MAX_ENTRY = 32 << 20, MAX_TOTAL = 64 << 20;
 const sha256 = b => crypto.createHash('sha256').update(b).digest('hex');

@@ -25,7 +25,20 @@ export const userActive = () => {
   try { return !!globalThis.navigator?.userActivation?.isActive; } catch { return false; }
 };
 
+// Code cierra el panel de ajustes/extensiones con cualquier clic fuera de él
+// (main.js, en captura sobre document). Un clic DENTRO de estos diálogos y
+// avisos no es «fuera»: se para aquí, en captura sobre window, que va antes.
+let guarda = false;
+function guardaPanel() {
+  if (guarda) return;
+  guarda = true;
+  window.addEventListener('pointerdown', e => {
+    if (e.target instanceof Element && e.target.closest('.x2-backdrop, .x2-pick, #x2-toasts')) e.stopPropagation();
+  }, true);
+}
+
 export function loadCss() {
+  guardaPanel();
   if (document.getElementById('x2-css')) return;
   const l = document.createElement('link');
   l.id = 'x2-css';

@@ -7,15 +7,23 @@
 // Teclado y lector de pantalla: todo lo que se pulsa es un botón (o un
 // <summary>), los resultados y avisos se anuncian (role=status/alert), el
 // foco no se pierde al repintar ni al cerrar, y Escape cierra el panel.
+//
+// Extensiones con código (nivel 2): lo que funcionará de cada una, el filtro
+// «Funciona en Code», el consentimiento y los mandos de las instaladas viven en
+// ../ext2/manage.js, que solo se carga cuando hace falta (al desplegar un
+// detalle, con el filtro, al pedir ejecutar código o si ya hay alguna).
 import { tx } from './i18n.js';
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 const CATS = [['', 'catAll'], ['Themes', 'catThemes'], ['Snippets', 'catSnippets'], ['Programming Languages', 'catLangs']];
+const PAGINAS_FILTRO = 5;               // con «Funciona en Code», como mucho 5 páginas para llenar una
+const gestor = () => import('../ext2/manage.js');
 
 let host = null;
 let cssPuesto = false;
-const estado = { q: '', cat: null, items: [], total: 0, cargando: false, msg: null, ctl: null };
+const estado = { q: '', cat: null, items: [], total: 0, cargando: false, msg: null, ctl: null, works: false, checked: 0, cls: new Map() };
+let bajas = [];                         // suscripciones de los mandos de código (se sueltan al repintar)
 let temporizador = null;
 let desuscribe = null;
 let abridor = null;                     // quién tenía el foco al abrir el panel
@@ -47,7 +55,7 @@ const enfocaEditor = () => {
   return true;
 };
 
-export function open(h, { themes = false } = {}) {
+export async function open(h, { themes = false } = {}) {
   host = h;
   ponCss();
   desuscribe?.();
@@ -56,6 +64,8 @@ export function open(h, { themes = false } = {}) {
   const box = $('settings-panel');
   if (!$('ext-panel')?.isConnected || box.hidden) abridor = document.activeElement;
   estado.msg = null;                    // un aviso viejo no se repite al volver a abrir
+  // con alguna extensión con código instalada, sus mandos se pintan ya
+  if (!m2 && h.list().some(e => e.code || e.browser)) { try { m2 = await gestor(); } catch { /* sin mandos de código */ } }
   pinta();
 }
 
@@ -71,6 +81,8 @@ export function close() { if ($('ext-panel')?.isConnected && !$('settings-panel'
 const ERRORES = {
   rate: 'errRate', sha: 'errSha', nothing: 'errNothing', notvsix: 'errNotVsix', notfound: 'errNotFound',
   big: 'errBig', noname: 'errNoName', blocked: 'errBlocked',
+  nosha: 'errNosha', nocode: 'errNocode', noentry: 'errNoentry', codeonly: 'errCodeonly',
+  'x2-site': 'x2Unavail_site', 'x2-browser': 'x2Unavail_browser', 'x2-off': 'x2Unavail_off', 'x2-url': 'x2Unavail_url',
 };
 export function textoError(e) {
   const code = e?.code;
@@ -188,7 +200,17 @@ function pinta() {
   const h3 = el('h3', null, tx('title') + ' ');
   h3.id = 'ext-title';
   h3.appendChild(el('span', 'muted', '· ' + tx('sub')));
-  wrap.append(h3, el('p', 'muted ext-intro', tx('intro')));
+  // con alguna extensión con código instalada, la explicación cambia
+  const conCodigo = host.list().some(e => e.code);
+  wrap.append(h3, el('p', 'muted ext-intro', tx(conCodigo ? 'introCode' : 'intro')));
+  const iso = el('details', 'ext-iso');
+  const isoS = el('summary', null, tx('isoTitle'));
+  isoS.dataset.k = 'iso';
+  iso.appendChild(isoS);
+  const isoUl = el('ul');
+  for (const k of ['iso1', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6']) isoUl.appendChild(el('li', null, tx(k)));
+  iso.appendChild(isoUl);
+  wrap.appendChild(iso);
   if (host.paused) wrap.appendChild(el('p', 'ext-paused', tx('paused')));
 
   const barra = el('div', 'ext-toolbar');
@@ -230,8 +252,26 @@ function pinta() {
     c.onclick = () => { estado.cat = estado.cat === cat && cat ? '' : cat; busca_(); };
     chips.appendChild(c);
   }
+  // «Funciona en Code»: esconde lo que no funcionaría aquí (mira el manifiesto
+  // de cada resultado: Open VSX ve esas consultas, y se dice debajo)
+  const works = el('button', 'ext-chip ext-works' + (estado.works ? ' on' : ''), tx('chipWorks'));
+  works.type = 'button';
+  works.id = 'ext-works';
+  works.setAttribute('aria-pressed', String(estado.works));
+  works.onclick = () => {
+    estado.works = !estado.works;
+    works.classList.toggle('on', estado.works);
+    works.setAttribute('aria-pressed', String(estado.works));
+    $('ext-works-note').hidden = !estado.works;
+    busca_();
+  };
+  chips.appendChild(works);
   busca.append(inp, chips);
   wrap.appendChild(busca);
+  const nota = el('p', 'muted ext-works-note', tx('worksPrivacy'));
+  nota.id = 'ext-works-note';
+  nota.hidden = !estado.works;
+  wrap.appendChild(nota);
 
   const msg = el('div', 'ext-msg');
   msg.id = 'ext-msg';
@@ -268,16 +308,33 @@ async function busca_({ mas = false } = {}) {
   aviso(null);
   pintaResultados();
   // solo las categorías: las fichas de tema de «Instaladas» también son .ext-chip
-  for (const c of document.querySelectorAll('#ext-panel .ext-search .ext-chip')) {
+  for (const c of document.querySelectorAll('#ext-panel .ext-search .ext-chip[data-cat]')) {
     const on = c.dataset.cat === (estado.cat || '') && estado.cat != null;
     c.classList.toggle('on', on);
     c.setAttribute('aria-pressed', String(on));
   }
+  if (!mas) estado.checked = 0;
   try {
-    const r = await ovsx.search(estado.q, { category: estado.cat || '', offset: mas ? estado.items.length : 0, size: 20, signal: ctl.signal });
-    if (estado.ctl !== ctl) return;
-    estado.items = mas ? estado.items.concat(r.items) : r.items;
-    estado.total = r.total;
+    // con «Funciona en Code» se llena una página de las que funcionan, mirando
+    // como mucho PAGINAS_FILTRO páginas de resultados
+    const objetivo = (mas ? estado.items.filter(seVe).length : 0) + 20;
+    for (let paginas = 0; ;) {
+      const r = await ovsx.search(estado.q, { category: estado.cat || '', offset: estado.items.length, size: 20, signal: ctl.signal });
+      if (estado.ctl !== ctl) return;
+      estado.items = estado.items.concat(r.items);
+      estado.total = r.total;
+      paginas++;
+      if (!estado.works) break;
+      const m = await gestor();
+      const store = await import('./store.js');
+      pintaResultados();
+      await m.classifyResults(r.items, {
+        ovsx, store, signal: ctl.signal, installedIds: new Set(host.list().map(e => e.id)),
+        onEach: (it, c) => { if (estado.ctl !== ctl) return; estado.cls.set(clave(it), c); estado.checked++; pintaResultadosPronto(); },
+      });
+      if (estado.ctl !== ctl) return;
+      if (estado.items.filter(seVe).length >= objetivo || estado.items.length >= estado.total || !r.items.length || paginas >= PAGINAS_FILTRO) break;
+    }
   } catch (e) {
     if (e.name === 'AbortError') return;
     aviso(textoError(e), true);
@@ -286,32 +343,52 @@ async function busca_({ mas = false } = {}) {
   }
 }
 
+const clave = it => `${it.namespace}.${it.name}@${it.version}`.toLowerCase();
+// con el filtro: solo lo que funcionaría (lo que no se pudo comprobar se enseña)
+const seVe = it => {
+  if (!estado.works) return true;
+  const c = estado.cls.get(clave(it));
+  return c === null || (c !== undefined && c.works);
+};
+let pintaPendiente = null;
+const pintaResultadosPronto = () => { pintaPendiente ??= setTimeout(() => { pintaPendiente = null; pintaResultados(); }, 150); };
+
 function pintaResultados() {
   const res = $('ext-results');
   if (!res) return;
+  // el foco no se pierde al repintar (el filtro repinta según comprueba)
+  const foco = res.contains(document.activeElement) ? document.activeElement.closest('.ext-row')?.dataset.id : null;
   res.replaceChildren();
   if (estado.cargando && !estado.items.length) {
     res.appendChild(el('div', 'muted ext-hint', tx('searching')));
     anunciaBusqueda(tx('searching'));
     return;
   }
-  if (!estado.items.length) {
+  const vistos = estado.items.filter(seVe);
+  if (!vistos.length) {
     if (estado.q || estado.cat != null) {
-      const t = estado.cargando ? tx('searching') : tx('noResults');
+      const t = estado.cargando ? tx('searching') : estado.works && estado.items.length ? tx('worksNone', { n: estado.checked, total: estado.total }) : tx('noResults');
       res.appendChild(el('div', 'muted ext-hint', t));
       anunciaBusqueda(t);
     } else anunciaBusqueda('');
     return;
   }
-  res.appendChild(el('div', 'sk-h', estado.q ? tx('results', { n: estado.total }) : tx('popular')));
-  anunciaBusqueda(tx('results', { n: estado.total }));
+  if (estado.works) {
+    const t = tx('worksChecked', { k: vistos.length, n: estado.checked, total: estado.total });
+    res.appendChild(el('div', 'sk-h', t));
+    anunciaBusqueda(estado.cargando ? tx('searching') : t);
+  } else {
+    res.appendChild(el('div', 'sk-h', estado.q ? tx('results', { n: estado.total }) : tx('popular')));
+    anunciaBusqueda(tx('results', { n: estado.total }));
+  }
   const instaladas = new Map(host.list().map(e => [e.id, e]));
-  for (const it of estado.items) res.appendChild(filaResultado(it, instaladas.get(`${it.namespace}.${it.name}`.toLowerCase())));
-  if (estado.items.length < estado.total) {
+  for (const it of vistos) res.appendChild(filaResultado(it, instaladas.get(`${it.namespace}.${it.name}`.toLowerCase())));
+  if (estado.items.length < estado.total && !estado.cargando) {
     const mas = el('button', 'ghost ext-more', tx('more'));
     mas.onclick = () => busca_({ mas: true });
     res.appendChild(mas);
   }
+  if (foco) [...res.querySelectorAll('.ext-row')].find(r => r.dataset.id === foco)?.querySelector('.ext-name')?.focus();
 }
 
 function icono(url, nombre) {
@@ -363,8 +440,34 @@ function filaResultado(it, instalada) {
   else rotula(b, tx('install'), tx('installNamed', { name: it.displayName }));
   b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b); };
   acc.appendChild(b);
+  // nivel 2: si ya se sabe qué funcionará (filtro o detalle), se dice en la fila
+  const c = estado.cls.get(clave(it));
+  if (c && m2) {
+    const lineas = el('div', 'ext-x2-lines');
+    for (const l of m2.linesFor(c)) lineas.appendChild(el('div', l.cls, l.t));
+    main.insertBefore(lineas, det);
+    ponBotonCodigo(acc, it, c, instalada);
+  }
   row.append(icono(it.icon, it.displayName), main, acc);
   return row;
+}
+
+// «Instalar y ejecutar su código…»: solo para las que traen código para el
+// navegador; inerte (con el motivo) si no puede correr aquí
+let m2 = null;                          // ../ext2/manage.js, una vez cargado
+function ponBotonCodigo(acc, it, c, instalada) {
+  if (!m2 || acc.querySelector('.ext-install-code')) return;
+  const cb = m2.codeButton(c);
+  if (!cb.show || (instalada && instalada.version === it.version && instalada.code)) return;
+  const b = el('button', 'ghost ext-install-code');
+  b.type = 'button';
+  rotula(b, tx('btnInstallCode'), tx('btnInstallCodeNamed', { name: it.displayName }));
+  if (cb.disabled) { inerte(b, true); b.title = cb.disabled; }
+  b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instalaConCodigo(it, c, b); };
+  acc.appendChild(b);
+  // sin nada declarativo, «Instalar» a secas no haría nada
+  const inst = acc.querySelector('.ext-install');
+  if (!c.hasDeclarative && inst && !esInerte(inst)) { inerte(inst, true); inst.title = tx('errCodeonly'); inst.className = 'ghost ext-install'; }
 }
 
 async function detalle(it, det, boton) {
@@ -376,10 +479,16 @@ async function detalle(it, det, boton) {
     const ovsx = await import('./openvsx.js');
     const { analyzeManifest } = await import('./vsix.js');
     const meta = await ovsx.metadata(it.namespace, it.name, it.version);
-    const a = analyzeManifest(await ovsx.manifest(meta));
-    const r = resumen({ themes: a.applies.themes, grammarLangs: a.grammarLangs, languageList: a.languageList, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: a.hasCode, pack: a.pack });
+    const manifest = await ovsx.manifest(meta);
+    const a = analyzeManifest(manifest);
+    // el código lo cuenta el nivel 2 (abajo): aquí solo lo declarativo
+    const r = resumen({ themes: a.applies.themes, grammarLangs: a.grammarLangs, languageList: a.languageList, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: false, pack: a.pack });
     det.replaceChildren();
     for (const l of r.lineas) det.appendChild(el('div', l.cls, l.t));
+    m2 ??= await gestor();
+    const d2 = await m2.describe(manifest, { installedIds: new Set(host.list().map(e => e.id)) });
+    estado.cls.set(clave(it), d2.cls);
+    for (const l of d2.lines) det.appendChild(el('div', l.cls, l.t));
     const lic = el('div', 'ext-meta muted', tx('license', { l: meta.license || tx('noLicense') }) + ' ');
     if (meta.files.license) {
       const a2 = el('a', null, tx('viewLicense'));
@@ -390,13 +499,32 @@ async function detalle(it, det, boton) {
     }
     det.appendChild(lic);
     det.dataset.listo = '1';
+    const fila = det.closest('.ext-row');
     // nada aplicable: instalarla solo daría un error, mejor decirlo en el botón
-    const inst = det.closest('.ext-row')?.querySelector('.ext-install');
-    if (!r.any && inst && !esInerte(inst)) { inerte(inst, true); inst.title = tx('nothing'); inst.className = 'ghost ext-install'; }
+    const inst = fila?.querySelector('.ext-install');
+    if (!r.any && !d2.cls.eligible && inst && !esInerte(inst)) { inerte(inst, true); inst.title = tx('nothing'); inst.className = 'ghost ext-install'; }
+    const acc = fila?.querySelector('.ext-actions');
+    if (acc) ponBotonCodigo(acc, it, d2.cls, host.list().find(e => e.id === `${it.namespace}.${it.name}`.toLowerCase()));
   } catch (e) { det.replaceChildren(el('div', 'ext-ignored', textoError(e))); }
 }
 
-async function instala(src, boton) {
+// Instalar y ejecutar su código: primero el consentimiento (qué verá, que no
+// tiene red, cuánto se baja), luego la instalación con la suma SHA-256
+// publicada obligatoria. «Solo temas y snippets» instala lo declarativo.
+async function instalaConCodigo(it, c, boton) {
+  aviso(null);
+  m2 ??= await gestor();
+  const runtime = await host.codeRuntime();
+  if (!runtime.available) { aviso(tx('x2Unavail_' + runtime.reason), true); return; }
+  const meta = await (await import('./openvsx.js')).metadata(it.namespace, it.name, it.version).catch(() => null);
+  const census = c.census && c.census.bytes ? c.census.bytes : null;
+  const v = await m2.consent({ name: it.displayName, publisher: it.namespace, version: it.version, license: meta?.license, cls: c, runtime, extensionBytes: census });
+  if (v === 'declarative') return instala(it, $('ext-results')?.querySelector(`.ext-row[data-id="${it.namespace}.${it.name}"] .ext-install`) || null);
+  if (v !== 'code') return;
+  return instala(it, boton, { withCode: true });
+}
+
+async function instala(src, boton, { withCode = false } = {}) {
   const nombre = src instanceof Blob ? src.name : src.displayName;
   const original = boton ? { texto: boton.textContent, accesible: boton.getAttribute('aria-label') } : null;
   if (boton) { inerte(boton, true); rotula(boton, tx('installing')); }
@@ -405,14 +533,39 @@ async function instala(src, boton) {
     const rec = await host.install(src instanceof Blob ? src : { namespace: src.namespace, name: src.name, version: src.version }, {
       onProgress: (n, total) => { if (boton && total) boton.textContent = tx('downloading', { pct: Math.round(n / total * 100) }); },
       confirmLarge: async mb => confirm(tx('bigConfirm', { mb })),
+      withCode,
     });
-    if (boton) { rotula(boton, tx('installedOk'), tx('installedNamed', { name: rec.displayName || nombre })); boton.className = 'ghost ext-install'; }
+    if (boton) { rotula(boton, tx('installedOk'), tx('installedNamed', { name: rec.displayName || nombre })); boton.className = 'ghost ' + (withCode ? 'ext-install-code' : 'ext-install'); }
     const nAvisos = avisosVisibles(rec.warnings).length;
-    aviso(tx('installedMsg', { name: rec.displayName || nombre }) + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
+    aviso(tx(withCode ? 'installedCodeMsg' : 'installedMsg', { name: rec.displayName || nombre }) + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
   } catch (e) {
     if (boton) { inerte(boton, false); rotula(boton, original.texto, original.accesible); }
+    // un .vsix con solo código: se ofrece ejecutarlo (con su consentimiento)
+    if (e?.code === 'codeonly' && src instanceof Blob) return instalaFicheroConCodigo(src);
     aviso(textoError(e), true);
   }
+}
+
+// Una instalada sin su código (solo lo declarativo) que trae código para el
+// navegador: se vuelve a bajar de Open VSX, con su suma, y su código
+async function instalaConCodigoInstalada(rec) {
+  m2 ??= await gestor();
+  const runtime = await host.codeRuntime();
+  if (!runtime.available) { aviso(tx('x2Unavail_' + runtime.reason), true); return; }
+  const v = await m2.consent({ name: rec.displayName, publisher: rec.publisher, version: rec.version, license: rec.license, cls: null, runtime, extensionBytes: null });
+  if (v !== 'code') return;
+  return instala({ namespace: rec.publisher, name: rec.name, version: rec.version, displayName: rec.displayName }, null, { withCode: true });
+}
+
+// .vsix suelto que solo trae código: consentimiento (sin suma publicada con la
+// que comprobarlo, y se dice) y, si acepta, se instala con su código
+async function instalaFicheroConCodigo(file) {
+  m2 ??= await gestor();
+  const runtime = await host.codeRuntime();
+  if (!runtime.available) { aviso(tx('errCodeonly') + ' ' + tx('x2Unavail_' + runtime.reason), true); return; }
+  const v = await m2.consent({ name: file.name, publisher: '', version: '', license: '', cls: null, runtime, extensionBytes: file.size, mode: 'file' });
+  if (v !== 'code') { aviso(tx('cancelled')); return; }
+  return instala(file, null, { withCode: true });
 }
 
 // ── instaladas ──
@@ -437,12 +590,30 @@ function pintaInstaladas() {
   focoPendiente = null;
   // …y los avisos que estaban desplegados siguen desplegados
   const desplegados = new Set([...box.querySelectorAll('details.ext-warn[open]')].map(d => d.closest('.ext-row')?.dataset.id));
+  // (y los plegables de los mandos de código, con lo que se estaba escribiendo)
+  const abiertos = new Set([...box.querySelectorAll('.ext-x2 details[open]')].map(d => d.closest('.ext-row')?.dataset.id + '|' + d.className));
+  const borradores = new Map([...box.querySelectorAll('.ext-x2-json')].map(t => [t.closest('.ext-row')?.dataset.id, t.value]));
+  for (const b of bajas) { try { b(); } catch { /* — */ } }
+  bajas = [];
   const lista = host.list();
+  // la explicación del panel cambia con la primera extensión con código (y vuelve sin ninguna)
+  const intro = document.querySelector('#ext-panel .ext-intro');
+  if (intro) intro.textContent = tx(lista.some(e => e.code) ? 'introCode' : 'intro');
   const cab = el('div', 'sk-h', tx('installedH', { n: lista.length }));
   cab.id = 'ext-installed-h';
   cab.tabIndex = -1;
   box.replaceChildren(cab);
   if (!lista.length) { box.appendChild(el('p', 'muted ext-hint', tx('none'))); recuperaFoco(box, foco && { heading: true }); return; }
+  // con código en marcha: una línea con su estado y un botón para apagarlo todo
+  if (lista.some(e => e.runs && e.enabled) && m2) {
+    const linea = m2.runtimeLine(host);
+    if (linea) box.appendChild(linea);
+    const todo = el('button', 'ghost ext-x2-alloff', tx('allCodeOff'));
+    todo.type = 'button';
+    todo.onclick = async () => { for (const e of host.list()) if (e.runs) await host.setRuns(e.id, false); };
+    box.appendChild(todo);
+  }
+  if ((lista.some(e => e.code || e.browser)) && !m2) gestor().then(m => { m2 = m; pintaInstaladas(); }).catch(() => {});
   for (const e of lista.slice().reverse()) {
     const row = el('div', 'ext-row installed' + (e.enabled ? '' : ' off'));
     row.dataset.id = e.id;
@@ -456,9 +627,23 @@ function pintaInstaladas() {
       grammarLangs: (e.grammars || []).map(g => g.language ?? null),
       languageList: (e.languages || []).map(l => ({ id: l.id, config: !!l.configKey })),
       snippetLangs: [...new Set((e.snippets || []).map(s => s.language))],
-      ignored: e.ignored || [], hasCode: e.hasCode, pack: e.pack || [],
+      // (el código para el navegador lo cuentan los mandos de abajo)
+      ignored: e.ignored || [], hasCode: e.hasCode && !e.code && !e.browser, pack: e.pack || [],
     });
     for (const l of r.lineas) main.appendChild(el('div', l.cls, l.t));
+    // mandos del código (nivel 2): ejecutar o no, estado, comandos, ajustes…
+    if ((e.code || e.browser) && m2) {
+      const b = m2.codeBlock(e, {
+        host,
+        onGetCode: rec => instalaConCodigoInstalada(rec),
+        onMessage: (t, error) => aviso(t, error),
+        register: f => bajas.push(f),
+      });
+      for (const d of b.querySelectorAll('details')) if (abiertos.has(e.id + '|' + d.className)) d.open = true;
+      const ta = b.querySelector('.ext-x2-json');
+      if (ta && borradores.has(e.id)) ta.value = borradores.get(e.id);
+      main.appendChild(b);
+    }
     // lo que el paquete declaraba y no se pudo usar: plegado, sin esconderlo
     const avisos = avisosVisibles(e.warnings).map(textoAviso).filter(Boolean);
     if (avisos.length) {
