@@ -618,6 +618,14 @@ async function gpuCapacity() {
   } catch { return { gpu: false, maxBuf: 0, mem }; }
 }
 
+// El ONNX ligero (Qwen3.5-0.8B, WebGPU o wasm), con el MISMO id que ofrecen el
+// selector y las tarjetas. Aquí se pedía 'onnx' a secas, un id que b7d7db0 quitó
+// de las opciones; preloadModel() solo carga lo que se ofrece, así que sin
+// WebGPU (donde tampoco hay Gemma) no quedaba nada y el IDE arrancaba sin
+// modelo, y el respaldo de un Gemma que no cabe cargaba uno que el selector no
+// sabía enseñar.
+const ONNX_LIGERO = 'onnx:qwen3.5-0.8b';
+
 // Auto-selección: el modelo MÁS GRANDE que entre en esta máquina. Gemma por
 // LiteRT si la GPU aguanta sus buffers; si no, un ONNX pequeño (WebGPU o wasm).
 async function pickLocalBrain() {
@@ -627,10 +635,10 @@ async function pickLocalBrain() {
     if (c.maxBuf >= 2 ** 30 && c.mem >= 6) return 'litert:gemma-e2b';   // ~2 GB
   }
   if (c.gpu && isMobile()) return 'litert:gemma-e2b';
-  return 'onnx';   // ONNX pequeño: Qwen3.5-0.8B por defecto (ver model-config.js)
+  return ONNX_LIGERO;
 }
 // heurística vieja como último recurso síncrono
-const defaultBrain = () => !realGPU ? 'onnx' : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
+const defaultBrain = () => !realGPU ? ONNX_LIGERO : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
 
 // El runtime propio y su modelo grande se SONDEAN, no se cablean: el motor
 // llega por rsync y el modelo son gigabytes que pueden no estar alojados.
@@ -856,7 +864,7 @@ async function changeModel(id) {
       sessionStorage.setItem('elffusscode.skipGemma', '1');
       showModelProgress(t('fallbackToast'));
       loadingId = null;
-      const okc = await changeModel('onnx');
+      const okc = await changeModel(ONNX_LIGERO);
       _fellBack = false;
       if (okc) return true;
     }
@@ -894,8 +902,8 @@ async function preloadModel() {
   if (hayMotor || hay27 || hayMini) rebuildSelect();
   const avail = new Set(modelOptions().map(o => o.id));
   const skipGemma = sessionStorage.getItem('elffusscode.skipGemma') === '1';
-  const def = skipGemma ? 'onnx' : await pickLocalBrain();
-  const chain = [...new Set([saved, def, 'onnx']
+  const def = skipGemma ? ONNX_LIGERO : await pickLocalBrain();
+  const chain = [...new Set([saved, def, ONNX_LIGERO]
     .filter(id => id && id !== 'rules' && avail.has(id)))];
   // MÓVIL: no descargar ~1,9 GB sin permiso. defaultBrain() elige gemma-e2b en
   // móvil, y medido el 2026-09-08 con un iPhone emulado contra producción: al
@@ -1037,7 +1045,7 @@ function renderSettings() {
   const SUBS = {
     'litert:gemma-e4b': t("setModelE4bSub"),
     'litert:gemma-e2b': t("setModelE2bSub"),
-    'onnx': t("setModelOnnxSub"),
+    [ONNX_LIGERO]: t("setModelOnnxSub"),
     'rules': t("setModelRulesSub"),
   };
   const LOCAL = modelOptionsLocales().map((o) => {
