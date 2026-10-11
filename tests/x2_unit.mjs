@@ -437,6 +437,28 @@ else {
   ok(`censo, con sus manifiestos reales (${reales.length}): ninguna que arrancó sale como «no puede correr» ni escondida`, !malR.length, malR.join(' '));
 }
 
+// ── el censo estático del catálogo entero (tests/catalog-census/): cada recuento sale de sus líneas ──
+const cat = JSON.parse(fs.readFileSync(path.join(HERE, 'catalog-census/summary.json'), 'utf8'));
+const tsv = fs.readFileSync(path.join(HERE, 'catalog-census/extensions.tsv'), 'utf8').split('\n').filter(Boolean);
+const [head, ...lineas] = tsv;
+const cols = head.split('\t');
+const filas = lineas.map(l => Object.fromEntries(l.split('\t').map((v, i) => [cols[i], v])));
+const leidas = filas.filter(r => r.runtime !== 'unreadable');
+const cuenta = f => leidas.filter(f).length;
+const recount = {
+  read: leidas.length, unreadable: filas.length - leidas.length,
+  browserEntry: cuenta(r => r.runtime === 'browser'), runsInSandbox: cuenta(r => r.runs_in_sandbox === '1'), nodeOnly: cuenta(r => r.runtime === 'node'), noCode: cuenta(r => r.runtime === 'none'),
+  declarativeApplies: cuenta(r => r.declarative === '1'), worksInCode: cuenta(r => r.works === '1'), worksOnlyThroughCode: cuenta(r => r.works === '1' && r.declarative === '0'), nothingWorks: cuenta(r => r.works === '0'),
+};
+const top = n => leidas.filter(r => r.rank !== '-' && Number(r.rank) <= n);
+ok('catálogo: cada recuento del resumen sale de extensions.tsv (una línea por extensión), también el del top 500', Object.entries(recount).every(([k, v]) => cat[k] === v)
+  && cat.bands.top500.browserEntry === top(500).filter(r => r.runtime === 'browser').length && cat.bands.top100.worksInCode === top(100).filter(r => r.works === '1').length,
+  JSON.stringify(Object.fromEntries(Object.entries(recount).filter(([k, v]) => cat[k] !== v).map(([k, v]) => [k, [cat[k], v]]))));
+ok('catálogo: con fecha y tamaño, todo listado, sin tiempos', /^\d{4}-\d\d-\d\d$/.test(cat.date) && cat.listed === filas.length && cat.listed >= cat.catalog && cat.notReachableBySearch === 0
+  && !JSON.stringify(cat).match(/"(ms|millis|seconds|duration|elapsed|time)[A-Za-z]*"\s*:/i), JSON.stringify({ date: cat.date, catalog: cat.catalog, listed: cat.listed, lines: filas.length }));
+ok('catálogo y censo en ejecución: las del top 500 con entrada de navegador son las mismas 89', top(500).filter(r => r.runtime === 'browser').length === results.length
+  && top(500).filter(r => r.runtime === 'browser').every(r => results.some(([k]) => k.split('@')[0] === r.id.toLowerCase())));
+
 const files = [...fs.readdirSync(path.join(REPO, 'web/js/ext2')).map(f => 'web/js/ext2/' + f), 'sandbox/x2/headers.json', 'sandbox/x2/headers.mjs', 'sandbox/x2/v1/sandbox.html', 'sandbox/x2/v1/exthost-iframe.html'];
 const home = ['/', 'Users', '/'].join(''), linuxHome = ['/', 'home', '/'].join('');
 ok('ni rutas de usuario ni prefijos de home en el nivel 2', files.every(f => { const t = fs.readFileSync(path.join(REPO, f), 'utf8'); return !t.includes(home) && !t.includes(linuxHome); }));

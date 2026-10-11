@@ -99,4 +99,4 @@ mind_video: records a video, not a test
 shot_utopiaia: a screenshot of a production site
 warmup_code: warms up the real model in a persistent profile
 x2_census: manual: downloads and runs the top-500's browser extensions from Open VSX
-catalog_census: manual: reads every extension's package.json in Open VSX (tens of thousands of requests)
+catalog_census: manual: reads every extension's package.json in Open VSX (about 20,000 requests); its last run is in tests/catalog-census/

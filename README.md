@@ -167,7 +167,7 @@ address the dialog showed; and positive controls show the setup does catch leaks
   bytes against the committed `web/js/ext2/vendor-manifest.json`. It is built by a
   pinned, reproducible script and deployed separately; see
   [`vendor/vscode-ext2/README.md`](vendor/vscode-ext2/README.md).
-- **What doesn't work:** Node-only extensions (most of the catalog), anything that needs
+- **What doesn't work:** Node-only extensions (81% of the catalog), anything that needs
   the full VS Code interface (views, webviews, custom editors, notebooks, terminal,
   debugger, source control, status bar), the network or the whole project, extensions that
   replace typing (Vim, Emacs), `createQuickPick` and `createInputBox`, gutter icons, and
@@ -213,13 +213,35 @@ runs. Some extensions that start still need things Code doesn't have (webviews, 
 network, a workspace), so the census is an upper bound; per-extension results are in
 `web/js/ext2/tested.json` and feed the panel's "Tested in Code" lines.
 
-Across the whole catalog (19,335 extensions on 2026-10-11) only a static sample has been
-read: 2,000 manifests put the share with a browser entry at about 5%, roughly 470 to 1,430
-extensions. That is an extrapolation, not a count; none of them was run.
-`tests/catalog_census.mjs` reads every extension's `package.json` once (no `.vsix`, nothing
-runs) and classifies it with the panel's own rules, for exact counts. It is manual, about
-40,000 requests to Open VSX at 4 at a time, and has not been run on the whole catalog yet;
-`--ranks 1-20,19301-19320` tries it on a few.
+**Across the whole catalog (static census, 2026-10-11).** `tests/catalog_census.mjs` listed
+every extension the Open VSX search returns (19,338 that day, the catalog's size when the
+listing ended) and read each one's latest `package.json`: 19,337, one publishes none.
+Nothing was downloaded as a `.vsix`, installed or run; about 20,000 requests to the API at
+most 2.5 a second. Each manifest was classified with the panel's own rules
+(`web/js/ext2/classify.js`, Monaco's built-in languages, the runtime census above):
+
+| | All (19,337) | Top 1,000 | Top 500 | Top 100 |
+|---|---|---|---|---|
+| Browser entry | 893 (4.6%) | 151 | 89 | 24 |
+| …whose code could run in the sandbox | 849 (4.4%) | 116 | 56 | 15 |
+| Node only (`main`, no `browser`) | 15,729 (81.3%) | 694 | 307 | 70 |
+| No code at all | 2,715 (14.0%) | 155 | 104 | 6 |
+| Something applies without code (themes, grammars, snippets, languages) | 5,610 (29.0%) | 449 | 246 | 51 |
+| Works in Code, either way | 6,152 (31.8%) | 516 | 280 | 58 |
+| …only through its code | 542 (2.8%) | 67 | 34 | 7 |
+| Nothing works in Code | 13,185 (68.2%) | 484 | 220 | 42 |
+
+These are counts, not a sample: `tests/catalog-census/summary.json` has them with the date
+and `extensions.tsv` has one line per extension, from which `tests/x2_unit.mjs` recomputes
+every count. They are static: "could run" means a browser entry and nothing in the manifest
+or the runtime census that rules it out (384 of the 849 also contribute views or other
+parts that won't appear here and 32 declare proposed APIs; 52 of the 893 depend on another
+extension), and it holds where level 2 runs (Chrome or Edge, a site with its sandbox). Only the top
+500's 89 were actually run (the runtime census above); the other 804 with a browser entry
+have not been run. An earlier extrapolation from 2,000 manifests (about 950, 4.9%) is
+replaced by these counts. `node tests/catalog_census.mjs` repeats it (a stopped run resumes;
+`--recount` classifies again without the network; `--ranks 1-20,10001-10020` tries it on a
+few).
 
 Tests (each starts its own loopback server; nothing goes to production):
 
