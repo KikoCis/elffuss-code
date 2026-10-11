@@ -269,6 +269,22 @@ const r5 = await fakeTools['web.fetch'].run({ url: 'https://x.test/no' });
 ok('agente: denegar devuelve el aviso, permitir ejecuta; al quitar la puerta todo vuelve', r1 === gates.AGENT_DENIED && r2 === 'fetched https://x.test/ok' && r3 === 'ran ls' && r4 === gates.AGENT_DENIED
   && r5 === 'fetched https://x.test/no' && asked.length === 3, JSON.stringify({ r1, r2, r3, r4, r5, asked }));
 
+// ── 7d. decoraciones: lista blanca de CSS ──
+const deco = await import('../web/js/ext2/decorations.js');
+ok('colores válidos', ['#fff', '#ff000080', 'rgba(1, 2, 3, 0.5)', 'rgb(1 2 3 / 50%)', 'hsl(120deg 50% 50%)', 'Red', 'transparent'].every(c => deco.color(c))
+  && deco.color({ themeColor: 'editorError.foreground' }) === 'var(--vscode-editorError-foreground)');
+const HOSTILE_CSS = ['url(http://beacon.test/x)', 'red;background:url(http://beacon.test/x)', 'expression(alert(1))', 'var(--x)', 'red }', '#fff;', 'rgb(1,2,3);x:url(y)',
+  'image-set(url(a) 1x)', '\\75 rl(x)', 'attr(x)', 'calc(1px+2px)'];
+ok('colores hostiles fuera', HOSTILE_CSS.every(c => deco.color(c) === null) && deco.color({ themeColor: 'a;b' }) === null);
+ok('textDecoration: tokens conocidos sí, inyecciones no', deco.textDecoration('underline wavy red') === 'underline wavy red' && deco.textDecoration('line-through 2px') === 'line-through 2px'
+  && deco.textDecoration('none; display: none') === null && deco.textDecoration('underline url(x)') === null);
+ok('border: solo si se parte en anchura, estilo y color', deco.borderShorthand('1px solid red') === '1px solid red' && deco.borderShorthand('thin dashed #fff') === 'thin dashed #fff'
+  && deco.borderShorthand('1px solid red; background:url(x)') === null && deco.borderShorthand('1px solid red red red') === null);
+const dHostile = deco.declarations({ backgroundColor: 'url(http://beacon.test/a)', color: 'red', fontFamily: 'x', cursor: 'url(x), pointer', textDecoration: 'none;a:b', opacity: '0.5', letterSpacing: '1px' }, 'inline')
+  + deco.declarations({ backgroundColor: 'url(http://beacon.test/a)', border: 'url(x)', borderRadius: '3px', outline: '1px solid blue' }, 'block');
+ok('declaraciones: lo hostil no llega, lo válido sí', !/url|font-family|beacon|cursor|text-decoration/.test(dHostile) && /color: red;/.test(dHostile) && /opacity: 0\.5;/.test(dHostile)
+  && /border-radius: 3px;/.test(dHostile) && /outline: 1px solid blue;/.test(dHostile), dHostile);
+
 // ── 8. ningún fichero del nivel 2 lleva rutas de máquina ──
 const files = [...fs.readdirSync(path.join(REPO, 'web/js/ext2')).map(f => 'web/js/ext2/' + f), 'sandbox/x2/headers.json', 'sandbox/x2/headers.mjs', 'sandbox/x2/v1/sandbox.html', 'sandbox/x2/v1/exthost-iframe.html'];
 const home = ['/', 'Users', '/'].join(''), linuxHome = ['/', 'home', '/'].join('');

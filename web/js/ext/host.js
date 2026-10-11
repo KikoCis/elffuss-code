@@ -105,7 +105,8 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   let langContribs = [];
   let themeIndex = new Map();         // id de tema → { key, label, uiTheme, ext, extName }
   let pref = leePref();
-  let actual = 'vs-dark', monacoId = 'vs-dark';
+  let actual = 'vs-dark', monacoId = 'vs-dark', tipoTema = 'dark';
+  let puente = null;                  // ../ext2/bridge.js, solo si alguna extensión corre código
   let estilo = null;
   let firmaGramaticas = '[]';
   let cola = Promise.resolve();       // los cambios se aplican de uno en uno
@@ -151,6 +152,9 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     actual = elegido;
     monacoId = mid;
     pintaCromo(tema, elegido);
+    // las extensiones con código ven si el tema es claro, oscuro o de contraste
+    tipoTema = { vs: 'light', 'hc-black': 'hc', 'hc-light': 'hc-light' }[tema.uiTheme] || 'dark';
+    puente?.setTheme(tipoTema);
     if (guardar) guardaPref(elegido);
     return elegido;
   }
@@ -209,12 +213,12 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   // ── nivel 2: el puente solo se importa si alguna extensión corre código ──
   // Nunca se espera aquí: el recinto arranca en paralelo (ide.js crea el
   // editor después de cargar este host y el puente lo espera).
-  let puente = null;
   function sincronizaCodigo() {
     const corren = paused || sinCodigo ? [] : exts.filter(e => e.enabled && e.runs);
     if (!corren.length && !puente) return;
     (async () => {
       puente ??= await import('../ext2/bridge.js');
+      puente.setTheme(tipoTema);
       await puente.sync({ monaco, records: corren, readCode: store.readCode });
       emit();
     })().catch(e => console.warn('[elffuss-ext] nivel 2:', e?.message || e));

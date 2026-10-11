@@ -35,6 +35,10 @@ export const isPlainObject = v => v !== null && typeof v === 'object' && Object.
 
 const isFilter = f => isPlainObject(f) && optStr(f.language, 100) && optStr(f.scheme, 50) && optStr(f.pattern, 500);
 const SEVS = new Set(['info', 'warning', 'error']);
+const isDecoKey = k => isStr(k, 100) && /^[\w.-]{1,100}$/.test(k);
+const isHover = h => isPlainObject(h) && (h.md !== undefined ? isStr(h.md, 4096) && h.text === undefined : isStr(h.text, 4096));
+const isDecoRange = r => isPlainObject(r) && isRange(r.range) && (r.hover === undefined || (Array.isArray(r.hover) && r.hover.length <= 10 && r.hover.every(isHover)))
+  && (r.ro === undefined || isPlainObject(r.ro));
 const isPickItem = it => isPlainObject(it) && (it.sep !== undefined
   ? isStr(it.sep, 200) && Object.keys(it).length === 1
   : isStr(it.label, 500) && optStr(it.description, 500) && optStr(it.detail, 1000) && (it.picked === undefined || typeof it.picked === 'boolean'));
@@ -89,6 +93,10 @@ const FROM_SANDBOX = {
   'editor.show': m => isUri(m.uri),
   'editor.reveal': m => isUri(m.uri) && isRange(m.range),
   'editor.selection': m => isUri(m.uri) && Array.isArray(m.selections) && m.selections.length >= 1 && m.selections.length <= 100 && m.selections.every(isRange),
+  // decoraciones: la página reconstruye el CSS con su lista blanca (decorations.js)
+  'deco.type': m => isDecoKey(m.key) && isPlainObject(m.options) && approxSize(m.options, 40000) < 40000,
+  'deco.set': m => isDecoKey(m.key) && isUri(m.uri) && Array.isArray(m.ranges) && m.ranges.length <= 10000 && m.ranges.every(isDecoRange),
+  'deco.remove': m => isDecoKey(m.key),
 };
 
 export function validate(msg) {

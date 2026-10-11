@@ -358,6 +358,7 @@ export async function start({ m, port, config, sandbox = {} }) {
   const extensionService = await m.getService(m.IExtensionService);
   const contextKeys = await m.getService(m.IContextKeyService);
   const quickInput = await m.getService(m.IQuickInputService);
+  const codeEditors = await m.getService(m.ICodeEditorService);
 
   // selector rápido y cuadro de texto: los pinta la página (solo texto: sin
   // iconos ni botones). createQuickPick/createInputBox (la API completa) aún no.
@@ -425,6 +426,8 @@ export async function start({ m, port, config, sandbox = {} }) {
   });
   mirror.onDidChangeModel(() => { activeChanged.fire(); visibleChanged.fire(); });
   activeChanged.fire();
+  // el tema (claro, oscuro, alto contraste) que tiene Code: lo ven las extensiones
+  { const th = { light: 'vs', dark: 'vs-dark', hc: 'hc-black', 'hc-light': 'hc-light' }[config.theme]; if (th) monaco.editor.setTheme(th); }
 
   // ── proveedores: captura en cada registro de ILanguageFeaturesService ──
   let nextHandle = 1;
@@ -551,6 +554,86 @@ export async function start({ m, port, config, sandbox = {} }) {
     }
     return r;
   };
+  // Decoraciones (setDecorations): el tipo se registra en ICodeEditorService y
+  // los rangos se ponen en el espejo. A la página van solo datos planos; ella
+  // reconstruye el CSS con su lista blanca (decorations.js).
+  const DECO_KEYS = ['backgroundColor', 'outline', 'outlineColor', 'outlineStyle', 'outlineWidth', 'border', 'borderColor', 'borderRadius', 'borderSpacing',
+    'borderStyle', 'borderWidth', 'fontStyle', 'fontWeight', 'textDecoration', 'cursor', 'color', 'opacity', 'letterSpacing', 'overviewRulerColor'];
+  const CONTENT_KEYS = ['contentText', 'border', 'borderColor', 'fontStyle', 'fontWeight', 'textDecoration', 'color', 'backgroundColor', 'margin', 'width', 'height', 'opacity'];
+  const plainPick = (o, keys) => {
+    const out = {};
+    if (!o || typeof o !== 'object') return out;
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === 'string') out[k] = v.slice(0, 300);
+      else if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+      else if (v && typeof v === 'object' && typeof v.id === 'string') out[k] = { themeColor: v.id.slice(0, 100) };
+    }
+    return out;
+  };
+  const withContent = (o, keys) => {
+    const out = plainPick(o, keys);
+    for (const side of ['before', 'after']) if (o && o[side] && typeof o[side] === 'object') out[side] = plainPick(o[side], CONTENT_KEYS);
+    return out;
+  };
+  const decoOptions = o => ({
+    ...withContent(o, DECO_KEYS),
+    ...(o && o.isWholeLine === true ? { isWholeLine: true } : {}),
+    ...(o && Number.isSafeInteger(o.rangeBehavior) ? { rangeBehavior: o.rangeBehavior } : {}),
+    ...(o && Number.isSafeInteger(o.overviewRulerLane) ? { overviewRulerLane: o.overviewRulerLane } : {}),
+    ...(o && o.light && typeof o.light === 'object' ? { light: withContent(o.light, DECO_KEYS) } : {}),
+    ...(o && o.dark && typeof o.dark === 'object' ? { dark: withContent(o.dark, DECO_KEYS) } : {}),
+  });
+  const decoTypes = new Set();
+  const decoKey = k => (typeof k === 'string' && /^[\w.-]{1,100}$/.test(k) ? k : null);
+  const registerType = codeEditors.registerDecorationType.bind(codeEditors);
+  codeEditors.registerDecorationType = function (description, key, options, parentTypeKey, editor) {
+    const r = registerType(description, key, options, parentTypeKey, editor);
+    if (decoKey(key) && !parentTypeKey && String(description).startsWith('exthost-api')) {
+      decoTypes.add(key);
+      send({ t: 'deco.type', key, options: decoOptions(options) });
+    }
+    return r;
+  };
+  const removeType = codeEditors.removeDecorationType.bind(codeEditors);
+  codeEditors.removeDecorationType = function (key) {
+    const r = removeType(key);
+    if (decoTypes.delete(key)) send({ t: 'deco.remove', key });
+    return r;
+  };
+  const sendDeco = (key, list) => {
+    const uri = uriOfModel(mirror.getModel());
+    if (uri) send({ t: 'deco.set', key, uri, ranges: list.slice(0, 10000) });
+  };
+  const origDeco = mirror.setDecorationsByType.bind(mirror);
+  mirror.setDecorationsByType = function (description, key, opts) {
+    const r = origDeco(description, key, opts);
+    if (decoTypes.has(key)) {
+      sendDeco(key, (Array.isArray(opts) ? opts : []).slice(0, 10000).map(o => {
+        const range = o && R(o.range);
+        if (!range) return null;
+        const hover = o.hoverMessage ? [].concat(o.hoverMessage).slice(0, 10).map(md).filter(Boolean).map(h => (h.md ? { md: h.md.slice(0, 4096) } : { text: h.text.slice(0, 4096) })) : [];
+        const ro = o.renderOptions && typeof o.renderOptions === 'object' ? withContent(o.renderOptions, []) : null;
+        if (ro && o.renderOptions.light) ro.light = withContent(o.renderOptions.light, []);
+        if (ro && o.renderOptions.dark) ro.dark = withContent(o.renderOptions.dark, []);
+        return { range, ...(hover.length ? { hover } : {}), ...(ro && Object.keys(ro).length ? { ro } : {}) };
+      }).filter(Boolean));
+    }
+    return r;
+  };
+  const origDecoFast = mirror.setDecorationsByTypeFast.bind(mirror);
+  mirror.setDecorationsByTypeFast = function (key, ranges) {
+    const r = origDecoFast(key, ranges);
+    if (decoTypes.has(key)) sendDeco(key, (Array.isArray(ranges) ? ranges : []).slice(0, 10000).map(x => { const range = R(x); return range ? { range } : null; }).filter(Boolean));
+    return r;
+  };
+  const origDecoRemove = mirror.removeDecorationsByType.bind(mirror);
+  mirror.removeDecorationsByType = function (key) {
+    const r = origDecoRemove(key);
+    if (decoTypes.has(key)) sendDeco(key, []);
+    return r;
+  };
+
   for (const name of ['revealRange', 'revealRangeInCenter', 'revealRangeInCenterIfOutsideViewport', 'revealRangeAtTop']) {
     const orig = mirror[name].bind(mirror);
     mirror[name] = function (range, scrollType) {
@@ -642,6 +725,7 @@ export async function start({ m, port, config, sandbox = {} }) {
 
   // ── diagnósticos de las extensiones → la página ──
   const ownersOf = new Map();                       // uri → Set(owner)
+  const pageOwners = new Map();                     // uri → Set(«page:…») de los diagnósticos de la página
   let markersSent = 0;
   markerService.onMarkerChanged(resources => {
     for (const r of resources) {
@@ -869,6 +953,33 @@ export async function start({ m, port, config, sandbox = {} }) {
           break;
         }
         case 'cancel': { const c = tokens.get(msg.req); if (c) c.cancel(); break; }
+        // diagnósticos de la propia página (TS, JSON, CSS, HTML de Monaco):
+        // las extensiones los ven (p. ej. para decorarlos), con dueño «page:…»
+        case 'markers.page': {
+          const uri = typeof msg.uri === 'string' ? msg.uri : '';
+          if (!docs.has(uri) || !Array.isArray(msg.markers)) break;
+          const res = monaco.Uri.parse(uri);
+          const byOwner = new Map();
+          for (const mk of msg.markers.slice(0, 5000)) {
+            if (!mk || !Array.isArray(mk.range) || mk.range.length !== 4 || !mk.range.every(n => Number.isSafeInteger(n) && n >= 1)) continue;
+            const owner = 'page:' + String(mk.owner || 'page').replace(/[^\w.-]/g, '').slice(0, 60);
+            if (!byOwner.has(owner)) byOwner.set(owner, []);
+            byOwner.get(owner).push({
+              severity: [1, 2, 4, 8].includes(mk.severity) ? mk.severity : 8, message: str(mk.message, 4096) || ' ',
+              source: str(mk.source, 200), code: str(mk.code, 200),
+              startLineNumber: mk.range[0], startColumn: mk.range[1], endLineNumber: mk.range[2], endColumn: mk.range[3],
+            });
+          }
+          const before = pageOwners.get(uri) || new Set();
+          for (const owner of new Set([...before, ...byOwner.keys()])) markerService.changeOne(owner, res, byOwner.get(owner) || []);
+          pageOwners.set(uri, new Set(byOwner.keys()));
+          break;
+        }
+        case 'theme': {
+          const th = { light: 'vs', dark: 'vs-dark', hc: 'hc-black', 'hc-light': 'hc-light' }[msg.kind];
+          if (th) monaco.editor.setTheme(th);
+          break;
+        }
         case 'ui.result': {
           const r = asks.get(msg.req);
           if (!r) break;

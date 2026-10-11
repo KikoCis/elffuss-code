@@ -16,6 +16,7 @@ import { Features } from './features.js';
 import { Commands } from './commands.js';
 import { ExtUI, loadCss, userActive } from './ui.js';
 import { OpenGate, installAgentGate, markTouched } from './gates.js';
+import { Decorations } from './decorations.js';
 import * as convert from './convert.js';
 
 const READY_TIMEOUT = 60000;
@@ -57,6 +58,13 @@ export function allowedCalls(j) {
 
 const listeners = new Set();
 let session = null;
+// el tema de Code (claro, oscuro, alto contraste): host.js lo dice al cambiar
+let themeKind = 'dark';
+export function setTheme(kind) {
+  if (!['light', 'dark', 'hc', 'hc-light'].includes(kind) || kind === themeKind) return;
+  themeKind = kind;
+  if (session && session.state === 'running') session.post({ t: 'theme', kind });
+}
 let lastError = null;
 const emit = () => { for (const f of listeners) { try { f(); } catch { /* — */ } } };
 export const onChange = fn => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -130,7 +138,7 @@ class Session {
     const config = {
       protocol: PROTOCOL,
       lang: document.documentElement.lang || 'en',
-      theme: 'dark',
+      theme: themeKind,
       languages: this.monaco.languages.getLanguages().slice(0, 1000).map(l => ({ id: l.id, extensions: (l.extensions || []).slice(0, 50), aliases: (l.aliases || []).slice(0, 10) })),
       rpc: { actors: allowedCalls(rpc) },
     };
@@ -192,6 +200,33 @@ class Session {
     this.disposables.push(monaco.editor.registerLinkOpener({
       open: async uri => { await this.gate.request(typeof uri?.toString === 'function' ? uri.toString(true) : String(uri), { fromEditor: true }); return true; },
     }));
+    this.decorations = new Decorations({ monaco, editor, docs: this.docs });
+    // los diagnósticos de la propia página (TS, JSON, CSS, HTML), para las
+    // extensiones que los decoran (Error Lens y similares)
+    const pendientes = new Map();                  // uri del recinto → modelo
+    let reloj = null;
+    const programa = model => {
+      const uri = model && !model.isDisposed() && this.docs.uriOf(model);
+      if (!uri) return;
+      pendientes.set(uri, model);
+      reloj ??= setTimeout(() => {
+        reloj = null;
+        for (const [u, m2] of pendientes) {
+          if (m2.isDisposed()) continue;
+          const markers = monaco.editor.getModelMarkers({ resource: m2.uri }).filter(x => !String(x.owner).startsWith('x2:')).slice(0, 5000).map(x => ({
+            owner: String(x.owner).slice(0, 60), severity: x.severity, message: String(x.message).slice(0, 4096),
+            ...(typeof x.source === 'string' ? { source: x.source.slice(0, 200) } : {}),
+            ...(typeof x.code === 'string' ? { code: x.code.slice(0, 200) } : x.code && typeof x.code.value === 'string' ? { code: x.code.value.slice(0, 200) } : {}),
+            range: [x.startLineNumber, x.startColumn, x.endLineNumber, x.endColumn],
+          }));
+          this.post({ t: 'markers.page', uri: u, markers });
+        }
+        pendientes.clear();
+      }, 300);
+    };
+    this.disposables.push(monaco.editor.onDidChangeMarkers(uris => { for (const u of uris) programa(monaco.editor.getModel(u)); }));
+    this.disposables.push(editor.onDidChangeModel(() => setTimeout(() => programa(editor.getModel()), 0)));
+    setTimeout(() => programa(editor.getModel()), 0);
     // el agente: sus peticiones web y los runtimes del Bridge preguntan antes
     import('../tools/index.js').then(({ TOOLS }) => {
       if (this.state === 'stopped' || this.state === 'error' || this.restoreAgent) return;
@@ -239,6 +274,9 @@ class Session {
       case 'editor.show': this.show(msg.uri); break;
       case 'editor.reveal': this.reveal(msg.uri, msg.range); break;
       case 'editor.selection': this.selection(msg.uri, msg.selections); break;
+      case 'deco.type': this.decorations?.type(msg.key, msg.options); break;
+      case 'deco.set': this.decorations?.set(msg.key, msg.uri, msg.ranges); break;
+      case 'deco.remove': this.decorations?.remove(msg.key); break;
       case 'pong': break;
       default: break;
     }
@@ -399,6 +437,7 @@ class Session {
     try { this.ui.dispose(); } catch { /* — */ }
     try { this.restoreAgent?.(); } catch { /* — */ }
     this.restoreAgent = null;
+    try { this.decorations?.dispose(); } catch { /* — */ }
     try { this.features?.dispose(); } catch { /* — */ }
     try { this.commands?.dispose(); } catch { /* — */ }
     try { this.docs?.dispose(); } catch { /* — */ }

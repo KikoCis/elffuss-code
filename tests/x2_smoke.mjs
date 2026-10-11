@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { startServer } from './lib/x2-server.mjs';
 import { startBeacon } from './lib/beacon.mjs';
-import { seed, recordFor, SORT, FMT, HOVER, SYM, DIAG, UI, DENY, NOOP, CANARY } from './lib/x2-fixtures.mjs';
+import { seed, recordFor, SORT, FMT, HOVER, SYM, DIAG, DECO, UI, DENY, NOOP, CANARY } from './lib/x2-fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const UPDATE = process.argv.includes('--update');
@@ -61,6 +61,7 @@ async function freshPage(server = srv) {
     await w('app.js', 'function zeta() {}\nfunction alpha() {}\n// TODO    fix\nconst  a  =  1;\n');
     await w('fruits.txt', 'pear\napple\nfig\n');
     await w('page.html', '<p id="z">z</p>\n<p id="a">a</p>\n');
+    await w('bad.js', 'let q = ;\n');
   });
   return { ctx, page, requests, errors };
 }
@@ -181,7 +182,7 @@ async function uiFlow(page) {
 // ── C. extensiones sintéticas ──
 {
   const { ctx, page, requests, errors } = await freshPage();
-  await seed(page, [SORT, FMT, HOVER, SYM, DIAG, UI, DENY, NOOP, CANARY]);
+  await seed(page, [SORT, FMT, HOVER, SYM, DIAG, DECO, UI, DENY, NOOP, CANARY]);
   const since = srv.requests.length;
   requests.length = 0;
   await openIde(page);
@@ -210,6 +211,28 @@ async function uiFlow(page) {
   // diagnósticos
   const marks = await until(() => page.evaluate(() => { const ed = window.monaco.editor.getEditors()[0]; const m = window.monaco.editor.getModelMarkers({ resource: ed.getModel().uri }).filter(x => x.owner.startsWith('x2:')); return m.length ? m.map(x => ({ owner: x.owner, message: x.message, code: x.code, line: x.startLineNumber })) : null; }));
   ok('C5 diagnósticos de la extensión: texto plano, sin destino del código', marks && marks[0].owner === 'x2:x2diag' && marks[0].message === 'x2: TODO found x' && marks[0].code === 'X2001' && marks[0].line === 3, JSON.stringify(marks));
+
+  // decoraciones: lo válido llega, lo hostil se queda fuera
+  const deco = await until(() => page.evaluate(() => {
+    const ed = window.monaco.editor.getEditors()[0];
+    const ds = ed.getModel().getAllDecorations().filter(d => d.options.description === 'x2-extension-decoration');
+    const style = document.getElementById('x2-deco')?.textContent || '';
+    const view = document.querySelector('#editor .view-lines')?.textContent || '';
+    return ds.length && view.includes('x2deco>') ? { n: ds.length, line: ds[0].range.startLineNumber, cls: ds[0].options.className, inline: ds[0].options.inlineClassName, before: ds[0].options.before?.content, ruler: ds[0].options.overviewRuler?.color, style } : null;
+  }));
+  ok('C5b decoraciones de la extensión en el editor de Code, con su texto «antes» como texto', !!deco && deco.line === 3 && deco.before === 'x2deco>' && !!deco.cls && !!deco.inline && deco.ruler === 'red', JSON.stringify(deco));
+  ok('C5c su CSS sale de la lista blanca: colores y márgenes sí; url(), fontFamily y los valores inyectados no', !!deco && !/url\(|beacon|font-family|;\s*background|cursor/.test(deco.style)
+    && /background-color: rgba\(255, 0, 0, 0\.25\);/.test(deco.style) && /color: var\(--vscode-editorError-foreground\);/.test(deco.style) && /margin: 0 4px 0 0;/.test(deco.style)
+    && /\.monaco-editor\.vs-dark \.x2d-\d+[^{]*\{ background-color: #0000ff33; \}/.test(deco.style), deco?.style);
+  // los diagnósticos de la página (el TS de Monaco) llegan a las extensiones
+  await open(page, 'bad.js');
+  const pageDiag = await until(async () => {
+    const r = await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('x2diag.pageMarkers'));
+    const a = r ? JSON.parse(r) : [];
+    return a.some(x => /expected/i.test(x)) ? a : null;
+  }, { timeout: 30000 });
+  ok('C5d las extensiones ven los diagnósticos de la propia página (TS de Monaco)', !!pageDiag, JSON.stringify(pageDiag));
+  await open(page, 'app.js');
 
   // formateo (Format Document) y un solo paso de deshacer
   await page.evaluate(async () => { const ed = window.monaco.editor.getEditors()[0]; ed.focus(); await ed.getAction('editor.action.formatDocument').run(); });

@@ -112,8 +112,10 @@ exports.activate = function (context) {
   },
 };
 
+// Diagnósticos propios (cada «TODO»), y x2diag.pageMarkers: los que la
+// extensión ve de otros (los de la página: el TS de Monaco).
 export const DIAG = {
-  manifest: base('diag', { activationEvents: ['onLanguage:javascript'] }),
+  manifest: base('diag', { activationEvents: ['onLanguage:javascript'], contributes: { commands: [{ command: 'x2diag.pageMarkers', title: 'Page markers', category: 'X2' }] } }),
   files: {
     'extension.js': `const vscode = require('vscode');
 exports.activate = function (context) {
@@ -135,6 +137,43 @@ exports.activate = function (context) {
   };
   vscode.workspace.textDocuments.forEach(scan);
   context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(scan), vscode.workspace.onDidChangeTextDocument(e => scan(e.document)));
+  context.subscriptions.push(vscode.commands.registerCommand('x2diag.pageMarkers', () => {
+    const ed = vscode.window.activeTextEditor;
+    return JSON.stringify(ed ? vscode.languages.getDiagnostics(ed.document.uri).filter(d => d.source !== 'x2diag').map(d => d.message) : []);
+  }));
+};
+`,
+  },
+};
+
+// Decoraciones con valores hostiles mezclados con buenos: la página se queda
+// solo con los buenos (colores, márgenes) y pinta el texto «antes» como texto.
+export const DECO = {
+  manifest: base('deco', { activationEvents: ['onLanguage:javascript'] }),
+  files: {
+    'extension.js': `const vscode = require('vscode');
+exports.activate = function (context) {
+  const t = vscode.window.createTextEditorDecorationType({
+    backgroundColor: 'rgba(255, 0, 0, 0.25)', color: new vscode.ThemeColor('editorError.foreground'),
+    border: '1px solid red; background-image: url(http://deco.beacon.test/border.png)',
+    textDecoration: 'none; background: url(http://deco.beacon.test/td.png)',
+    fontFamily: 'x; src: url(http://deco.beacon.test/font.woff)', cursor: 'url(http://deco.beacon.test/cur.png), pointer',
+    gutterIconPath: vscode.Uri.parse('http://deco.beacon.test/gutter.png'), overviewRulerColor: 'red',
+    before: { contentText: 'x2deco>', color: 'url(http://deco.beacon.test/c.png)', margin: '0 4px 0 0' },
+    light: { backgroundColor: '#00ff0033' }, dark: { backgroundColor: '#0000ff33' },
+  });
+  const apply = ed => {
+    if (!ed || ed.document.languageId !== 'javascript') return;
+    const ranges = [];
+    for (let i = 0; i < ed.document.lineCount; i++) {
+      const j = ed.document.lineAt(i).text.indexOf('TODO');
+      if (j >= 0) ranges.push({ range: new vscode.Range(i, j, i, j + 4), hoverMessage: new vscode.MarkdownString('x2 deco ![i](http://deco.beacon.test/hover.png)') });
+    }
+    ed.setDecorations(t, ranges);
+  };
+  apply(vscode.window.activeTextEditor);
+  context.subscriptions.push(t, vscode.window.onDidChangeActiveTextEditor(apply),
+    vscode.workspace.onDidChangeTextDocument(e => { const ed = vscode.window.activeTextEditor; if (ed && e.document === ed.document) apply(ed); }));
 };
 `,
   },
@@ -265,7 +304,7 @@ exports.activate = function (context) {
   },
 };
 
-export const ALL = { SORT, FMT, HOVER, SYM, DIAG, UI, DENY, NOOP, OBSERVER, CANARY };
+export const ALL = { SORT, FMT, HOVER, SYM, DIAG, DECO, UI, DENY, NOOP, OBSERVER, CANARY };
 
 // Registro tal como lo guarda store.js (nivel 2): `runs` encendido y el
 // código bajo id@versión/code/<ruta>. Se usa dentro de la página:
