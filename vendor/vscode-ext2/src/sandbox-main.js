@@ -14,6 +14,7 @@ export { default as getKeybindingsServiceOverride } from '@codingame/monaco-vsco
 export { default as getConfigurationServiceOverride, updateUserConfiguration } from '@codingame/monaco-vscode-configuration-service-override';
 export { IExtensionService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/extensions/common/extensions.service';
 export { RPCProtocol } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/extensions/common/rpcProtocol';
+export { getStringIdentifierForProxy } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/extensions/common/proxyIdentifier';
 export { CommandsRegistry } from '@codingame/monaco-vscode-api/vscode/vs/platform/commands/common/commands';
 export { IContextKeyService } from '@codingame/monaco-vscode-api/vscode/vs/platform/contextkey/common/contextkey.service';
 export { URI } from '@codingame/monaco-vscode-api/vscode/vs/base/common/uri';

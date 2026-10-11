@@ -1,22 +1,22 @@
 {
   "schema": 1,
   "enabled": true,
-  "buildId": "74fe0e71d00b10da",
+  "buildId": "45c5b33a84d2d405",
   "protocol": 1,
   "library": "@codingame/monaco-vscode-api@37.3.11",
   "vscode": "1.138.0",
   "node": "25.6.1",
   "lockfileSha256": "4fe85d70914a5376ba736842e98f62f156703c53e4ce30c7f1fa315bd621e2a0",
   "budgetGz": 2800000,
-  "totalGz": 2558697,
+  "totalGz": 2558779,
   "files": [
     {
       "name": "sandbox-main.js",
       "role": "main",
-      "raw": 7565407,
-      "gz": 1941531,
-      "sha256Raw": "7ae2e52892b27a047ccda43c4e86aa63e032ac28554e44efc95088af06d20e81",
-      "sriGz": "sha256-kDMTyKq7xct/FPz1hT8UJLPw84Sgio/ULbnafZ4iiUE="
+      "raw": 7565441,
+      "gz": 1941613,
+      "sha256Raw": "9a5dc241fd1089d89bb246e87b2c0ef9678307ff06b249b137019a4a1137a342",
+      "sriGz": "sha256-jgPbDdt2YkKecxA2+ii4/cDLkBacwYnreVPdtY2TJOs="
     },
     {
       "name": "exthost-worker.js",

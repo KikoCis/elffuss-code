@@ -6,10 +6,13 @@
 //
 //   ext    id → registro (versión, sha256, licencia, activa, contribuciones…)
 //   files  "id@versión/ruta" → contenido ya parseado (tema, gramática…)
+//          "id@versión/code/ruta" → bytes crudos del código de la extensión
+//          (nivel 2: solo se usan si el usuario enciende su código, `runs`)
 //   meta   marcas internas
 //
-// La lista [{id, version, enabled}] se refleja en kv «extensions» de la base
-// principal, que es lo que ven el inventario y la copia del espacio de trabajo.
+// La lista [{id, version, enabled, runs}] se refleja en kv «extensions» de la
+// base principal, que es lo que ven el inventario y la copia del espacio de
+// trabajo.
 import * as maindb from '../db.js';
 
 const NAME = 'elffuss-code-ext', VERSION = 1;
@@ -36,6 +39,8 @@ const done = req => new Promise((res, rej) => { req.onsuccess = () => res(req.re
 const txDone = tx => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error('transacción abortada')); });
 
 export const fileKey = (id, version, path) => `${id}@${version}/${path}`;
+// bytes del código de una extensión (nivel 2), por ruta dentro del paquete
+export const codeKey = (id, version, path) => `${id}@${version}/code/${path}`;
 
 export async function list() {
   const db = await open();
@@ -69,6 +74,33 @@ export async function remove(id) {
   await writeMirror();
 }
 
+// Encender o apagar el CÓDIGO de una extensión (nivel 2); lo declarativo
+// sigue con `enabled`.
+export async function setRuns(id, runs) {
+  const db = await open();
+  const tx = db.transaction('ext', 'readwrite');
+  const rec = await done(tx.objectStore('ext').get(id));
+  if (!rec) throw new Error('no instalada: ' + id);
+  rec.runs = !!runs;
+  tx.objectStore('ext').put(rec, id);
+  await txDone(tx);
+  await writeMirror();
+  return rec;
+}
+
+// [[ruta, ArrayBuffer]] del código guardado de una extensión
+export async function readCode(rec) {
+  const paths = Array.isArray(rec?.code?.files) ? rec.code.files : [];
+  const store = (await open()).transaction('files').objectStore('files');
+  const vals = await Promise.all(paths.map(p => done(store.get(codeKey(rec.id, rec.version, p)))));
+  return paths.map((p, i) => {
+    const v = vals[i];
+    if (v === undefined) throw Object.assign(new Error('falta ' + p), { code: 'missing' });
+    const buf = v instanceof ArrayBuffer ? v.slice(0) : ArrayBuffer.isView(v) ? v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength) : new TextEncoder().encode(String(v)).buffer;
+    return [p, buf];
+  });
+}
+
 export async function setEnabled(id, enabled) {
   const db = await open();
   const tx = db.transaction('ext', 'readwrite');
@@ -83,7 +115,7 @@ export async function setEnabled(id, enabled) {
 
 async function writeMirror() {
   const recs = await list();
-  await maindb.set('kv', MIRROR, recs.map(r => ({ id: r.id, version: r.version, enabled: !!r.enabled })));
+  await maindb.set('kv', MIRROR, recs.map(r => ({ id: r.id, version: r.version, enabled: !!r.enabled, runs: !!r.runs })));
   const db = await open();
   const tx = db.transaction('meta', 'readwrite');
   tx.objectStore('meta').put(true, 'mirrored');
