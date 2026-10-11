@@ -9,16 +9,19 @@ const DEFAULTS = {
   openai: {
     kind: 'openai', label: 'OpenAI', enabled: false,
     baseURL: 'https://api.openai.com/v1', model: 'gpt-4o-mini', apiKey: '',
+    docs: 'https://platform.openai.com/docs/api-reference/chat',
     help: 'Tu clave sk-… Se queda en tu navegador. OpenAI permite llamadas directas (CORS).',
   },
   anthropic: {
     kind: 'anthropic', label: 'Anthropic (Claude)', enabled: false,
     baseURL: 'https://api.anthropic.com', model: 'claude-sonnet-5', apiKey: '',
+    docs: 'https://docs.anthropic.com/en/api/messages',
     help: 'Tu clave sk-ant-… Se envía la cabecera de acceso directo desde navegador.',
   },
   ollama: {
     kind: 'openai', label: 'Ollama (local)', enabled: false,
     baseURL: 'http://localhost:11434/v1', model: 'llama3.2', apiKey: 'ollama',
+    docs: 'https://github.com/ollama/ollama/blob/main/docs/openai.md',
     help: 'Ollama en tu máquina. Arráncalo con OLLAMA_ORIGINS=* para permitir el navegador.',
   },
   server: {

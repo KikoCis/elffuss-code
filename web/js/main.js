@@ -121,15 +121,26 @@ function linkifyFilePaths(root) {
     el.replaceChildren(enlaceFichero(m[1], m[2], txt));
   });
 }
-// #/file/ruta[:línea] abre ese fichero: lo usan los enlaces de arriba (abrir
-// en otra pestaña) y sirve para volver al mismo sitio tras recargar.
+// Enlaces a un sitio del IDE, para volver a él o pasárselo a alguien:
+//   #/file/ruta[:línea]  ese fichero (los enlaces del chat, abrir en otra pestaña)
+//   #/conv/<id>          esa conversación (su menú tiene «Copiar enlace»)
+//   #/mind               la Mente
+//   #/settings           Ajustes
+//   #/lab                el banco de pruebas (lab.html)
+// Antes solo existía #/file; lo demás no tenía forma de enlazarse.
 function abreDesdeHash() {
   let h = location.hash;
   try { h = decodeURI(h); } catch { /* — */ }
+  if (h === '#/lab') { location.replace('lab.html'); return; }
+  if (!codeTools.handle()) return;
   const m = h.match(/^#\/file\/(.+?)(?::(\d+))?$/);
-  if (!m || !codeTools.handle()) return;
-  openFile(m[1]).then(() => { if (m[2]) gotoLine(+m[2]); });
+  if (m) { openFile(m[1]).then(() => { if (m[2]) gotoLine(+m[2]); }); return; }
+  const c = h.match(/^#\/conv\/([\w-]{4,40})$/);
+  if (c) { conv.open(c[1]).then(r => { if (!r) $('statusbar').textContent = t('convLinkMissing'); }); return; }
+  if (h === '#/mind') { mind.openMind(); return; }
+  if (h === '#/settings') { renderSettings(); return; }
 }
+const enlaceA = ruta => location.origin + location.pathname + '#/' + ruta;
 addEventListener('hashchange', abreDesdeHash);
 
 // Todo lo que pinta el chat entra por aquí. Lo que se escribió mientras la elfa
@@ -471,6 +482,12 @@ function menuConversacion(c, x, y, volver) {
     }],
     [t('tmClose'), () => conv.closeTab(c.id)],
     [t('tmCloseOthers'), () => { for (const o of conv.getOpenTabs()) if (o.id !== c.id) conv.closeTab(o.id); conv.switchTo(c.id); }],
+    // Un enlace que reabre ESTA conversación (#/conv/<id>), para volver a ella.
+    [t('convCopyLink'), async () => {
+      const url = enlaceA('conv/' + c.id);
+      try { await navigator.clipboard.writeText(url); $('statusbar').textContent = t('convLinkCopied'); }
+      catch { prompt(t('convCopyLink'), url); }
+    }],
   ];
   for (const [label, fn] of opciones) {
     const b = document.createElement('button');
@@ -980,10 +997,33 @@ async function bridgeParaEstaMaquina() {
   if (/Linux/.test(ua)) return [arch === 'arm' || /aarch64|arm64/i.test(ua) ? 'elffuss-bridge-linux-arm64' : 'elffuss-bridge-linux'];
   return ['elffuss-bridge-mac-arm64', 'elffuss-bridge-mac-intel'];
 }
+// La huella SHA-256 de cada descarga, de bridge-dl/SHA256SUMS (el formato de
+// `shasum -a 256`): un programa que se ejecuta en tu máquina tiene que poder
+// comprobarse antes de abrirlo, y la página solo daba el tamaño.
+let sumasBridge = null;
+async function huellasBridge() {
+  if (sumasBridge) return sumasBridge;
+  const m = new Map();
+  try {
+    const r = await fetch('bridge-dl/SHA256SUMS', { cache: 'no-store' });
+    if (r.ok) for (const linea of (await r.text()).split('\n')) { const x = linea.match(/^([0-9a-f]{64})\s+\*?(\S+)$/); if (x) m.set(x[2], x[1]); }
+  } catch { /* sin huellas: se enseña lo demás */ }
+  return (sumasBridge = m);
+}
 async function pintaDescargasBridge(card, NOMBRES) {
-  const principales = await bridgeParaEstaMaquina();
+  const [principales, sumas] = await Promise.all([bridgeParaEstaMaquina(), huellasBridge()]);
   const host = card.querySelector('#br-dl'), otros = card.querySelector('#br-dl-other');
   if (!host || !otros) return;
+  const huella = f => {
+    if (!sumas.has(f)) return null;
+    const d = document.createElement('div');
+    d.className = 'br-sha';
+    d.dataset.file = f;
+    d.append('SHA-256 ');
+    const c = document.createElement('code'); c.textContent = sumas.get(f);
+    d.appendChild(c);
+    return d;
+  };
   const enlace = (f, principal) => {
     const a = document.createElement('a');
     a.href = 'bridge-dl/' + f; a.setAttribute('download', '');
@@ -997,8 +1037,19 @@ async function pintaDescargasBridge(card, NOMBRES) {
     }).catch(() => {});
     return a;
   };
-  host.replaceChildren(...principales.map(f => enlace(f, true)));
-  otros.replaceChildren(...Object.keys(NOMBRES).filter(f => !principales.includes(f)).map(f => { const d = document.createElement('div'); d.appendChild(enlace(f, false)); return d; }));
+  host.replaceChildren(...principales.flatMap(f => [enlace(f, true), huella(f)].filter(Boolean)));
+  otros.replaceChildren(...Object.keys(NOMBRES).filter(f => !principales.includes(f)).map(f => { const d = document.createElement('div'); d.appendChild(enlace(f, false)); const h = huella(f); if (h) d.appendChild(h); return d; }));
+  card.querySelector('.br-sha-how')?.remove();
+  if (sumas.size) {
+    const como = document.createElement('p');
+    como.className = 'muted br-sha-how';
+    como.style.cssText = 'font-size:.68rem;margin:4px 0 0';
+    const a = document.createElement('a');
+    a.href = 'bridge-dl/SHA256SUMS'; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'SHA256SUMS';
+    a.style.color = 'var(--accent2)';
+    como.append(t('setBridgeShaHow') + ' ', a);
+    host.after(como);   // fuera de la lista de descargas: es cómo comprobarlas
+  }
 }
 
 // pequeño estallido de fuegos artificiales (canvas, un par de segundos) para
@@ -1096,6 +1147,13 @@ function renderSettings() {
   }
   repintaTarjetasModelo = () => { for (const [card, m] of tarjetas) if (card.isConnected) pintaTarjeta(card, m); };
   box.appendChild(grid);
+  // De dónde sale cada modelo: su ficha en Hugging Face. Los enlaces salen de
+  // los registros de los proveedores (las URLs de los pesos), no de una lista
+  // aparte que se quedaría vieja.
+  const fichas = el('p', 'muted model-cards-links');
+  fichas.style.cssText = 'font-size:.7rem;margin:6px 0 0';
+  box.appendChild(fichas);
+  pintaFichasModelo(fichas, LOCAL);
 
   // --- Espacio de trabajo: guardar conversaciones/skills en disco ---
   box.append(el('div', 'sk-h', '💾 ' + t('wsTitle')));
@@ -1331,7 +1389,16 @@ function renderSettings() {
     const use = el('button', 'prov-use', t("setProvUse"));
     use.hidden = !c.enabled || activeModel === 'ext:' + id;
     use.onclick = () => { changeModel('ext:' + id); renderSettings(); };
-    head.append(toggle, title, use);
+    head.append(toggle, title);
+    // La documentación de la API de ese proveedor (qué modelos hay, qué clave).
+    if (c.docs) {
+      const docs = el('a', 'prov-docs', t('provDocs'));
+      docs.href = c.docs; docs.target = '_blank'; docs.rel = 'noopener noreferrer';
+      docs.setAttribute('aria-label', t('provDocsFor', { name: c.label }));
+      docs.style.cssText = 'color:var(--accent2);font-size:.7rem;margin-left:8px';
+      head.appendChild(docs);
+    }
+    head.appendChild(use);
     const fields = el('div', 'prov-fields' + (c.enabled ? '' : ' hide'));
     const model = document.createElement('input'); model.value = c.model || ''; model.placeholder = t('setModelPh');
     const key = document.createElement('input'); key.type = 'password'; key.value = c.apiKey || '';
@@ -1353,6 +1420,28 @@ function renderSettings() {
   skBtn.textContent = t("setManageSkillsBtn");
   skBtn.onclick = openSkillsPanel;
   box.appendChild(skBtn);
+}
+async function pintaFichasModelo(nodo, locales) {
+  let lt = null, mc = null;
+  try { [lt, mc] = await Promise.all([import('./providers/litert.js'), import('./model-config.js')]); } catch { return; }
+  const enlaces = [];
+  for (const m of locales) {
+    let url = null;
+    if (m.id.startsWith('litert:')) { const u = lt.MODELS?.[m.id.slice(7)]?.url; if (u) url = u.split('/resolve/')[0]; }
+    else if (m.id.startsWith('onnx:')) { const o = mc.ONNX_MODELS?.[m.id.slice(5)]; if (o?.id && !o.selfHosted) url = 'https://huggingface.co/' + o.id; }
+    if (url) enlaces.push([m.name, url]);
+  }
+  if (!enlaces.length || !nodo.isConnected) return;
+  nodo.append(t('setModelCards') + ' ');
+  enlaces.forEach(([nombre, url], i) => {
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.textContent = nombre + ' ↗';
+    a.style.color = 'var(--accent2)';
+    a.setAttribute('aria-label', t('setModelCardFor', { name: nombre }));
+    if (i) nodo.append(' · ');
+    nodo.append(a);
+  });
 }
 function labeled(label, input) {
   const w = el('label', 'field'); w.append(el('span', 'muted', label), input); return w;
@@ -1420,6 +1509,8 @@ function avisaFalloApertura(e) {
 }
 
 async function boot() {
+  // #/lab no necesita proyecto: es otra página.
+  if (location.hash === '#/lab') { location.replace('lab.html'); return; }
   applyI18n(); // localiza el chrome estático (placeholder) antes de pintar nada
   // Caché de modelos (persistente + service worker) ANTES de descargar nada,
   // para que hasta la primera descarga de pesos quede cacheada y no se repita.

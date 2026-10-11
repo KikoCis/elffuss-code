@@ -221,6 +221,8 @@ body.hide-tree #sidebar { display: none; }
 .bridge-card #br-token, .bridge-card #br-folder { background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 9px; font-size: .78rem; width: 100%; }
 .bridge-card details { color: var(--muted); }
 .bridge-card details summary::marker { color: var(--accent2); }
+.bridge-card .br-sha { font-size: .64rem; color: var(--muted); margin: 0 0 6px; overflow-wrap: anywhere; }
+.bridge-card .br-sha code { font-size: .64rem; color: var(--fg); }
 #fireworks-fx { position: fixed; inset: 0; z-index: 999; pointer-events: none; }
 .cfg-notif-btn { background: #3fb970; border: none; color: #06180d; border-radius: 6px; padding: 3px 10px; font-size: .68rem; font-weight: 700; cursor: pointer; }
 #mind-cfg label { font-size: .68rem; color: #b9a7ff; margin-top: 4px; }
