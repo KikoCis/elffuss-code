@@ -43,10 +43,24 @@ self.addEventListener('notificationclick', event => {
       client.postMessage({ type: 'notif-action', action, md: data.md });
       client.focus?.();
     } else if (self.clients.openWindow) {
-      await self.clients.openWindow('./?notif=' + (action === 'execute' ? 'execute' : 'open'));
+      let q = 'notif=' + (action === 'execute' ? 'execute' : 'open');
+      // «▶ Ejecutar» con la app cerrada: la propuesta viaja guardada en Cache
+      // Storage (la ven este SW y la página) y la URL lleva solo su id. Antes la
+      // ventana nueva recibía la acción sin la propuesta: abría la Mente y no
+      // ejecutaba nada, sin decirlo. En la URL entera no va: quedaría en el
+      // historial del navegador.
+      if (action === 'execute' && data.md) {
+        try {
+          const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+          await (await caches.open(NOTIF_CACHE)).put('./notif/' + id, new Response(String(data.md)));
+          q += '&id=' + id;
+        } catch { /* sin guardarla: la página lo dice y abre la Mente */ }
+      }
+      await self.clients.openWindow('./?' + q);
     }
   })());
 });
+const NOTIF_CACHE = 'elffuss-notif';
 
 // ── Manejador de `fetch`, añadido para poder INSTALAR el sitio ──────────────
 // Chrome solo ofrece instalar si hay manifiesto Y un service worker con

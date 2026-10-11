@@ -845,6 +845,9 @@ async function changeModel(id) {
         `Escribe otra cosa para seguir, o vuelve a enviarlo si quieres insistir.`);
       conv.descartarPendiente(convId);
     });
+    // La propuesta de una notificación que esperaba a que hubiera modelo.
+    // (activeModel aún no es este: se pone justo debajo; por eso el `id`.)
+    queueMicrotask(() => ejecutaPropuestaDeAviso());
     // El medidor de contexto pasa a hablar del modelo QUE ESTÁ CARGADO. Quien no
     // sepa decir su contexto deja el valor de reserva, así que esto no puede
     // romper a un proveedor que no lo implemente.
@@ -1369,14 +1372,33 @@ async function enterIDE(handle) {
   renderActiveLog();
   addMsg('sys', t('welcome', { name }));
   abreDesdeHash();
-  // Abierto desde una notificación con la app cerrada (sw.js → ?notif=…):
-  // la propuesta está en la Mente, que se abre ya con el proyecto cargado.
+  // Abierto desde una notificación con la app cerrada (sw.js → ?notif=…).
+  // «Ver»: la Mente, ya con el proyecto cargado. «▶ Ejecutar»: la propuesta que
+  // sw.js dejó guardada con un id, que se manda en cuanto haya un modelo de
+  // verdad (con el de reglas se gastaría sin hacer nada). Antes solo llegaba la
+  // acción: se abría la Mente y no se ejecutaba nada, sin decirlo.
   try {
     const u = new URL(location.href);
     if (u.searchParams.has('notif')) {
-      u.searchParams.delete('notif');
+      const accion = u.searchParams.get('notif'), id = u.searchParams.get('id');
+      u.searchParams.delete('notif'); u.searchParams.delete('id');
       history.replaceState(null, '', u.pathname + u.search + u.hash);
-      mind.openMind();
+      let md = null;
+      if (accion === 'execute' && id && /^[a-z0-9]{4,40}$/.test(id)) {
+        try {
+          const c = await caches.open('elffuss-notif');
+          const r = await c.match('./notif/' + id);
+          if (r) md = await r.text();
+          await c.delete('./notif/' + id);
+        } catch { /* sin Cache Storage */ }
+      }
+      if (md) {
+        propuestaDeAviso = md;
+        if (!ejecutaPropuestaDeAviso()) addMsg('sys', t('notifExecWaiting'));
+      } else {
+        if (accion === 'execute') addMsg('sys', t('notifExecLost'));
+        mind.openMind();
+      }
     }
   } catch { /* — */ }
   refreshGit();
@@ -1809,6 +1831,16 @@ export function isNoteworthy(ev) {
 // manda una propuesta (el .md completo del ciclo) a la MISMA cola/agente real
 // del chat — usado tanto por el botón del chat como por el de la notificación.
 function executeProposal(md) { send(t('pProposal') + md); }
+// La de una notificación pulsada con la app cerrada espera aquí a que haya un
+// modelo cargado (ver enterIDE y changeModel). Devuelve si salió ya.
+let propuestaDeAviso = null;
+function ejecutaPropuestaDeAviso() {
+  if (!propuestaDeAviso || activeModel === 'rules' || loadingId) return false;
+  const md = propuestaDeAviso;
+  propuestaDeAviso = null;
+  executeProposal(md);
+  return true;
+}
 
 // Botón REAL para ejecutar la propuesta desde el propio chat.
 function botonPropuesta(div, md) {
