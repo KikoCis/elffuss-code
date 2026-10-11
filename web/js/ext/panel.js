@@ -538,6 +538,9 @@ async function instala(src, boton, { withCode = false } = {}) {
     if (boton) { rotula(boton, tx('installedOk'), tx('installedNamed', { name: rec.displayName || nombre })); boton.className = 'ghost ' + (withCode ? 'ext-install-code' : 'ext-install'); }
     const nAvisos = avisosVisibles(rec.warnings).length;
     aviso(tx(withCode ? 'installedCodeMsg' : 'installedMsg', { name: rec.displayName || nombre }) + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
+    // un .vsix con temas o snippets Y código para el navegador: se ofrece
+    // también su código (desde un fichero no hay otra forma de traerlo luego)
+    if (src instanceof Blob && !withCode && rec.browser && !rec.code) return instalaFicheroConCodigo(src, { yaInstalada: true });
   } catch (e) {
     if (boton) { inerte(boton, false); rotula(boton, original.texto, original.accesible); }
     // un .vsix con solo código: se ofrece ejecutarlo (con su consentimiento)
@@ -559,12 +562,12 @@ async function instalaConCodigoInstalada(rec) {
 
 // .vsix suelto que solo trae código: consentimiento (sin suma publicada con la
 // que comprobarlo, y se dice) y, si acepta, se instala con su código
-async function instalaFicheroConCodigo(file) {
+async function instalaFicheroConCodigo(file, { yaInstalada = false } = {}) {
   m2 ??= await gestor();
   const runtime = await host.codeRuntime();
-  if (!runtime.available) { aviso(tx('errCodeonly') + ' ' + tx('x2Unavail_' + runtime.reason), true); return; }
+  if (!runtime.available) { if (!yaInstalada) aviso(tx('errCodeonly') + ' ' + tx('x2Unavail_' + runtime.reason), true); return; }
   const v = await m2.consent({ name: file.name, publisher: '', version: '', license: '', cls: null, runtime, extensionBytes: file.size, mode: 'file' });
-  if (v !== 'code') { aviso(tx('cancelled')); return; }
+  if (v !== 'code') { if (!yaInstalada) aviso(tx('cancelled')); return; }
   return instala(file, null, { withCode: true });
 }
 

@@ -62,6 +62,8 @@ const page = await ctx.newPage();
 const requests = [], errors = [];
 ctx.on('request', r => requests.push(r.url()));
 page.on('pageerror', e => { if (e.message !== 'Canceled') errors.push(e.message); });
+const x2errors = [];                                  // lo que el recinto avisa por consola ([x2] …)
+page.on('console', m => { if (/\[x2\]/.test(m.text()) && /already exists|ext\.add/.test(m.text())) x2errors.push(m.text().slice(0, 200)); });
 page.on('dialog', d => d.accept());                      // confirmar desinstalar
 await page.goto(srv.codeOrigin + '/', { waitUntil: 'domcontentloaded' });
 await page.evaluate(async () => {
@@ -212,6 +214,16 @@ await installed('tyriar.sort-lines').locator('[data-k="x2run"]').click();
 ok('M16 apagar el código de una: queda instalada y apagada; la otra sigue', !!(await until(async () => (await codeState('tyriar.sort-lines')) === 'off'))
   && (await codeState('esbenp.prettier-vscode')) === 'running'
   && !(await page.evaluate(() => (window.elffussClaw?.commands || []).some(c => c.x2 === 'tyriar.sort-lines'))));
+// volver a encenderla en la misma sesión (el recinto sigue en marcha por Prettier):
+// sus ficheros se vuelven a registrar y sus comandos funcionan
+await installed('tyriar.sort-lines').locator('[data-k="x2run"]').click();
+const back2 = await until(async () => { const s = await codeState('tyriar.sort-lines'); return READY(s) ? s : null; }, { timeout: 30000 });
+await open('fruits.txt');
+await setValue('zz\nyy\n');
+await page.evaluate(() => { const ed = window.monaco.editor.getEditors()[0]; ed.setSelection({ startLineNumber: 1, startColumn: 1, endLineNumber: 2, endColumn: 3 }); });
+await panel();
+await installed('tyriar.sort-lines').locator('[data-k="cmd:sortLines.sortLines"]').click();
+ok('M16c apagar y volver a encender su código en la misma sesión: vuelve a funcionar, sin ficheros «que ya existen»', !!back2 && !!(await until(async () => (await value()) === 'yy\nzz\n')) && x2errors.length === 0, JSON.stringify({ back2, v: await value(), x2errors: x2errors.slice(0, 2) }));
 await installed('tyriar.sort-lines').locator('.ext-uninstall').click();
 ok('M17 desinstalar sort-lines: sin fila y sin ficheros en IndexedDB', !!(await until(async () => (await installed('tyriar.sort-lines').count()) === 0)) && (await idbKeys('tyriar.sort-lines@')) === 0);
 await installed('esbenp.prettier-vscode').locator('.ext-uninstall').click();
@@ -230,6 +242,14 @@ const filtered = await until(async () => {
 });
 ok('M19 «Funciona en Code»: fuera la de Node; quedan la del tema y la de código para navegador', !!filtered && !filtered.ids.includes('elffuss-test.nodeonly'), JSON.stringify(filtered));
 ok('M19b con el filtro se avisa de que Open VSX ve esas consultas', await page.isVisible('#ext-works-note'));
+// el consentimiento cabe en un teléfono
+await page.setViewportSize({ width: 390, height: 844 });
+await row('elffuss-test.nohash').locator('.ext-install-code').click();
+const fit = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-consent [role="dialog"]'); if (!d) return null; const r = d.getBoundingClientRect(); const b = [...d.querySelectorAll('button')].map(x => x.getBoundingClientRect()); return { left: r.left, right: r.right, w: window.innerWidth, sw: document.documentElement.scrollWidth, buttonsIn: b.every(x => x.left >= 0 && x.right <= window.innerWidth) }; }));
+ok('M19c a 390 px el consentimiento cabe, con sus botones', !!fit && fit.left >= 0 && fit.right <= fit.w && fit.sw <= fit.w && fit.buttonsIn, JSON.stringify(fit));
+await page.keyboard.press('Escape');
+await page.setViewportSize({ width: 1280, height: 860 });
+await sleep(300);
 await row('elffuss-test.nohash').locator('.ext-install-code').click();
 await until(() => page.evaluate(() => !!document.querySelector('#x2-consent')));
 await page.click('#x2-consent button:has-text("Install and run code")');
@@ -241,6 +261,15 @@ await until(async () => (await page.locator('#ext-results .ext-row').count()) ==
 await row('elffuss-test.nodeonly').locator('.ext-name').click();
 const det3 = await until(async () => { const t = await row('elffuss-test.nodeonly').locator('.ext-detail').innerText(); return /Needs Node/.test(t) ? t : null; });
 ok('M21 la de Node dice que no está disponible en el navegador, sin botón de ejecutar', !!det3 && (await row('elffuss-test.nodeonly').locator('.ext-install-code').count()) === 0, det3);
+
+// ── M23: instalar un .vsix suelto que solo trae código ──
+await page.setInputFiles('#ext-file', { name: 'sort-lines.vsix', mimeType: 'application/zip', buffer: packages[0].vsix });
+const fileConsent = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-consent [role="dialog"]'); return d ? d.textContent : null; }));
+ok('M23 un .vsix con solo código pide el consentimiento y dice que no hay suma publicada', !!fileConsent && /From a \.vsix file: there is no published SHA-256/.test(fileConsent), String(fileConsent).slice(0, 160));
+await page.click('#x2-consent button:has-text("Install and run code")');
+ok('M23b instalada desde el fichero con su código, y en marcha', !!(await until(async () => { const s = await codeState('tyriar.sort-lines'); return s === 'running' || s === 'ready (starts when first used)'; }, { timeout: 90000 })));
+await installed('tyriar.sort-lines').locator('.ext-uninstall').click();
+await until(async () => (await installed('tyriar.sort-lines').count()) === 0);
 
 // ── M22: privacidad ──
 await sleep(500);

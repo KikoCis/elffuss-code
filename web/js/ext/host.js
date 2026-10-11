@@ -83,15 +83,12 @@ export function init(monaco, opts = {}) {
   return instancia;
 }
 
-// Antes de bajar el bundle del nivel 2 por primera vez, su tamaño. (El panel
-// pondrá su propio diálogo de consentimiento; esto es el mínimo.)
-const mb = n => (n / 1e6).toFixed(1).replace('.', uiLang() === 'es' ? ',' : '.') + ' MB';
-async function confirmaTamano({ runtimeBytes, extensionBytes, name }) {
-  const es = uiLang() === 'es';
-  const texto = es
-    ? `Ejecutar el código de ${name} en el recinto de extensiones.\n\nEl recinto de Code: ${mb(runtimeBytes)}, se baja una vez y queda en caché.\nEsta extensión: ${mb(extensionBytes)}, ya descargada al instalarla.\n\nSin acceso a internet; solo ve los ficheros que tengas abiertos.`
-    : `Run the code of ${name} in the extension sandbox.\n\nCode's extension runtime: ${mb(runtimeBytes)}, downloaded once and then cached.\nThis extension: ${mb(extensionBytes)}, already downloaded at install.\n\nNo internet access; it sees only the files you have open.`;
-  try { return window.confirm(texto); } catch { return false; }
+// Antes de encender el código de una extensión: el diálogo de consentimiento
+// del panel (qué verá, que no tiene red, cuánto se baja). Vive en el nivel 2
+// y solo se carga si hace falta: quien solo usa temas no lo baja.
+async function confirmaTamano({ runtimeBytes, extensionBytes, name, rec }) {
+  const { consent } = await import('../ext2/manage.js');
+  return (await consent({ name, publisher: rec?.publisher, version: rec?.version, license: rec?.license, runtime: { bytes: runtimeBytes }, extensionBytes, mode: 'run' })) === 'code';
 }
 
 async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
@@ -366,7 +363,7 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       const { runtimeInfo } = await import('../ext2/vendor.js');
       const info = await runtimeInfo();
       if (!info.available) throw Object.assign(new Error('nivel 2 no disponible: ' + info.reason), { code: 'x2-' + info.reason });
-      if (!info.cached && !(await confirm({ runtimeBytes: info.bytes, extensionBytes: rec.code.bytes || 0, name: rec.displayName || rec.id, id }))) return false;
+      if (!info.cached && !(await confirm({ runtimeBytes: info.bytes, extensionBytes: rec.code.bytes || 0, name: rec.displayName || rec.id, id, rec }))) return false;
     }
     await store.setRuns(id, on);
     await recarga();

@@ -91,7 +91,11 @@ export function describeUrl(s) {
   const host = u.hostname;
   const uni = host ? unicodeHost(host) : '';
   let site = host;
-  if (scheme === 'mailto') site = (/@([^?&#]+)/.exec(decodeURIComponent(u.pathname)) || [])[1] || '';
+  if (scheme === 'mailto') {
+    let path = u.pathname;
+    try { path = decodeURIComponent(path); } catch { /* codificación rota: tal cual */ }
+    site = (/@([^?&#]+)/.exec(path) || [])[1] || '';
+  }
   return { ok: true, href: u.href, scheme, openable, host, hostUnicode: uni !== host ? uni : null, site, original: String(s) };
 }
 
