@@ -60,9 +60,46 @@ function emitter() {
   return { event, fire: v => { for (const f of [...ls]) { try { f(v); } catch { /* un oyente roto no para al resto */ } } } };
 }
 
+// Lo que la página acepta por mensaje (protocol.js: maxSize), contado igual que
+// allí (texto ×2): aquí se recorta o se cambia por un error antes de mandar,
+// para que algo legítimo pero enorme no cuente como una falta del recinto.
+const CAP = { result: 16 << 20, 'doc.edit': 16 << 20 };
+const capOf = t => (CAP[t] || (1 << 20)) - 8192;
+function approxSize(v, limit) {
+  let n = 0;
+  const stack = [v];
+  while (stack.length) {
+    const x = stack.pop();
+    if (typeof x === 'string') n += x.length * 2;
+    else if (typeof x === 'number' || typeof x === 'boolean' || x == null) n += 8;
+    else if (x instanceof ArrayBuffer || ArrayBuffer.isView(x)) n += x.byteLength;
+    else if (Array.isArray(x)) { n += 8; for (const y of x) stack.push(y); }
+    else if (typeof x === 'object') { for (const [k, y] of Object.entries(x)) { n += k.length * 2; stack.push(y); } }
+    if (n > limit) return n;
+  }
+  return n;
+}
+const LISTS = { 'deco.set': 'ranges', markers: 'markers', 'ui.pick': 'items', 'rpc.denied': 'top' };
+export function fit(msg) {
+  const cap = capOf(msg.t);
+  if (approxSize(msg, cap) <= cap) return msg;
+  if (msg.t === 'result') return { t: 'result', req: msg.req, ok: false, error: 'the answer was too large to pass to Code' };
+  const key = LISTS[msg.t];
+  if (!key || !Array.isArray(msg[key])) return null;
+  // antes de quitar elementos, lo que pesa y menos importa: los textos largos
+  let list = msg.t === 'deco.set' ? msg.ranges.map(({ hover, ...r }) => r)
+    : msg.t === 'markers' ? msg.markers.map(x => ({ ...x, message: String(x.message).slice(0, 500) })) : msg[key];
+  while (list.length && approxSize({ ...msg, [key]: list }, cap) > cap) list = list.slice(0, list.length >> 1);
+  return { ...msg, [key]: list };
+}
+
 export async function start({ m, port, config, sandbox = {} }) {
   const { monaco } = m;
-  const send = (msg, transfer) => { try { port.postMessage(msg, transfer || []); } catch (e) { try { port.postMessage({ t: 'log', level: 'error', text: 'unserializable message ' + msg.t + ': ' + errText(e) }); } catch { /* cerrado */ } } };
+  const send = (msg, transfer) => {
+    const out = transfer && transfer.length ? msg : fit(msg);
+    if (!out) { try { port.postMessage({ t: 'log', level: 'warn', text: 'a message too large for Code was dropped: ' + String(msg.t).slice(0, 40) }); } catch { /* cerrado */ } return; }
+    try { port.postMessage(out, transfer || []); } catch (e) { try { port.postMessage({ t: 'log', level: 'error', text: 'unserializable message ' + msg.t + ': ' + errText(e) }); } catch { /* cerrado */ } }
+  };
   const log = (level, text, id) => send({ t: 'log', level, text: String(text).slice(0, 2000), ...(id ? { id } : {}) });
 
   // Errores sin capturar del propio recinto (VS Code o una extensión): al
@@ -493,14 +530,16 @@ export async function start({ m, port, config, sandbox = {} }) {
   async function addExt({ id, manifest, files }) {
     if (exts.has(id)) removeExt(id);
     const reg = m.registerExtension(manifest, m.ExtensionHostKind.LocalWebWorker);
-    const urls = [];
+    const urls = [], fileRegs = [];
     for (const [p, bytes] of files) {
       const type = MIME[String(p).split('.').pop().toLowerCase()] || 'application/octet-stream';
       const url = URL.createObjectURL(new Blob([bytes], { type }));
       urls.push(url);
-      reg.registerFileUrl('/' + p, url);
+      // (cada fichero queda registrado aparte: hay que soltarlo al quitarla,
+      // o volver a encenderla o actualizarla diría «ya existe»)
+      fileRegs.push(reg.registerFileUrl('/' + p, url));
     }
-    exts.set(id, { reg, urls, state: 'installed' });
+    exts.set(id, { reg, urls, fileRegs, state: 'installed' });
     await reg.whenReady();
     status(id);
   }
@@ -509,6 +548,7 @@ export async function start({ m, port, config, sandbox = {} }) {
     if (!e) return;
     exts.delete(id);
     try { e.reg.dispose(); } catch { /* — */ }
+    for (const d of e.fileRegs || []) { try { d && d.dispose(); } catch { /* — */ } }
     setTimeout(() => { for (const u of e.urls) URL.revokeObjectURL(u); }, 5000);
     send({ t: 'ext.status', id, state, text });
   }

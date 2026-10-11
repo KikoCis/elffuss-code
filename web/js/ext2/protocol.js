@@ -9,6 +9,7 @@ export const PROTOCOL = 1;
 
 export const LIMITS = {
   message: 1 << 20,          // 1 MB por mensaje (los documentos, aparte)
+  large: 16 << 20,           // resultados y ediciones: pueden traer un documento entero (≤ 5 MB, ×2 al contar)
   document: 64 << 20,
   label: 4096,
   markdown: 65536,
@@ -99,11 +100,16 @@ const FROM_SANDBOX = {
   'deco.remove': m => isDecoKey(m.key),
 };
 
+// Tope por tipo: los resultados (p. ej. las ediciones de un formateador) y
+// las ediciones de una extensión pueden traer un documento entero; el resto, 1 MB.
+export const maxSize = t => (t === 'result' || t === 'doc.edit' ? LIMITS.large : LIMITS.message);
+
 export function validate(msg) {
   if (!isPlainObject(msg) || typeof msg.t !== 'string') return { ok: false, why: 'shape' };
   const check = Object.hasOwn(FROM_SANDBOX, msg.t) ? FROM_SANDBOX[msg.t] : null;
   if (!check) return { ok: false, why: 'unknown type' };
-  if (approxSize(msg, LIMITS.message) > LIMITS.message) return { ok: false, why: 'too large' };
+  const cap = maxSize(msg.t);
+  if (approxSize(msg, cap) > cap) return { ok: false, why: 'too large' };
   try { return check(msg) ? { ok: true } : { ok: false, why: 'fields' }; }
   catch { return { ok: false, why: 'fields' }; }
 }

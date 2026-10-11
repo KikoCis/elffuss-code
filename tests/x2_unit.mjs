@@ -70,6 +70,13 @@ ok('open.request: dirección con tope de 8 KB', validate({ t: 'open.request', re
 ok('clipboard.write con tope; selección y desplazamiento con rangos válidos', !validate({ t: 'clipboard.write', text: 'x'.repeat(500001) }).ok && validate({ t: 'clipboard.write', text: 'x' }).ok
   && validate({ t: 'editor.selection', uri: 'file:///a.js', selections: [[1, 1, 1, 3]] }).ok && !validate({ t: 'editor.selection', uri: 'file:///a.js', selections: [] }).ok
   && !validate({ t: 'editor.reveal', uri: 'https://x.test/a', range: [1, 1, 1, 1] }).ok);
+ok('resultados y ediciones pueden traer un documento entero; el resto, 1 MB', validate({ t: 'result', req: 1, ok: true, value: 'x'.repeat(3 << 20) }).ok
+  && !validate({ t: 'result', req: 1, ok: true, value: 'x'.repeat(9 << 20) }).ok && !validate({ t: 'log', level: 'info', text: 'x', pad: 'x'.repeat(1 << 20) }).ok);
+const { fit } = await import('../web/js/ext2/sandbox-relay.js');
+const bigDeco = { t: 'deco.set', key: 'k', uri: 'file:///a.js', ranges: Array.from({ length: 10000 }, () => ({ range: [1, 1, 1, 2], hover: [{ md: 'x'.repeat(4000) }] })) };
+const fitted = fit(bigDeco);
+ok('el recinto recorta antes de mandar: decoraciones sin sus textos largos, resultados enormes como error', validate(fitted).ok && fitted.ranges.length === 10000 && !fitted.ranges[0].hover
+  && fit({ t: 'result', req: 2, ok: true, value: 'x'.repeat(9 << 20) }).ok === false && fit({ t: 'log', level: 'info', text: 'x'.repeat(1 << 20) }) === null);
 ok('isPlainData: objetos y ArrayBuffer', isPlainData({ a: [1, 'x', null, { b: new ArrayBuffer(2) }] }));
 ok('isPlainData: rechaza funciones, Map y objetos con prototipo', !isPlainData({ f() {} }) && !isPlainData(new Map()) && !isPlainData({ d: new Date() }));
 ok('isPlainData: rechaza NaN', !isPlainData({ n: NaN }));
