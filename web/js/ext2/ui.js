@@ -11,6 +11,7 @@
 // Todo cuelga de #x2-* / .x2-* (web/css/ext2.css): nada del CSS de VS Code
 // entra en la página.
 import { tx } from '../ext/i18n.js';
+import './strings.js';
 
 const MAX_TOASTS = 3;
 const TOASTS_PER_MINUTE = 20;

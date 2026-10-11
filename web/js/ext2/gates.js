@@ -14,6 +14,7 @@
 //     que un texto escrito por una extensión no pueda sacar datos por él.
 import { modal, userActive } from './ui.js';
 import { tx } from '../ext/i18n.js';
+import './strings.js';
 import * as db from '../db.js';
 
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };

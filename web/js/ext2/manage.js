@@ -12,9 +12,13 @@
 //   · classifyResults(): el filtro «Funciona en Code».
 // Todo texto que viene de una extensión entra con textContent.
 import { tx } from '../ext/i18n.js';
+import './strings.js';
 import { classify, loadTested, validateSettings, VSCODE } from './classify.js';
-import { modal } from './ui.js';
+import { modal, loadCss } from './ui.js';
 import { uiLang } from '../i18n.js';
+
+// sus estilos (los mandos y las líneas de qué funcionará) viven en ext2.css
+if (globalThis.document) loadCss();
 
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 const btn = (txt, cls = 'ghost') => { const b = el('button', cls, txt); b.type = 'button'; return b; };
