@@ -2,7 +2,13 @@ import { chromium } from 'playwright';
 const BASE = process.env.BASE || 'http://localhost:8799';
 let fails = 0;
 const ok = (n, c, e = '') => { console.log((c ? '✅' : '❌') + ' ' + n + (e ? '  — ' + e : '')); if (!c) fails++; };
-const b = await chromium.launch(); const p = await (await b.newContext()).newPage();
+const b = await chromium.launch();
+// Modo Básico: esta prueba pone su propio proveedor y no necesita modelo. Sin
+// esto, al abrir la página main.js se pone a cargar el modelo local por defecto
+// (con GPU, Gemma; sin ella, el ONNX ligero) mientras la prueba corre.
+const ctxPrueba = await b.newContext();
+await ctxPrueba.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
+const p = await ctxPrueba.newPage();
 await p.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
 const parse = (t) => p.evaluate(async (t) => { const a = await import('/js/agent.js'); return a.parseToolCalls(t); }, t);
 

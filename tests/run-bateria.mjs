@@ -55,7 +55,12 @@ const CASOS = [
 ];
 
 const b = await chromium.launch({ channel: 'chrome', headless: true });
-const p = await (await b.newContext()).newPage();
+// Modo Básico: esta prueba pone su propio proveedor y no necesita modelo. Sin
+// esto, al abrir la página main.js se pone a cargar el modelo local por defecto
+// (con GPU, Gemma; sin ella, el ONNX ligero) mientras la prueba corre.
+const ctxPrueba = await b.newContext();
+await ctxPrueba.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
+const p = await ctxPrueba.newPage();
 // Por defecto contra producción, como siempre; BASE=… la corre contra otro
 // servidor (un árbol local), que es lo que hace falta antes de desplegar.
 await p.goto((process.env.BASE || 'https://code.elffuss.com') + '/', { waitUntil: 'domcontentloaded' });
