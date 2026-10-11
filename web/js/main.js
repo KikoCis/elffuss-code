@@ -2346,7 +2346,7 @@ function openMenu(items) {
     if (it.sep) { const s = document.createElement('div'); s.className = 'sep'; s.textContent = it.sep; menu.appendChild(s); continue; }
     const row = document.createElement('button');
     row.className = 'menu-item';
-    row.innerHTML = `<b>${it.label}</b>${it.hint ? `<span>${it.hint}</span>` : ''}`;
+    menuRow(row, it);
     row.onclick = () => { menu.hidden = true; it.run(); };
     row.onmouseenter = () => { menuSel = menuFilas().indexOf(row); pintaMenuSel(); };
     menu.appendChild(row);
@@ -2381,6 +2381,13 @@ $('prompt').addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowUp') { e.preventDefault(); menuSel = (menuSel - 1 + filas.length) % filas.length; pintaMenuSel(); }
   else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); filas[Math.max(0, menuSel)].click(); }
 });
+// Filas de menú y de paleta: SIEMPRE como texto. Las etiquetas llevan nombres
+// de fichero, mensajes de commit o títulos de comandos de extensiones, y un
+// nombre como «<img src=x onerror=…>.js» no puede convertirse en HTML.
+function menuRow(row, it) {
+  row.appendChild(el('b', null, it.label));
+  if (it.hint) row.appendChild(el('span', null, it.hint));
+}
 document.addEventListener('click', e => {
   if (!e.target.closest('#menu, #btn-slash, #btn-plus')) cierraMenu();
 });
@@ -2955,9 +2962,7 @@ async function renderPalette() {
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
     row.tabIndex = -1;
-    row.innerHTML = '<span class="pi-name"></span><span class="pi-hint"></span>';
-    row.querySelector('.pi-name').textContent = it.label;
-    row.querySelector('.pi-hint').textContent = it.hint || '';
+    row.append(el('span', 'pi-name', it.label), el('span', 'pi-hint', it.hint || ''));
     row.onmouseenter = () => { palSel = i; paintPalSel(); };
     row.onclick = () => it.run();
     list.appendChild(row);
@@ -3103,9 +3108,7 @@ function openMenuAt(items, anchor) {
     row.type = 'button';
     row.setAttribute('role', 'menuitem');
     row.tabIndex = -1;
-    row.innerHTML = `<b></b>${it.hint ? '<span></span>' : ''}`;
-    row.querySelector('b').textContent = it.label;
-    if (it.hint) row.querySelector('span').textContent = it.hint;
+    menuRow(row, it);
     if (it.title) row.title = it.title;
     if (it.disabled) { row.setAttribute('aria-disabled', 'true'); row.classList.add('disabled'); }
     // stopPropagation: el clic no debe seguir hasta los «clic fuera» del
