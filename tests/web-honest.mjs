@@ -9,7 +9,10 @@
 //   3. DuckDuckGo pide su verificación anti-bot: es un bloqueo, no una lista vacía;
 //   4. con resultados, los da (y «Sin resultados» solo cuando el buscador
 //      contestó y no encontró nada);
-//   5. un sitio con CORS se lee directo, sin pasar por el proxy.
+//   5. un sitio con CORS se lee directo, sin pasar por el proxy;
+//   6-8. y sin decir más de lo que se sabe: el 404 del propio sitio es que la
+//      página no existe; un fetch fallido sin respuesta no distingue «sin CORS»
+//      de «no se pudo conectar», y no se afirma que la página exista.
 // Todo con page.route: ninguna petición sale a internet.
 //
 //   BASE=http://localhost:8799 node tests/web-honest.mjs
@@ -25,14 +28,17 @@ const VACIO = '<html><body><table><tr><td>No results.</td></tr></table></body></
 const ANTIBOT = '<html><body><div class="anomaly-modal__title">Unfortunately, bots use DuckDuckGo too.</div></body></html>';
 
 const b = await chromium.launch();
-async function escenario(proxy, { directoCORS = false } = {}) {
+async function escenario(proxy, { directoCORS = false, sitio = null } = {}) {
   const ctx = await b.newContext();
   const p = await ctx.newPage();
   const alProxy = [];
   // Los sitios de fuera: sin CORS (el fetch directo falla), salvo que se diga.
-  await p.route(/^https:\/\/(example\.com|html\.duckduckgo\.com|lite\.duckduckgo\.com)\//, r => directoCORS
-    ? r.fulfill({ status: 200, contentType: 'text/html', headers: { 'access-control-allow-origin': '*' }, body: '<html><body><p>Example Domain directo</p></body></html>' })
-    : r.abort('failed'));
+  // `sitio` contesta en su lugar (un 404 propio, un dominio que no resuelve…).
+  await p.route(/^https:\/\/(example\.com|html\.duckduckgo\.com|lite\.duckduckgo\.com|cors-site\.example|no-such-host\.invalid)\//, r => sitio
+    ? sitio(r)
+    : directoCORS
+      ? r.fulfill({ status: 200, contentType: 'text/html', headers: { 'access-control-allow-origin': '*' }, body: '<html><body><p>Example Domain directo</p></body></html>' })
+      : r.abort('failed'));
   await p.route('**/proxy?url=*', r => { alProxy.push(decodeURIComponent(r.request().url().split('url=')[1] || '')); return proxy(r); });
   await p.goto(BASE + '/manifest.json');
   const llama = (que, args) => p.evaluate(async ({ que, args }) => {
@@ -48,7 +54,10 @@ async function escenario(proxy, { directoCORS = false } = {}) {
   const { ctx, llama } = await escenario(r => r.fulfill({ status: 404, contentType: 'text/html', body: '<h1>404 Not Found</h1>' }));
   const f = await llama('fetch', { url: 'https://example.com' });
   ok('1 · web.fetch sin proxy: falla diciendo que el servidor no tiene el proxy', !f.ok && /no tiene el proxy de respaldo/.test(f.out) && /404/.test(f.out), f.out);
-  ok('  …y que no es que la página no exista', /No es que la página no exista/.test(f.out), f.out);
+  // Desde el navegador un fetch fallido no distingue «sin CORS» de «no existe»:
+  // se dicen las dos posibilidades y no se afirma que la página exista.
+  ok('  …sin afirmar que la página exista: CORS o sin conexión, no se distingue',
+    /CORS/.test(f.out) && /no se pudiera conectar/.test(f.out) && /no dice nada de si la página existe/.test(f.out) && !/No es que la página no exista/.test(f.out), f.out);
   const s = await llama('search', { query: 'mdn array map' });
   ok('1 · web.search sin proxy: falla con la causa, NO «Sin resultados»', !s.ok && /no tiene el proxy de respaldo/.test(s.out) && !/Sin resultados/.test(s.out), s.out);
   await ctx.close();
@@ -83,6 +92,38 @@ async function escenario(proxy, { directoCORS = false } = {}) {
   const { ctx, alProxy, llama } = await escenario(r => r.fulfill({ status: 404, body: '' }), { directoCORS: true });
   const f = await llama('fetch', { url: 'https://example.com' });
   ok('5 · con CORS se lee directo y el proxy ni se toca', f.ok && /Example Domain directo/.test(f.out) && alProxy.length === 0, `${f.out} · proxy ${alProxy.length}`);
+  await ctx.close();
+}
+// 6 · el sitio contesta él mismo un 404 (con CORS se ve): la página NO existe, y
+// eso es lo que se dice. Antes, con /proxy en 404, decía «CORS» y «no es que la
+// página no exista».
+{
+  const sinProxy = r => r.fulfill({ status: 404, contentType: 'text/html', body: '<h1>404 Not Found</h1>' });
+  const { ctx, alProxy, llama } = await escenario(sinProxy, {
+    sitio: r => r.fulfill({ status: 404, contentType: 'text/html', headers: { 'access-control-allow-origin': '*' }, body: 'Not Found' }),
+  });
+  const f = await llama('fetch', { url: 'https://cors-site.example/no-such-page' });
+  ok('6 · el 404 del propio sitio: dice que esa página no existe, sin hablar de CORS', !f.ok && /respondió HTTP 404/.test(f.out) && /no existe/.test(f.out) && !/CORS/.test(f.out) && !/No es que/.test(f.out), f.out);
+  ok('  …y ni pregunta al proxy (la respuesta del sitio ya es la que es)', alProxy.length === 0, `proxy ${alProxy.length}`);
+  await ctx.close();
+}
+// 7 · un dominio que no resuelve, sin proxy: no se le llama «CORS» a secas ni se
+// dice que la página exista.
+{
+  const { ctx, llama } = await escenario(r => r.fulfill({ status: 404, contentType: 'text/html', body: '<h1>404 Not Found</h1>' }), {
+    sitio: r => r.abort('namenotresolved'),
+  });
+  const f = await llama('fetch', { url: 'https://no-such-host.invalid/' });
+  ok('7 · un dominio que no resuelve: CORS o sin conexión, sin afirmar que la página exista', !f.ok && /no se pudiera conectar/.test(f.out) && !/No es que la página no exista/.test(f.out), f.out);
+  await ctx.close();
+}
+// 8 · el sitio contesta otro error (403) y no hay proxy: se dice su estado.
+{
+  const { ctx, alProxy, llama } = await escenario(r => r.fulfill({ status: 404, contentType: 'text/html', body: '<h1>404 Not Found</h1>' }), {
+    sitio: r => r.fulfill({ status: 403, contentType: 'text/html', headers: { 'access-control-allow-origin': '*' }, body: 'Forbidden' }),
+  });
+  const f = await llama('fetch', { url: 'https://cors-site.example/privada' });
+  ok('8 · otro error del sitio (403): se dice su estado y que no hay proxy para intentarlo de otra forma', !f.ok && /respondió HTTP 403/.test(f.out) && /no tiene el proxy de respaldo/.test(f.out) && !/CORS/.test(f.out), `${f.out} · proxy ${alProxy.length}`);
   await ctx.close();
 }
 

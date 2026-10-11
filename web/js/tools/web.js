@@ -15,17 +15,29 @@ function toText(html) {
 // proxy no existe en este servidor (404): antes salía «HTTP 404» a secas, que
 // se lee como «esa página no existe», y la búsqueda lo convertía en «Sin
 // resultados», como si internet no tuviera nada que decir.
+//
+// Y sin decir más de lo que se sabe. Si el sitio contestó al fetch directo (con
+// CORS el navegador deja ver su estado), lo que importa es lo que dijo: su 404
+// es que la página no existe, haya proxy o no. Si el fetch directo falló sin
+// respuesta, desde el navegador no se distingue un sitio sin CORS de uno que no
+// existe o no resuelve: se dicen las dos cosas y no se afirma que la página
+// exista. Antes, con /proxy en 404, siempre era «CORS» y «no es que la página no
+// exista», también ante el 404 del propio sitio o un dominio que no existe.
 const hostDe = url => { try { return new URL(url).host; } catch { return url; } };
 async function proxyGet(url) {
-  let directo;
-  try { const r = await fetch(url); if (r.ok) return await r.text(); directo = new Error('HTTP ' + r.status); }
+  let directo, estado = 0;
+  try { const r = await fetch(url); if (r.ok) return await r.text(); estado = r.status; directo = new Error('HTTP ' + r.status); }
   catch (e) { directo = e; }
+  if (estado === 404 || estado === 410)
+    throw new Error(`No pude leer ${url}: el sitio respondió HTTP ${estado}, esa página no existe (o ya no está).`);
   let r;
   try { r = await fetch('/proxy?url=' + encodeURIComponent(url)); }
   catch (e) { throw new Error(`No pude leer ${hostDe(url)}: ni directamente (${directo?.message || 'sin respuesta'}) ni por el proxy del servidor (${e?.message || 'sin respuesta'}).`); }
   if (r.ok) return await r.text();
   if (r.status === 404 || r.status === 405 || r.status === 501) {
-    const e = new Error(`No pude leer ${hostDe(url)}: el sitio no deja leerlo directamente desde el navegador (CORS) y este servidor no tiene el proxy de respaldo (/proxy respondió ${r.status}). No es que la página no exista: desde aquí no se puede leer.`);
+    const e = new Error(estado
+      ? `No pude leer ${hostDe(url)}: el sitio respondió HTTP ${estado}, y este servidor no tiene el proxy de respaldo (/proxy respondió ${r.status}) para intentarlo de otra forma.`
+      : `No pude leer ${hostDe(url)}: el navegador no pudo leerlo directamente (puede que el sitio no lo permita, por CORS, o que no se pudiera conectar con él; desde aquí no se distingue) y este servidor no tiene el proxy de respaldo (/proxy respondió ${r.status}). Esto no dice nada de si la página existe.`);
     e.sinProxy = true;
     throw e;
   }
