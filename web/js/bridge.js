@@ -26,6 +26,23 @@ let savedToken = '';
 try { savedToken = localStorage.getItem('elffusscode.bridgeToken') || ''; } catch { /* */ }
 
 export function isConnected() { return connected && authed; }
+
+// La versión que se descarga desde esta web (web/bridge-dl). Desde la 1.1.2,
+// parar un comando mata también lo que ese comando arrancó (un «npm run dev»,
+// un servidor, «a; b») y cerrar la conexión mata lo que quedara corriendo. Con
+// una anterior el agente y el terminal lo dan por parado, pero el proceso sigue
+// vivo en la máquina: hay que decirle al usuario que la actualice. El bridge
+// dice su versión en /ping desde siempre; antes nadie la miraba.
+export const VERSION_ACTUAL = '1.1.2';
+let versionVista = null;
+export function version() { return versionVista; }
+const partesVersion = v => String(v).split('.').map(n => parseInt(n, 10) || 0);
+export function esViejo() {
+  if (!versionVista) return false;
+  const [a, b] = [partesVersion(versionVista), partesVersion(VERSION_ACTUAL)];
+  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0);
+  return false;
+}
 export function getFolder() { return savedFolder; }
 export function setFolder(f) {
   savedFolder = (f || '').trim();
@@ -41,6 +58,7 @@ export async function probe() {
     const r = await fetch('http://' + HOST + '/ping', { mode: 'cors' });
     if (!r.ok) return false;
     const j = await r.json();
+    if (j.version) versionVista = String(j.version);
     return !!j.ok;
   } catch { return false; }
 }
@@ -71,6 +89,8 @@ export function connect(token) {
         try { localStorage.setItem('elffusscode.bridgeToken', token); } catch { /* */ }
         onStatus('connected');
         resolve(true);
+        // Qué versión es (para avisar si es vieja): se avisa otra vez al saberlo.
+        probe().then(() => { if (ws === sock && isConnected()) onStatus('version'); }).catch(() => {});
         return;
       }
       if (m.type === 'auth-fail') { clearTimeout(timeout); connected = true; authed = false; onStatus('auth-fail'); reject(new Error('token incorrecto')); return; }

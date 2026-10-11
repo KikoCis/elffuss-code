@@ -1189,6 +1189,7 @@ function renderSettings() {
     `<div class="prov-head"><span id="br-dot" class="dot off" aria-hidden="true"></span><b>${escapeHtml(t('setBridgeName'))}</b><span id="br-status" class="muted" role="status" style="margin-left:auto;font-size:.72rem">${escapeHtml(t('setBridgeDisconnected'))}</span></div>` +
     `<p class="muted" style="font-size:.72rem;margin:6px 0">${t('setBridgeDesc')}</p>` +
     `<p class="muted" style="font-size:.7rem;margin:0 0 6px">${t('setBridgeOld')}</p>` +
+    `<p id="br-viejo" class="br-viejo" role="status" style="font-size:.72rem;margin:0 0 6px" hidden></p>` +
     `<div id="br-dl"></div>` +
     `<details style="margin-top:6px"><summary class="muted" style="font-size:.7rem;cursor:pointer">${t('setBridgeOtherOS')}</summary><div id="br-dl-other"></div></details>` +
     `<p class="muted" style="font-size:.7rem;margin:6px 0 0"><a href="https://github.com/KikoCis/elffuss-code/tree/main/bridge" target="_blank" rel="noopener noreferrer" style="color:var(--accent2)">${escapeHtml(t('setBridgeSource'))} ↗</a></p>` +
@@ -1208,6 +1209,11 @@ function renderSettings() {
     if (on) brCard.querySelector('#br-token').value = localStorage.getItem('elffusscode.bridgeToken') || '';
     brCard.querySelector('#br-disconnect').hidden = !on;
     brCard.querySelector('#br-forget').hidden = !bridge.hasSavedToken();
+    // Conectado a un bridge anterior al de esta web: se dice qué le falta.
+    const viejo = brCard.querySelector('#br-viejo');
+    const avisar = on && bridge.esViejo();
+    viejo.hidden = !avisar;
+    viejo.textContent = avisar ? '⚠️ ' + t('setBridgeUpdate', { v: bridge.version(), want: bridge.VERSION_ACTUAL }) : '';
   };
   paintBridge();
   // repinta si el bridge conecta/cae mientras Ajustes está abierto; al cerrarse
@@ -1945,7 +1951,16 @@ function pintaCapacidades() {
   const cap = shell.capabilities();
   $('term-caps').textContent = cap.bridge ? t("termCapsBridge") : t("termCapsNoBridge");
 }
-bridge.onStatusChange(() => { if (!$('terminal-panel').hidden) pintaCapacidades(); });
+bridge.onStatusChange(estado => {
+  if (!$('terminal-panel').hidden) pintaCapacidades();
+  // Un bridge viejo conectado (también el que conecta solo, sin abrir Ajustes):
+  // una vez por versión, en la barra de estado.
+  if (estado === 'version' && bridge.esViejo() && avisoBridgeViejo !== bridge.version()) {
+    avisoBridgeViejo = bridge.version();
+    $('statusbar').textContent = '⚠️ ' + t('setBridgeUpdate', { v: bridge.version(), want: bridge.VERSION_ACTUAL });
+  }
+});
+let avisoBridgeViejo = null;
 $('act-term').addEventListener('click', () => toggleTerminal());
 $('term-close').addEventListener('click', () => toggleTerminal(false));
 $('term-clear').addEventListener('click', () => terminal.clearScreen());
