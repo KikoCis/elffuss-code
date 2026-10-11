@@ -1,0 +1,24 @@
+{
+  "name": "elffuss-code-vscode-ext2-vendor",
+  "private": true,
+  "type": "module",
+  "description": "Prebuilt vendor bundle for level 2 VS Code extensions in Elffuss Code. Built by build.mjs; the output is not committed.",
+  "engines": {
+    "node": "25.6.1"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "verify": "node verify-repro.mjs",
+    "sweep": "node sweep.mjs"
+  },
+  "dependencies": {
+    "@codingame/monaco-vscode-api": "37.3.11",
+    "@codingame/monaco-vscode-configuration-service-override": "37.3.11",
+    "@codingame/monaco-vscode-extensions-service-override": "37.3.11",
+    "@codingame/monaco-vscode-keybindings-service-override": "37.3.11",
+    "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@37.3.11"
+  },
+  "devDependencies": {
+    "vite": "8.3.0"
+  }
+}
