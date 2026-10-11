@@ -1,0 +1,91 @@
+# Which suites tests/run-modes.sh runs, and why the others are not run.
+#
+# One suite per line, without ".mjs". Sections:
+#
+#   [both]     Code's own suites. Each runs twice against the same server:
+#              default mode (node S.mjs) and extension mode (node --import
+#              ./lib/x2-mode.mjs S.mjs), where two code extensions are installed
+#              and running in the sandbox while the suite works.
+#   [once]     Level 2's own suites. They start their own server and set up
+#              their extensions themselves, so they run once.
+#   [not-run]  "name: reason". They need a live model, a GPU, a local Bridge,
+#              the internet or production. They are left out of both modes.
+
+[both]
+arch
+autoedit_settings
+bigfile_edit
+broker-origenes
+bugs
+ceo_persist
+city
+codeedit
+codeedit_agent
+contrast
+conversations
+ctxmenu
+e2e
+edit-bateria
+execbutton
+ext_unit
+extensions
+filelinks
+filelinks2
+glob_rm
+goalfail
+goalmode
+htmlpreview
+htmlpreview_css
+litert-contexto
+litertcache
+longsession
+mind
+mind_stars
+mindpersist
+modelcache
+modelcache_honest
+multiwrite
+notify
+palette_text
+playstop
+previewstorage
+prompt_prefers_edit
+prompthist
+readpaging
+reanuda
+retry-test
+run-bateria
+sendfeedback
+stop
+streampreview
+swe_bench
+swe_style
+tabmenu
+telemetry
+terminal
+toolparse
+toolparse_malformed
+toolparse_missingbrace
+
+[once]
+x2_unit
+x2_smoke
+x2_canary
+x2_manager
+x2_live
+
+[not-run]
+_audio_probe: a probe of the music widget against production, not a test
+alltools: web.search and web.fetch read real pages through the proxy (internet)
+appbuild_gif: builds an app with the real model on WebGPU and needs ffmpeg
+bridge: the real Bridge binary only accepts fixed origins (port 8799) on its fixed port 8765
+bridge_autodetect: needs a Bridge already running and its BRIDGE_TOKEN
+clone: clones a public repository from GitHub (internet)
+demo_code_final: records the demo video with the real model on WebGPU
+diag_sw: a diagnostic of the model cache with a real model, against production
+e4b_live: the real model (Gemma-4 E4B, about 3 GB) on WebGPU
+make_og: renders the social card from images in other repositories
+mind_video: records a video, not a test
+shot_utopiaia: a screenshot of a production site
+warmup_code: warms up the real model in a persistent profile
+x2_census: manual: downloads and runs the top-500's browser extensions from Open VSX
