@@ -105,7 +105,17 @@ export async function cachedModelBlob(url, onProgress = () => {}) {
     const { getModelFile } = await import('../runtime/model-store.js');
     const f = await getModelFile(url, onProgress);
     if (f) return f;
-  } catch (e) { console.warn('[elffuss] OPFS/broker no disponible, uso Cache Storage:', e); }
+  } catch (e) {
+    console.warn('[elffuss] OPFS/broker no disponible, uso Cache Storage:', e);
+    // Si lo que falló fue GUARDARLO en el disco del navegador (cuota, ventana
+    // privada…), se dice, igual que con Cache Storage más abajo: el progreso
+    // promete guardarlo, y callado el usuario se re-baja el modelo cada sesión
+    // sin saber por qué. Un fallo de red no es esto y no se anuncia así.
+    if (/Quota|NoModificationAllowed|InvalidModification|InvalidState|NotAllowed|Security|NotReadable/.test(e?.name || '')) {
+      onProgress(`No se pudo guardar el modelo en el disco del navegador (${e.name}): lo intento en la caché; si tampoco ` +
+        `se puede, habrá que descargarlo otra vez la próxima. Suele ser ventana privada o falta de espacio.`);
+    }
+  }
 
   if (!self.caches) return url;
   try {
