@@ -63,7 +63,7 @@ let e = await estado();
 ok('2 · cambiar de cerebro descarta el que estaba cargado', /sin cargar/.test(e.led), e.led);
 await p.locator('#benches label').nth(2).click();             // juegos: necesita cerebro
 e = await estado();
-ok('2 · con un banco que necesita cerebro, «Lanzar» espera a que se cargue', e.run && /Carga el cerebro «onnx»/.test(e.hint), JSON.stringify(e));
+ok('2 · con un banco que necesita cerebro, «Lanzar» espera a que se cargue', e.run && /Carga el cerebro «onnx:qwen3\.5-0\.8b»/.test(e.hint), JSON.stringify(e));
 await p.click('#btn-load');
 await p.waitForFunction(() => /modelo: onnx/.test(document.querySelector('#led-model').textContent), null, { timeout: 5000 });
 e = await estado();
@@ -99,7 +99,17 @@ const etiqueta = await p.locator('#btn-launch').textContent();
 await p.click('#btn-launch');
 const r5 = await p.evaluate(() => ({ model: localStorage.getItem('elffusscode.model'), ctx: localStorage.getItem('elffusscode.ctxopts'), algo: localStorage.getItem('elffusscode.algo') }));
 ok('5 · el botón dice lo que hace', /Abrir el IDE con este cerebro/.test(etiqueta), etiqueta);
-ok('5 · guarda el cerebro y no deja claves que el IDE no lee', r5.model === 'onnx' && r5.ctx === null && r5.algo === null, JSON.stringify(r5));
+ok('5 · guarda el cerebro y no deja claves que el IDE no lee', r5.model === 'onnx:qwen3.5-0.8b' && r5.ctx === null && r5.algo === null, JSON.stringify(r5));
+// …y ese id es uno que el IDE ofrece: el ligero era 'onnx' a secas, que el IDE
+// ya no tiene, así que lo descartaba al arrancar (y se quedaba sin modelo).
+{
+  const ide2 = await ctx.newPage({ viewport: { width: 1400, height: 900 } });
+  await ide2.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
+  await ide2.waitForFunction(() => document.querySelectorAll('#model-select option').length > 0, null, { timeout: 15000 });
+  const ids = await ide2.$$eval('#model-select option', os => os.map(o => o.value));
+  ok('5 · el IDE ofrece ese mismo cerebro', ids.includes(r5.model), JSON.stringify({ lab: r5.model, ide: ids }));
+  await ide2.close();
+}
 
 console.log('\n  errores JS:', errs[0] || 'ninguno');
 ok('sin errores de página', errs.length === 0, errs.join(' | '));

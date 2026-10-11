@@ -49,6 +49,15 @@ await p.locator('#benches label').nth(2).click();
 await p.click('#btn-run');
 await p.waitForFunction(() => (window.__labProv?.llamadas || 0) >= 1, null, { timeout: 5000 }).catch(() => {});
 await p.waitForTimeout(300);              // generando el juego
+// Mientras corre, cerebro, algoritmo, banco y perillas no se pueden cambiar:
+// antes un clic en otro cerebro a mitad cambiaba los casos que quedaban y la
+// corrida se guardaba con la etiqueta del último elegido.
+const enMarcha = await p.evaluate(() => ({
+  bloqueados: [...document.querySelectorAll('#brains input, #algos input, #benches input, #ctx-knobs input')].map(i => i.disabled),
+  cargar: document.getElementById('btn-load').disabled,
+}));
+await p.locator('#brains label').nth(0).click({ force: true, timeout: 2000 }).catch(() => {});   // «Reglas», a mitad
+const cerebroAMitad = await p.evaluate(() => document.getElementById('brain-tag').textContent);
 await p.evaluate(() => { window.__labParado = true; });
 await p.click('#btn-stop');
 const termino = await p.waitForFunction(() => !document.getElementById('btn-run').disabled, null, { timeout: 15000 }).then(() => true).catch(() => false);
@@ -62,7 +71,11 @@ const estado = () => p.evaluate(() => ({
   ranking: document.getElementById('rank-tag').textContent,
 }));
 const r = await estado();
+const libres = await p.evaluate(() => [...document.querySelectorAll('#brains input, #benches input')].every(i => !i.disabled) && !document.getElementById('btn-load').disabled);
 ok('la corrida estaba generando con el cerebro de prueba', r.st?.llamadas >= 1, `${r.st?.llamadas} llamadas`);
+ok('mientras corre, cerebro, algoritmo, banco y perillas están bloqueados', enMarcha.bloqueados.length > 4 && enMarcha.bloqueados.every(Boolean) && enMarcha.cargar, JSON.stringify(enMarcha));
+ok('  …y un clic en otro cerebro a mitad no lo cambia', cerebroAMitad === 'onnx:qwen3.5-0.8b', cerebroAMitad);
+ok('  …y al terminar se pueden volver a elegir', libres);
 ok('■ corta la inferencia en curso (el modelo recibe la parada)', r.st?.abortadas === 1 && r.st?.terminadas === 0, JSON.stringify(r.st));
 ok('  …y no se lanza ninguna inferencia más', r.st?.trasParar === 0, `${r.st?.trasParar} tras parar`);
 ok('la corrida termina (▶ vuelve a estar disponible)', termino);

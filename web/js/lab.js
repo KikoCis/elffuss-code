@@ -18,7 +18,7 @@ const el = (t, c, x) => { const n = document.createElement(t); if (c) n.classNam
 
 // ─────────────────────────── estado ───────────────────────────
 const S = {
-  brain: localStorage.getItem('elffusscode.model') || 'rules',
+  brain: 'rules',                // el del IDE si el Lab lo conoce (ver BRAINS, abajo)
   algo: 'directo',
   algoOpts: { rounds: 1, chunkTokens: 1800, maxChunks: 24 },
   ctx: {},                       // overrides sobre DEFAULTS
@@ -67,12 +67,18 @@ const BENCHES = [
   ['juegos', 'Juegos (generar y jugar)', 'Genera un juego con el algoritmo elegido, lo ejecuta y lo puntúa: carga sin errores, arranca, se mueve y aguanta jugando.'],
 ];
 
+// Los ids son ids del IDE («Abrir el IDE con este cerebro» los guarda tal
+// cual). El ligero era 'onnx' a secas, un id que el IDE ya no ofrece: el IDE lo
+// descartaba al arrancar y se quedaba sin modelo.
 const BRAINS = [
   ['rules', 'Reglas (sin GPU)', 'Determinista. Valida el arnés sin bajar pesos.'],
-  ['onnx', 'Qwen3.5-0.8B (CPU/wasm)', 'El ligero, por transformers.js.'],
+  ['onnx:qwen3.5-0.8b', 'Qwen3.5-0.8B (CPU/wasm)', 'El ligero, por transformers.js.'],
   ['litert:gemma-e2b', 'Gemma-4 E2B (~2 GB)', 'WebGPU.'],
   ['litert:gemma-e4b', 'Gemma-4 E4B (~3 GB)', 'WebGPU. El mejor.'],
 ];
+
+// Arranca con el cerebro que tenga el IDE, si es uno de los del Lab.
+{ const delIde = localStorage.getItem('elffusscode.model'); if (BRAINS.some(([id]) => id === delIde)) S.brain = delIde; }
 
 // ─────────────────────────── consola ───────────────────────────
 function log(msg, cls = '') {
@@ -182,7 +188,10 @@ async function loadBrain() {
   try {
     let mod;
     if (id === 'rules') mod = await import('./providers/rules.js');
-    else if (id === 'onnx') mod = await import('./providers/onnx.js');
+    else if (id.startsWith('onnx:')) {
+      mod = await import('./providers/onnx.js');
+      mod.configure?.(id.slice(5));
+    }
     else if (id.startsWith('litert:')) {
       mod = await import('./providers/litert.js');
       mod.configure(id.split(':')[1]);
@@ -473,9 +482,18 @@ async function benchJuegos(onCase) {
 }
 
 // ─────────────────────────── orquestación ───────────────────────────
+// Mientras corre, lo que define la corrida no se puede tocar. Antes cerebros y
+// bancos seguían activos: elegir otro cerebro a mitad cambiaba los casos que
+// quedaban (con «Reglas» resuelve el guion) y la corrida se guardaba con la
+// etiqueta del último elegido. Y lo que se guarda es lo que había AL EMPEZAR.
+const ELECCION = '#brains input, #algos input, #benches input, #algo-knobs input, #ctx-knobs input, #ctx-all, #ctx-none, #ctx-def, #btn-load';
+function bloqueaEleccion(si) { for (const n of document.querySelectorAll(ELECCION)) n.disabled = si; }
+
 async function run() {
   if (S.running) return;
   S.running = true; S.abort = false; S.aborter = new AbortController();
+  const cfg = { bench: S.bench, algo: S.algo, algoOpts: { ...S.algoOpts }, brain: S.brain, ctx: { ...DEFAULTS, ...S.ctx } };
+  bloqueaEleccion(true);
   $('#btn-run').disabled = true; $('#btn-stop').disabled = false;
   setLed('#led-run', 'busy', 'ejecutando ' + S.bench);
   tiles({}); prog(0, 1, 'preparando…');
@@ -527,8 +545,7 @@ async function run() {
   } else if (out) {
     tiles(out.resumen);
     S.run = {
-      bench: S.bench, algo: S.algo, algoOpts: { ...S.algoOpts }, brain: S.brain,
-      ctx: { ...DEFAULTS, ...S.ctx }, resumen: out.resumen, casos: out.filas,
+      ...cfg, resumen: out.resumen, casos: out.filas,
       duracionSegs: Math.round((Date.now() - t0) / 1000), cuando: new Date().toISOString(),
     };
     log('✔ terminado: ' + JSON.stringify(out.resumen), 'a');
@@ -539,6 +556,7 @@ async function run() {
   else setLed('#led-run', error ? 'err' : 'on', error ? 'con fallo' : 'listo');
   prog(1, 1, parado ? (out ? 'parado (parcial)' : 'parado') : error ? 'abortado' : 'completado');
   S.running = false; S.aborter = null; $('#btn-stop').disabled = true;
+  bloqueaEleccion(false);
   pintarRun();
 }
 
