@@ -285,6 +285,35 @@ const dHostile = deco.declarations({ backgroundColor: 'url(http://beacon.test/a)
 ok('declaraciones: lo hostil no llega, lo válido sí', !/url|font-family|beacon|cursor|text-decoration/.test(dHostile) && /color: red;/.test(dHostile) && /opacity: 0\.5;/.test(dHostile)
   && /border-radius: 3px;/.test(dHostile) && /outline: 1px solid blue;/.test(dHostile), dHostile);
 
+// ── 7e. qué funcionará (classify.js) y ajustes ──
+const cl = await import('../web/js/ext2/classify.js');
+ok('engines.vscode contra 1.138.0', cl.engineOk('^1.80.0') && !cl.engineOk('^1.200.0') && cl.engineOk('>=1.0.0') && cl.engineOk('*') && !cl.engineOk('^2.0.0')
+  && cl.engineOk('~1.138.0') && !cl.engineOk('~1.137.0') && cl.engineOk('1.90.x') && cl.engineOk(undefined));
+const base2 = { name: 'w', publisher: 'p', version: '1.0.0', engines: { vscode: '^1.80.0' } };
+const nodeOnly = cl.classify({ ...base2, main: './x.js', contributes: { commands: [{}] } });
+ok('Node: no corre aquí y no «funciona»', nodeOnly.runtime === 'node' && !nodeOnly.works && !nodeOnly.eligible);
+const webExt = cl.classify({ ...base2, browser: './w.js', contributes: { commands: [{}, {}], keybindings: [{}], configuration: { properties: { 'w.a': { type: 'boolean' } } }, views: { x: [{}] }, debuggers: [{}] } });
+ok('web: corre, con sus comandos y ajustes, y dice lo que no saldrá', webExt.eligible && webExt.works && webExt.counts.commands === 2 && webExt.counts.keybindings === 1
+  && webExt.counts.settings === 1 && webExt.unavailable.includes('views') && webExt.unavailable.includes('debuggers'));
+ok('web que no puede correr: propuestas, motor nuevo, solo eventos que nunca llegan', !cl.classify({ ...base2, browser: './w.js', enabledApiProposals: ['x'] }).eligible
+  && !cl.classify({ ...base2, browser: './w.js', engines: { vscode: '^1.200.0' } }).eligible
+  && cl.classify({ ...base2, browser: './w.js', activationEvents: ['onView:x', 'workspaceContains:**/a'] }).startsNever);
+ok('lo declarativo cuenta como «funciona» aunque sea de Node', cl.classify({ ...base2, main: './x.js', contributes: { themes: [{ path: 't.json' }] } }).works);
+ok('dependencias que faltan se dicen', cl.classify({ ...base2, browser: './w.js', extensionDependencies: ['a.b'] }, { installed: new Set() }).deps.missing.join() === 'a.b');
+const tested = JSON.parse(fs.readFileSync(path.join(REPO, 'web/js/ext2/tested.json'), 'utf8'));
+const pret = cl.classify({ name: 'prettier-vscode', publisher: 'esbenp', version: '12.4.0', browser: './dist/browser.js', engines: { vscode: '^1.80.0' } }, { tested });
+ok('el resultado del censo se encuentra por id@versión', pret.census?.state === 'active' && !!pret.census.providers?.format);
+const failedOne = Object.entries(tested.results).find(([, v]) => v.state === 'error');
+const [fid, fver] = failedOne[0].split('@');
+const fcls = cl.classify({ name: fid.split('.').slice(1).join('.'), publisher: fid.split('.')[0], version: fver, browser: './w.js' }, { tested });
+ok('una que falló en el censo no se ofrece para ejecutar', !fcls.eligible && fcls.reasons.includes('census'), failedOne[0]);
+const man = { contributes: { configuration: [{ properties: { 'p.semi': { type: 'boolean' }, 'p.width': { type: 'integer' }, 'p.mode': { type: 'string', enum: ['a', 'b'] }, 'p.any': {} } }] } };
+const vs = (t) => cl.validateSettings(man, t);
+ok('ajustes: los que declara, del tipo que dice', vs('{"p.semi": false, "p.width": 80, "p.mode": "b", "p.any": [1]}').ok && vs('').ok);
+ok('ajustes: desconocidos, de otro tipo, fuera de la lista, JSON roto y no-objeto, rechazados',
+  vs('{"p.nope": 1}').errors[0].code === 'unknown' && vs('{"p.semi": "no"}').errors[0].code === 'type' && vs('{"p.width": 1.5}').errors[0].code === 'type'
+  && vs('{"p.mode": "c"}').errors[0].code === 'enum' && vs('{').errors[0].code === 'json' && vs('[1]').errors[0].code === 'object' && vs('{"__proto__": {"x": 1}}').ok === false);
+
 // ── 8. ningún fichero del nivel 2 lleva rutas de máquina ──
 const files = [...fs.readdirSync(path.join(REPO, 'web/js/ext2')).map(f => 'web/js/ext2/' + f), 'sandbox/x2/headers.json', 'sandbox/x2/headers.mjs', 'sandbox/x2/v1/sandbox.html', 'sandbox/x2/v1/exthost-iframe.html'];
 const home = ['/', 'Users', '/'].join(''), linuxHome = ['/', 'home', '/'].join('');

@@ -77,8 +77,11 @@ export async function sha256Hex(bytes) {
 
 // Baja el .vsix y comprueba su SHA-256 contra la que publica Open VSX.
 // `confirmLarge(mb)` decide si seguir con uno de más de 25 MB.
-export async function download(meta, { onProgress = () => {}, confirmLarge = async () => false, signal } = {}) {
+// `requireHash` (instalar para ejecutar su código): sin suma publicada, o si
+// la publicada no se pudo leer, NO se instala (falla cerrado).
+export async function download(meta, { onProgress = () => {}, confirmLarge = async () => false, signal, requireHash = false } = {}) {
   if (!meta.files.download) throw new OpenVsxError('esta versión no se puede descargar', 'notfound');
+  if (requireHash && !meta.files.sha256) throw new OpenVsxError('Open VSX no publica la suma SHA-256 de esta versión', 'nosha');
   const ctl = new AbortController();
   signal?.addEventListener('abort', () => ctl.abort(), { once: true });
   let res;
@@ -110,6 +113,7 @@ export async function download(meta, { onProgress = () => {}, confirmLarge = asy
     catch { publicada = null; }
     if (!/^[0-9a-f]{64}$/.test(publicada || '')) publicada = null;   // no es una suma: como si no la publicara
   }
+  if (requireHash && !publicada) throw new OpenVsxError('no se pudo leer la suma SHA-256 publicada', 'nosha');
   if (publicada && publicada !== sha) throw new OpenVsxError('la suma SHA-256 no coincide con la publicada', 'sha');
   return { bytes, sha256: sha, verified: !!publicada };
 }

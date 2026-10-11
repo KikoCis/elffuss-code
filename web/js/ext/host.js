@@ -213,11 +213,15 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   // ── nivel 2: el puente solo se importa si alguna extensión corre código ──
   // Nunca se espera aquí: el recinto arranca en paralelo (ide.js crea el
   // editor después de cargar este host y el puente lo espera).
+  const oyentesCodigo = new Set();     // el panel: estado del recinto (arranca, errores, comandos…)
   function sincronizaCodigo() {
     const corren = paused || sinCodigo ? [] : exts.filter(e => e.enabled && e.runs);
     if (!corren.length && !puente) return;
     (async () => {
-      puente ??= await import('../ext2/bridge.js');
+      if (!puente) {
+        puente = await import('../ext2/bridge.js');
+        puente.onChange(() => { for (const f of oyentesCodigo) { try { f(); } catch { /* — */ } } });
+      }
       puente.setTheme(tipoTema);
       await puente.sync({ monaco, records: corren, readCode: store.readCode });
       emit();
@@ -253,7 +257,11 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
 
   const quitaTemasDe = id => { if (themeIndex.get(pref)?.ext === id) guardaPref('vs-dark'); };
 
-  async function install(src, { onProgress, confirmLarge, signal } = {}) {
+  // Instalar. Lo declarativo (nivel 1) siempre que lo haya. Con `withCode` (el
+  // usuario aceptó ejecutar su código: diálogo de consentimiento del panel)
+  // también los bytes del paquete para el recinto, y queda encendida. Bajar
+  // para ejecutar código exige la suma SHA-256 publicada (falla cerrado).
+  async function install(src, { onProgress, confirmLarge, signal, withCode = false } = {}) {
     let bytes, sha256, verified = false, source = 'file', meta = null;
     const ovsx = await import('./openvsx.js');
     if (src instanceof Blob) {
@@ -261,18 +269,27 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       sha256 = await ovsx.sha256Hex(bytes);
     } else {
       meta = await ovsx.metadata(src.namespace, src.name, src.version || '', { signal });
-      ({ bytes, sha256, verified } = await ovsx.download(meta, { onProgress, confirmLarge, signal }));
+      ({ bytes, sha256, verified } = await ovsx.download(meta, { onProgress, confirmLarge, signal, requireHash: withCode }));
       source = 'open-vsx';
     }
-    const { readVsix } = await import('./vsix.js');
+    const { readVsix, readVsixRaw, browserEntry } = await import('./vsix.js');
     const v = await readVsix(bytes, { lang: uiLang() });
     if (meta && v.id !== `${meta.namespace}.${meta.name}`.toLowerCase()) {
       throw Object.assign(new Error(`el paquete dice ser ${v.id}, no ${meta.namespace}.${meta.name}`), { code: 'mismatch', got: v.id, want: `${meta.namespace}.${meta.name}` });
     }
-    if (!v.themes.length && !v.grammars.length && !v.snippets.length && !v.languages.length) {
+    let raw = null, entry = null;
+    if (withCode) {
+      if (typeof v.manifest.browser !== 'string') throw Object.assign(new Error('sin código para navegador'), { code: 'nocode' });
+      raw = await readVsixRaw(bytes);
+      entry = browserEntry(v.manifest, raw.files);
+      if (!entry) throw Object.assign(new Error('la entrada browser no está en el paquete'), { code: 'noentry' });
+    }
+    if (!withCode && !v.themes.length && !v.grammars.length && !v.snippets.length && !v.languages.length) {
       // declaraba cosas aplicables pero ninguna se pudo leer: no es lo mismo
       // que no traer nada, y el usuario tiene que saber por qué
       if (v.warnings.length) throw Object.assign(new Error('unreadable'), { code: 'unreadable', warning: v.warnings[0], warnings: v.warnings });
+      // solo trae código para el navegador: eso se instala desde «… y ejecutar su código»
+      if (typeof v.manifest.browser === 'string') throw Object.assign(new Error('code-only'), { code: 'codeonly' });
       throw Object.assign(new Error('nothing-applies'), { code: 'nothing' });
     }
     const previo = exts.find(e => e.id === v.id);
@@ -284,7 +301,7 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       displayName: v.displayName, description: v.description.slice(0, 500),
       license: (meta?.license || v.license || '').slice(0, 200), sha256, verified, source, size: bytes.length,
       installedAt: previo?.installedAt || Date.now(), enabled: previo ? previo.enabled : true,
-      hasCode: v.analysis.hasCode, ignored: v.analysis.ignored, pack: v.analysis.pack, warnings: v.warnings.slice(0, 20),
+      hasCode: v.analysis.hasCode, browser: typeof v.manifest.browser === 'string', ignored: v.analysis.ignored, pack: v.analysis.pack, warnings: v.warnings.slice(0, 20),
       themes: v.themes.map(t => { const key = k('theme/' + t.index); files.set(key, t.data); return { key, label: t.label, uiTheme: t.uiTheme, themeId: themeIdFor(v.id, t, t.index, usados) }; }),
       grammars: v.grammars.map(g => {
         const key = k(g.path); files.set(key, g.data);
@@ -297,11 +314,35 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
         return { id: l.id, aliases: l.aliases, extensions: l.extensions, filenames: l.filenames, filenamePatterns: l.filenamePatterns, firstLine: l.firstLine, mimetypes: l.mimetypes, configKey };
       }),
       licenseKey: null,
+      // nivel 2: lo que el usuario eligió conservarlo al actualizar
+      settings: previo?.settings && typeof previo.settings === 'object' ? previo.settings : {},
+      formatter: previo?.formatter && typeof previo.formatter === 'object' ? previo.formatter : {},
     };
     if (v.licenseText) { rec.licenseKey = k('LICENSE'); files.set(rec.licenseKey, v.licenseText); }
+    if (withCode) {
+      // bytes del código, por ruta dentro del paquete; encendida salvo que el
+      // usuario la tuviera apagada antes de actualizar
+      for (const [p, data] of raw.files) files.set(store.codeKey(v.id, v.version, p), data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+      rec.code = { entry, files: [...raw.files.keys()], bytes: raw.bytes, manifest: v.manifest };
+      rec.runs = previo?.code ? !!previo.runs : true;
+    }
     await store.put(rec, files);
     await recarga();
     return rec;
+  }
+
+  // Ajustes de una extensión con código (validados por el panel contra lo que
+  // ella declara) y su formateador por lenguaje: se aplican sin recargar.
+  async function setSettings(id, settings) {
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw Object.assign(new Error('los ajustes son un objeto JSON'), { code: 'settings' });
+    await store.patch(id, { settings });
+    await recarga();
+  }
+  async function setFormatter(id, lang, choice) {
+    const rec = exts.find(e => e.id === id);
+    if (!rec || typeof lang !== 'string' || !['extension', 'builtin'].includes(choice)) return;
+    await store.patch(id, { formatter: { ...(rec.formatter || {}), [lang]: choice } });
+    await recarga();
   }
 
   async function setEnabled(id, on) {
@@ -338,9 +379,12 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     paused,
     list: () => exts.map(e => ({ ...e })),
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    install, setEnabled, uninstall, setRuns,
+    install, setEnabled, uninstall, setRuns, setSettings, setFormatter,
     codeState: estadoCodigo,
     codeCommands: () => (puente ? puente.commands() : []),
+    onCodeChange(fn) { oyentesCodigo.add(fn); return () => oyentesCodigo.delete(fn); },
+    // ¿está disponible el nivel 2 aquí? (navegador, sitio, interruptor) y su tamaño
+    codeRuntime: async () => (paused || sinCodigo ? { available: false, reason: 'url' } : (await import('../ext2/vendor.js')).runtimeInfo()),
     noCode: paused || sinCodigo,
     licenseText: async id => { const e = exts.find(x => x.id === id); return e?.licenseKey ? (await store.getFile(e.licenseKey)) || '' : ''; },
     themes: () => [

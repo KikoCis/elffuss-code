@@ -1,7 +1,10 @@
 // Un .vsix (zip) → lo que Elffuss Code sabe aplicar: temas, gramáticas,
-// snippets y lenguajes. NUNCA se lee, importa ni evalúa JavaScript del
+// snippets y lenguajes. readVsix NUNCA lee, importa ni evalúa JavaScript del
 // paquete: `main` y `browser` se ignoran y solo se descomprimen el manifiesto,
 // sus traducciones, la licencia y los ficheros que citan esas contribuciones.
+// readVsixRaw (nivel 2, solo si el usuario pide ejecutar su código) lee los
+// bytes del paquete para entregárselos al recinto aislado: la página tampoco
+// los ejecuta nunca.
 import { openZip } from './unzip.js';
 import { parseJsonc, parsePlist } from './formats.js';
 import { loadTheme, joinPath } from './themes.js';
@@ -41,6 +44,36 @@ export function analyzeManifest(pkg) {
   const grammarLangs = arr('grammars').map(g => (typeof g?.language === 'string' ? g.language : null));
   const languageList = arr('languages').filter(l => typeof l?.id === 'string' && l.id).map(l => ({ id: l.id, config: typeof l.configuration === 'string' }));
   return { applies, ignored, hasCode, pack, snippetLangs, languages, grammarLangs, languageList, any: Object.values(applies).some(Boolean) };
+}
+
+// Nivel 2 (código para el navegador, solo si el usuario lo pide): TODOS los
+// ficheros del paquete bajo extension/, en bytes, para entregarlos al recinto
+// al encenderla. Fuera node_modules/** y los *.map. Topes contados sobre lo
+// que sale al descomprimir: 32 MiB por fichero y 64 MiB por extensión.
+export const RAW_MAX_ENTRY = 32 << 20, RAW_MAX_TOTAL = 64 << 20;
+export async function readVsixRaw(bytes, { maxEntry = RAW_MAX_ENTRY, maxTotal = RAW_MAX_TOTAL } = {}) {
+  const zip = openZip(bytes, { maxEntry, maxTotal });
+  const files = new Map();
+  let total = 0;
+  for (const name of zip.names) {
+    if (!name.startsWith('extension/')) continue;
+    const rel = name.slice('extension/'.length);
+    if (!rel || /(^|\/)node_modules\//.test(rel) || /\.map$/i.test(rel)) continue;
+    // nada de rutas que salgan del paquete ni absolutas
+    if (rel.startsWith('/') || rel.split('/').some(s => s === '..' || s === '.' || s === '')) continue;
+    const data = await zip.read(name);
+    total += data.length;
+    files.set(rel, data);
+  }
+  return { files, bytes: total };
+}
+// La entrada `browser` del manifiesto, como ruta de fichero del paquete
+// («./dist/web/extension» → «dist/web/extension.js»), o null si no está.
+export function browserEntry(manifest, names) {
+  if (!manifest || typeof manifest.browser !== 'string') return null;
+  const base = manifest.browser.replace(/^\.\//, '').replace(/\\/g, '/');
+  for (const c of [base, base + '.js', base + '/index.js']) if (names.has(c)) return c;
+  return null;
 }
 
 // %clave% → texto de package.nls(.<idioma>).json, en todo el manifiesto.

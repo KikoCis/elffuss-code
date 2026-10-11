@@ -101,6 +101,29 @@ export async function readCode(rec) {
   });
 }
 
+// Ajustes de una extensión con código y su elección de formateador por
+// lenguaje ({ lang: 'extension' | 'builtin' }).
+export async function patch(id, fields) {
+  const db = await open();
+  const tx = db.transaction('ext', 'readwrite');
+  const rec = await done(tx.objectStore('ext').get(id));
+  if (!rec) throw new Error('no instalada: ' + id);
+  for (const k of ['settings', 'formatter']) if (k in fields) rec[k] = structuredClone(fields[k]);
+  tx.objectStore('ext').put(rec, id);
+  await txDone(tx);
+  return rec;
+}
+
+// Caché de cosas pequeñas de Open VSX (p. ej. lo que se sabe de un manifiesto
+// por id@versión, para el filtro «Funciona en Code»).
+export async function getMeta(key) { return done((await open()).transaction('meta').objectStore('meta').get('cache:' + key)); }
+export async function setMeta(key, value) {
+  const db = await open();
+  const tx = db.transaction('meta', 'readwrite');
+  tx.objectStore('meta').put(value, 'cache:' + key);
+  await txDone(tx);
+}
+
 export async function setEnabled(id, enabled) {
   const db = await open();
   const tx = db.transaction('ext', 'readwrite');
