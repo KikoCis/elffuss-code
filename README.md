@@ -117,7 +117,12 @@ What keeps your data in your browser, and what enforces it:
   extensions show are plain text. Clipboard writes need a recent click or key.
 - **Open documents only, no saving.** Extensions see the files you have open, as
   `file:///<project path>`; their edits go to the active document as one undo step and stay
-  unsaved until you save with Cmd+S as always. The agent's tools are unchanged.
+  unsaved until you save with Cmd+S as always. An edit computed on text that changed in
+  the meantime (the agent wrote the file, you typed) is discarded and the status bar says
+  so. The agent's tools are unchanged.
+- **Off means off.** VS Code cannot unload an extension that already started, so turning
+  one's code off (or disabling, updating or uninstalling it) while others run rebuilds the
+  sandbox with the others; with none left, the sandbox goes away. No reload either way.
 - **Two gates in Code.** The HTML preview of a file an extension wrote into asks first (the
   preview runs scripts with network). While extensions run, the agent's web requests and
   local runtimes (node, npm, python… through the Bridge) ask first, showing the full URL or
@@ -131,13 +136,18 @@ attack code directly inside both sandbox documents. The beacon must see 0 reques
 connections and 0 UDP packets; accepting one address must produce exactly one visit, to the
 address the dialog showed; and positive controls show the setup does catch leaks.
 
-- **Nothing loads by default.** Without extensions Code loads what it loaded before, plus
-  two hooks of a few hundred bytes in `main.js` and `ide.js`. `js/ext/host.js`, which only
-  loads for people who use extensions, imports `js/ext2/` once an extension has its code
-  turned on; searching in the panel loads nothing from level 2. The runtime is about
-  2.6 MB gzip (from the manifest), downloaded once. `?noext` pauses every extension, `?noext2` only their code, `"enabled":
-  false` in the manifest is a global kill switch, and the panel can turn all extension code
-  off.
+- **Nothing of level 2 loads until you turn an extension's code on.** `tests/x2_bytes.mjs`
+  compares Code with the level 1 tip request by request, uncompressed: with no extension
+  it asks for exactly the same files and 817 bytes more (two one-line hooks in `main.js`
+  and `ide.js`); with level 1 extensions only, the same files and 4.4 KB more (the hooks in
+  `js/ext/host.js` and `store.js` that decide when to load `js/ext2/host2.js`); with the
+  Extensions panel open and a search done, the same files and 18 KB more (what the panel
+  now tells everyone: what will work, the Works in Code filter, how extensions are
+  isolated). In none of these is anything fetched from `vendor/x2/`, `js/ext2/` or the
+  sandbox site. Once code is on, the runtime is 2.6 MB gzip (from the manifest), fetched
+  once and then served from the HTTP cache. `?noext` pauses every extension, `?noext2` only
+  their code, `"enabled": false` in the manifest is a global kill switch, and the panel can
+  turn all extension code off.
 - **The runtime is verified at load:** SRI on each `.gz`, then the sha256 of the inflated
   bytes against the committed `web/js/ext2/vendor-manifest.json`. It is built by a
   pinned, reproducible script and deployed separately; see
@@ -177,16 +187,36 @@ refusal of sign-in. Some extensions that start still need things Code doesn't ha
 (webviews, the network, a workspace), so the census is an upper bound; per-extension
 results are in `web/js/ext2/tested.json` and feed the panel's "Tested in Code" lines.
 
-Across the whole catalog (19,320 extensions) only a static sample has been read: 2,000
-manifests put the share with a browser entry at about 5%, roughly 470 to 1,430
+Across the whole catalog (19,335 extensions on 2026-10-11) only a static sample has been
+read: 2,000 manifests put the share with a browser entry at about 5%, roughly 470 to 1,430
 extensions. That is an extrapolation, not a count; none of them was run.
+`tests/catalog_census.mjs` reads every extension's `package.json` once (no `.vsix`, nothing
+runs) and classifies it with the panel's own rules, for exact counts. It is manual, about
+40,000 requests to Open VSX at 4 at a time, and has not been run on the whole catalog yet;
+`--ranks 1-20,19301-19320` tries it on a few.
 
-Tests: `node tests/x2_unit.mjs`, `node tests/x2_smoke.mjs` (synthetic extensions: commands,
-formatting, hovers, symbols, diagnostics, decorations, dialogs, gates, the firewall, a basic
-canary and positive controls), `node tests/x2_canary.mjs` (above), `node tests/x2_manager.mjs`
-(Tyriar.sort-lines and Prettier installed, run, configured and uninstalled through the
-panel, with Open VSX mocked from their pinned packages), `node tests/x2_live.mjs`, and the
-manual runtime census `node tests/x2_census.mjs`.
+Tests (each starts its own loopback server; nothing goes to production):
+
+| Suite | What it proves |
+|---|---|
+| `x2_unit` | protocol validators, escaped markdown on a hostile corpus, conversions, keybindings and reserved chords, globs, headers, manifests, the RPC allowlist, the decoration whitelist, URL display, classification, texts, the package reader, the shipped census |
+| `x2_headers` | the sandbox documents' exact headers, 404 for anything else, Code never serves `/x2/`, the vendor files' headers and SRI (also against a deployment) |
+| `x2_smoke` | synthetic extensions end to end: commands, formatting, hovers, symbols, diagnostics, decorations, dialogs, the gates, the firewall, tampering, `?noext`/`?noext2`/kill switch |
+| `x2_bytes` | the default path and the level 1 states against the level 1 tip (above) |
+| `x2_canary` | the canary and the drill (above), with positive controls |
+| `x2_manager` | sort-lines and Prettier installed, run, configured and uninstalled through the panel, Open VSX mocked from their pinned packages |
+| `x2_commands` | sort-lines in Code's palette, F1, F9 and the context menu; Cmd+S; reserved chords and conflicts; Code's own shortcuts unchanged; hostile titles stay text |
+| `x2_format` | Prettier: Format Document, Shift+Alt+F, undo, save, settings, the built-in formatter back, a race with an agent write |
+| `x2_ux` | what the panel says before installing, the filter, sizes, a 390 px phone, dialog roles and keys, 25 of Code's elements styled identically with and without level 2 |
+| `x2_live`, `x2_lifecycle` | the real Open VSX: install, update, turn off and on, disable, reload and uninstall, with pinned versions and SHA-256 |
+
+`tests/run-modes.sh` runs every Code suite in `tests/suites.txt` twice, as is and in
+**extension mode** (`tests/lib/x2-mode.mjs` installs two code extensions that run in the
+sandbox while the suite works, then checks the sandbox ran wherever the IDE opened, with
+no level 2 error and nothing but its two documents asked from the sandbox site), plus the
+level 2 suites once. The suites that need a live model, a GPU, a local Bridge, the
+internet or production are listed there with the reason. The runtime census is
+`node tests/x2_census.mjs` (manual).
 
 ## Run locally
 
