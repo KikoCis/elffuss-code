@@ -54,6 +54,10 @@ const L = {
     pickPh: 'Tema de color (↑↓ para previsualizar, Enter para elegir)', builtinGroup: 'Integrados',
     builtinDark: 'Oscuro (por defecto)', builtinLight: 'Claro', builtinHc: 'Alto contraste oscuro', builtinHcLight: 'Alto contraste claro',
     current: 'actual', palExt: 'Extensiones…', palTheme: 'Tema de color…',
+    // nivel 2: lo que piden las extensiones con código
+    x2From: 'Extensión: {name}', x2FromAny: 'Una extensión', x2Dismiss: 'Cerrar el aviso', x2Cancel: 'Cancelar', x2Ok: 'Aceptar',
+    x2PickOne: 'Elige una opción', x2PickMany: 'Marca las opciones (Espacio) y pulsa Intro', x2PickNone: 'Ninguna coincide.',
+    x2InputHint: 'Escribe y pulsa Intro', x2Working: 'trabajando…',
   },
   en: {
     title: 'Extensions', sub: 'Open VSX',
@@ -106,6 +110,10 @@ const L = {
     pickPh: 'Color theme (↑↓ to preview, Enter to select)', builtinGroup: 'Built-in',
     builtinDark: 'Dark (default)', builtinLight: 'Light', builtinHc: 'Dark High Contrast', builtinHcLight: 'Light High Contrast',
     current: 'current', palExt: 'Extensions…', palTheme: 'Color Theme…',
+    // level 2: what extensions that run code ask for
+    x2From: 'Extension: {name}', x2FromAny: 'An extension', x2Dismiss: 'Dismiss the notification', x2Cancel: 'Cancel', x2Ok: 'OK',
+    x2PickOne: 'Choose an option', x2PickMany: 'Check the options (Space) and press Enter', x2PickNone: 'Nothing matches.',
+    x2InputHint: 'Type and press Enter', x2Working: 'working…',
   },
 };
 

@@ -703,7 +703,8 @@
   "IFileDialogService",
   "ILanguageStatusService",
   "INotificationService",
-  "IOpenerService"
+  "IOpenerService",
+  "IProgressService"
  ],
  "commands": [
   "_executeCodeActionProvider",

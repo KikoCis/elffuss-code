@@ -34,6 +34,10 @@ const isExtId = v => isStr(v, 300) && /^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9._-]*
 export const isPlainObject = v => v !== null && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
 
 const isFilter = f => isPlainObject(f) && optStr(f.language, 100) && optStr(f.scheme, 50) && optStr(f.pattern, 500);
+const SEVS = new Set(['info', 'warning', 'error']);
+const isPickItem = it => isPlainObject(it) && (it.sep !== undefined
+  ? isStr(it.sep, 200) && Object.keys(it).length === 1
+  : isStr(it.label, 500) && optStr(it.description, 500) && optStr(it.detail, 1000) && (it.picked === undefined || typeof it.picked === 'boolean'));
 const isEditStep = s => Array.isArray(s) && s.length <= 100000 && s.every(c => isPlainObject(c) && isRange(c.range) && typeof c.text === 'string');
 
 // tamaño aproximado (para no aceptar mensajes enormes); corta al pasarse
@@ -69,6 +73,22 @@ const FROM_SANDBOX = {
   pong: m => isInt(m.n),
   'rpc.denied': m => isPos(m.n) && Array.isArray(m.top) && m.top.length <= 10
     && m.top.every(x => Array.isArray(x) && x.length === 2 && isStr(x[0], 200) && isPos(x[1])),
+  // lo que la extensión le pide al usuario (la página contesta con ui.result)
+  'ui.notify': m => isInt(m.req) && SEVS.has(m.sev) && isStr(m.text, 4096) && Array.isArray(m.actions) && m.actions.length <= 5
+    && m.actions.every(a => isStr(a, 200)) && (m.source === undefined || isExtId(m.source)),
+  'ui.dialog': m => isInt(m.req) && SEVS.has(m.sev) && isStr(m.text, 4096) && optStr(m.detail, 4096) && Array.isArray(m.buttons)
+    && m.buttons.length <= 10 && m.buttons.every(b => isStr(b, 200)) && optStr(m.cancel, 200),
+  'ui.pick': m => isInt(m.req) && Array.isArray(m.items) && m.items.length <= 1000 && m.items.every(isPickItem) && isPlainObject(m.options)
+    && optStr(m.options.title, 200) && optStr(m.options.placeHolder, 200) && typeof m.options.canPickMany === 'boolean',
+  'ui.input': m => isInt(m.req) && isPlainObject(m.options) && optStr(m.options.title, 200) && optStr(m.options.prompt, 1000)
+    && optStr(m.options.placeHolder, 200) && optStr(m.options.value, 10000) && optStr(m.options.validation, 500),
+  'ui.cancel': m => isInt(m.req),
+  'ui.progress': m => isInt(m.id) && isStr(m.text, 500) && typeof m.done === 'boolean',
+  'clipboard.write': m => isStr(m.text, 500000),
+  'open.request': m => isInt(m.req) && isStr(m.url, LIMITS.url) && m.url.length > 0,
+  'editor.show': m => isUri(m.uri),
+  'editor.reveal': m => isUri(m.uri) && isRange(m.range),
+  'editor.selection': m => isUri(m.uri) && Array.isArray(m.selections) && m.selections.length >= 1 && m.selections.length <= 100 && m.selections.every(isRange),
 };
 
 export function validate(msg) {

@@ -138,8 +138,36 @@ export async function start({ m, port, config, sandbox = {} }) {
     finally { fromExtHost--; }
   };
 
-  // ── servicios que fallan cerrados ──
+  // ── preguntas a la página ──
+  // Lo que necesita al usuario (abrir una dirección, un aviso con botones, un
+  // diálogo, un selector, un cuadro de texto) se le pregunta a la página, que
+  // lo pinta como texto y contesta con datos planos ({t:'ui.result'}). La
+  // página contesta SIEMPRE, también cuando lo descarta (con null).
+  let nextAsk = 1;
+  const asks = new Map();                           // req → resolve
+  function ask(t, payload, token) {
+    const req = nextAsk++;
+    return new Promise(resolve => {
+      asks.set(req, resolve);
+      if (token && typeof token.onCancellationRequested === 'function') {
+        token.onCancellationRequested(() => { if (asks.delete(req)) { send({ t: 'ui.cancel', req }); resolve(null); } });
+      }
+      send({ t, req, ...payload });
+    });
+  }
+  const msgText = msg => (typeof msg === 'string' ? msg : msg instanceof Error ? msg.message : msg && typeof msg.value === 'string' ? msg.value : msg == null ? '' : String(msg));
+  const label = v => String(typeof v === 'string' ? v : v && typeof v.label === 'string' ? v.label : v == null ? '' : v).replace(/&&/g, '').slice(0, 200);
+  const SEV = { 0: 'info', 1: 'info', 2: 'warning', 3: 'error', info: 'info', warning: 'warning', error: 'error' };
+  const sevOf = s => SEV[s] || 'info';
+  const sourceOf = s => (s && typeof s === 'object' && typeof s.id === 'string' && /^[\w-]+\.[\w.-]+$/.test(s.id) ? s.id.toLowerCase().slice(0, 200) : undefined);
+
+  // ── abrir direcciones ──
+  // http, https y mailto: la página pregunta enseñando la dirección entera y
+  // solo ella abre (si el usuario dice que sí). file: de un documento abierto:
+  // se enseña ese documento. Cualquier otra cosa (command:, vscode:, data:…)
+  // se rechaza. Nada sale nunca de aquí.
   const openRefused = { n: 0 };
+  const uriString = r => (typeof r === 'string' ? r : r && typeof r.toString === 'function' ? r.toString() : '');
   const opener = {
     _serviceBrand: undefined,
     registerOpener: () => ({ dispose() {} }),
@@ -147,13 +175,23 @@ export async function start({ m, port, config, sandbox = {} }) {
     registerExternalUriResolver: () => ({ dispose() {} }),
     setDefaultExternalOpener() {},
     registerExternalOpener: () => ({ dispose() {} }),
-    async open(resource) { openRefused.n++; log('warn', 'blocked an attempt to open ' + String(resource).slice(0, 200)); return false; },
+    async open(resource) {
+      const s = uriString(resource).slice(0, 8192);
+      const scheme = (/^([a-z][a-z0-9+.-]*):/i.exec(s) || [])[1]?.toLowerCase();
+      if (scheme === 'http' || scheme === 'https' || scheme === 'mailto') return (await ask('open.request', { url: s })) === true;
+      if (scheme === 'file' && docs.has(s)) { showDoc(s); return true; }
+      openRefused.n++;
+      log('warn', 'refused to open ' + s.slice(0, 200));
+      return false;
+    },
+    // sin túneles ni peticiones: la dirección tal cual
     async resolveExternalUri(resource) { return { resolved: resource, dispose() {} }; },
   };
   const clipboard = {
     _serviceBrand: undefined,
     triggerPaste: () => undefined,
-    writeText: async () => { log('warn', 'clipboard write blocked'); },
+    // la página solo escribe con un gesto reciente del usuario
+    writeText: async text => { if (typeof text === 'string' && text.length <= 500000) send({ t: 'clipboard.write', text }); },
     readText: async () => '',
     readFindText: async () => '',
     writeFindText: async () => {},
@@ -163,36 +201,90 @@ export async function start({ m, port, config, sandbox = {} }) {
     clearInternalState() {},
     readImage: async () => new Uint8Array(0),
   };
-  const noHandle = () => {
+
+  // ── avisos ──
+  const handle = () => {
     const closed = emitter(), visible = emitter();
-    return { close() { closed.fire(); }, onDidClose: closed.event, onDidChangeVisibility: visible.event, progress: { infinite() {}, total() {}, worked() {}, done() {} }, updateSeverity() {}, updateMessage() {}, updateActions() {} };
+    let isClosed = false;
+    return {
+      close() { if (!isClosed) { isClosed = true; closed.fire(); } },
+      onDidClose: closed.event, onDidChangeVisibility: visible.event,
+      progress: { infinite() {}, total() {}, worked() {}, done() {} }, updateSeverity() {}, updateMessage() {}, updateActions() {},
+    };
   };
-  // v1 aún no pinta avisos: cuentan como enseñados y cerrados en el acto, así
-  // una extensión que espera la respuesta del usuario recibe «ninguna» en vez
-  // de quedarse esperando para siempre (la parte B2 los lleva a la página)
-  const dismissed = () => { const h = noHandle(); setTimeout(() => h.close(), 0); return h; };
   const filterChanged = emitter();
-  const msgText = msg => (typeof msg === 'string' ? msg : msg instanceof Error ? msg.message : msg && typeof msg.value === 'string' ? msg.value : String(msg));
+  // un aviso con botones (acciones o «choices»): la página dice cuál se pulsó
+  function toast(sev, message, actions, source, onCancel) {
+    const h = handle();
+    const list = (Array.isArray(actions) ? actions : []).filter(a => a && typeof a.run === 'function').slice(0, 5);
+    ask('ui.notify', { sev: sevOf(sev), text: msgText(message).slice(0, 4096), actions: list.map(a => label(a.label) || '?'), ...(source ? { source } : {}) }).then(i => {
+      if (Number.isSafeInteger(i) && list[i]) { try { list[i].run(); } catch (e) { log('warn', 'notification action failed: ' + errText(e)); } }
+      else if (typeof onCancel === 'function') { try { onCancel(); } catch { /* — */ } }
+      h.close();
+    });
+    return h;
+  }
   const notifications = {
     _serviceBrand: undefined,
     onDidChangeFilter: filterChanged.event,
     setFilter() {}, getFilter: () => 0, getFilters: () => [], removeFilter() {},
-    notify(n) { log('info', 'notification: ' + msgText(n && n.message)); return dismissed(); },
-    info(msg) { log('info', 'notification: ' + [].concat(msg).map(msgText).join(' ')); },
-    warn(msg) { log('warn', 'notification: ' + [].concat(msg).map(msgText).join(' ')); },
-    error(msg) { log('error', 'notification: ' + [].concat(msg).map(msgText).join(' ')); },
-    prompt(sev, message) { log('info', 'prompt: ' + msgText(message)); return dismissed(); },
-    status(message) { log('info', 'status: ' + msgText(message)); return { close() {} }; },
+    notify(n) { return toast(n && n.severity, n && n.message, n && n.actions && n.actions.primary, sourceOf(n && n.source)); },
+    info(msg) { for (const x of [].concat(msg)) toast('info', x); },
+    warn(msg) { for (const x of [].concat(msg)) toast('warning', x); },
+    error(msg) { for (const x of [].concat(msg)) toast('error', x); },
+    prompt(sev, message, choices, options) { return toast(sev, message, choices, sourceOf(options && options.source), options && options.onCancel); },
+    status(message) { log('info', 'status: ' + msgText(message).slice(0, 500)); return { close() {}, dispose() {} }; },
   };
+
+  // ── diálogos modales (showXMessage con {modal: true}) ──
   const dialogShown = emitter(), dialogWill = emitter();
+  async function dialogAsk(type, message, detail, labels, cancel) {
+    const i = await ask('ui.dialog', { sev: sevOf(type), text: msgText(message).slice(0, 4096), ...(detail ? { detail: msgText(detail).slice(0, 4096) } : {}), buttons: labels.slice(0, 10), ...(cancel ? { cancel } : {}) });
+    return Number.isSafeInteger(i) && i >= 0 && i < labels.length ? i : -1;
+  }
   const dialogs = {
     _serviceBrand: undefined,
     onWillShowDialog: dialogWill.event,
     onDidShowDialog: dialogShown.event,
-    confirm: async () => ({ confirmed: false }),
-    prompt: async () => ({ result: undefined }),
+    async confirm(c = {}) {
+      const i = await dialogAsk(c.type, c.message, c.detail, [label(c.primaryButton) || 'OK'], label(c.cancelButton) || undefined);
+      return { confirmed: i === 0, checkboxChecked: false };
+    },
+    async prompt(p = {}) {
+      const buttons = (Array.isArray(p.buttons) ? p.buttons : []).slice(0, 10);
+      const cb = p.cancelButton;
+      const i = await dialogAsk(p.type, p.message, p.detail, buttons.map(b => label(b) || '?'), cb ? label(cb) : undefined);
+      const chosen = i >= 0 ? buttons[i] : (cb && typeof cb === 'object' ? cb : null);
+      const result = chosen && typeof chosen.run === 'function' ? await chosen.run({ checkboxChecked: false }) : undefined;
+      return { result, checkboxChecked: false };
+    },
     input: async () => ({ confirmed: false }),
-    info: async () => {}, warn: async () => {}, error: async () => {}, about: async () => {},
+    async info(message, detail) { await dialogAsk('info', message, detail, [], label('OK')); },
+    async warn(message, detail) { await dialogAsk('warning', message, detail, [], label('OK')); },
+    async error(message, detail) { await dialogAsk('error', message, detail, [], label('OK')); },
+    about: async () => {},
+  };
+
+  // ── progreso (withProgress) → la barra de estado de Code ──
+  let nextProgress = 1;
+  const progressService = {
+    _serviceBrand: undefined,
+    async withProgress(options, task) {
+      const id = nextProgress++;
+      const title = msgText(options && options.title).slice(0, 300);
+      let timer = null, pending = null;
+      const post = (text, done) => send({ t: 'ui.progress', id, text: String(text || '').slice(0, 500), done });
+      post(title, false);
+      const progress = {
+        report(v) {
+          const m2 = v && typeof v.message === 'string' ? v.message : '';
+          pending = title && m2 ? title + ': ' + m2 : (title || m2);
+          if (!timer) timer = setTimeout(() => { timer = null; post(pending, false); }, 250);
+        },
+      };
+      try { return await task(progress); }
+      finally { clearTimeout(timer); post('', true); }
+    },
   };
   const refuse = async () => { throw new Error('Not available in Elffuss Code.'); };
   const fileDialogs = {
@@ -217,7 +309,17 @@ export async function start({ m, port, config, sandbox = {} }) {
     get activeTextEditorControl() { return mirror && mirror.getModel() ? mirror : undefined; },
     get visibleTextEditorControls() { return mirror ? [mirror] : []; },
     getVisibleTextEditorControls() { return mirror ? [mirror] : []; },
-    getEditors: () => [], openEditor: async () => undefined, openEditors: async () => [], replaceEditors: async () => {},
+    // showTextDocument / vscode.open de un documento abierto: el espejo lo
+    // enseña y la página decide si cambia de pestaña (solo con un gesto
+    // reciente del usuario). De uno que no está abierto: nada.
+    getEditors: () => [], openEditors: async () => [], replaceEditors: async () => {},
+    async openEditor(input) {
+      const r = input && (input.resource || (input.original && input.original.resource));
+      const uri = r ? uriString(r) : null;
+      if (!uri || !docs.has(uri)) return undefined;
+      showDoc(uri);
+      return { getControl: () => mirror, input, group: undefined };
+    },
     isOpened: () => false, isVisible: () => false, closeEditor: async () => {}, closeEditors: async () => {},
     findEditors: () => [], save: async () => ({ success: false, editors: [] }), saveAll: async () => ({ success: false, editors: [] }),
     revert: async () => false, revertAll: async () => false, createScoped() { return this; },
@@ -246,6 +348,8 @@ export async function start({ m, port, config, sandbox = {} }) {
     [m.IDialogService.toString()]: dialogs,
     [m.IFileDialogService.toString()]: fileDialogs,
     [m.ILanguageStatusService.toString()]: languageStatus,
+    // (sin importar su identificador: VS Code lo resuelve por este nombre)
+    progressService,
   }, host);
 
   const commandService = await m.getService(m.ICommandService);
@@ -255,10 +359,50 @@ export async function start({ m, port, config, sandbox = {} }) {
   const contextKeys = await m.getService(m.IContextKeyService);
   const quickInput = await m.getService(m.IQuickInputService);
 
-  // selector rápido y cuadro de texto: v1 los cancela (la interfaz llega después)
+  // selector rápido y cuadro de texto: los pinta la página (solo texto: sin
+  // iconos ni botones). createQuickPick/createInputBox (la API completa) aún no.
+  const pickText = v => String(typeof v === 'string' ? v : v && typeof v.label === 'string' ? v.label : '').replace(/\$\([\w~-]{1,60}\)\s?/g, '');
   try {
-    quickInput.pick = async () => { log('info', 'quick pick cancelled: not available yet'); return undefined; };
-    quickInput.input = async () => { log('info', 'input box cancelled: not available yet'); return undefined; };
+    quickInput.pick = async (picks, options = {}, token) => {
+      let list;
+      try { list = await Promise.resolve(picks); } catch { return undefined; }
+      if (!Array.isArray(list)) return undefined;
+      list = list.slice(0, 1000);
+      const items = list.map(it => (it && it.type === 'separator'
+        ? { sep: pickText(it.label).slice(0, 200) }
+        : { label: pickText(it && it.label).slice(0, 500), ...(it && typeof it.description === 'string' ? { description: pickText(it.description).slice(0, 500) } : {}),
+          ...(it && typeof it.detail === 'string' ? { detail: pickText(it.detail).slice(0, 1000) } : {}), ...(it && it.picked === true ? { picked: true } : {}) }));
+      const many = options.canPickMany === true;
+      const v = await ask('ui.pick', { items, options: {
+        ...(typeof options.title === 'string' ? { title: options.title.slice(0, 200) } : {}),
+        ...(typeof options.placeHolder === 'string' ? { placeHolder: options.placeHolder.slice(0, 200) } : {}),
+        canPickMany: many, matchOnDescription: options.matchOnDescription === true, matchOnDetail: options.matchOnDetail === true,
+      } }, token);
+      const ok = i => Number.isSafeInteger(i) && i >= 0 && i < list.length && list[i] && list[i].type !== 'separator';
+      if (many) return Array.isArray(v) ? [...new Set(v)].filter(ok).map(i => list[i]) : undefined;
+      return ok(v) ? list[v] : undefined;
+    };
+    quickInput.input = async (options = {}, token) => {
+      let validation = null, value = typeof options.value === 'string' ? options.value.slice(0, 10000) : '';
+      // validación al aceptar: si la extensión pone un error, se vuelve a pedir
+      for (let n = 0; n < 10; n++) {
+        const v = await ask('ui.input', { options: {
+          ...(typeof options.title === 'string' ? { title: options.title.slice(0, 200) } : {}),
+          ...(typeof options.prompt === 'string' ? { prompt: options.prompt.slice(0, 1000) } : {}),
+          ...(typeof options.placeHolder === 'string' ? { placeHolder: options.placeHolder.slice(0, 200) } : {}),
+          value, password: options.password === true, ...(validation ? { validation } : {}),
+        } }, token);
+        if (typeof v !== 'string') return undefined;
+        if (typeof options.validateInput !== 'function') return v;
+        let r = null;
+        try { r = await options.validateInput(v); } catch { r = null; }
+        const text = typeof r === 'string' ? r : r && typeof r.content === 'string' && (r.severity === undefined || r.severity >= 3) ? r.content : '';
+        if (!text) return v;
+        validation = text.slice(0, 500);
+        value = v.slice(0, 10000);
+      }
+      return undefined;
+    };
     quickInput.createQuickPick = () => { throw new Error('Not supported in Elffuss Code yet.'); };
     quickInput.createInputBox = () => { throw new Error('Not supported in Elffuss Code yet.'); };
   } catch { /* — */ }
@@ -387,6 +531,38 @@ export async function start({ m, port, config, sandbox = {} }) {
   // ── documentos ──
   const docs = new Map();                           // uri → { model, pageV, pending, steps, applying }
   let applyingPage = false;
+  let fromPage = 0;                                 // >0 mientras se aplica algo que mandó la página (no se le devuelve)
+  const uriOfModel = model => { if (!model) return null; const u = model.uri.toString(); return docs.has(u) ? u : null; };
+
+  // ── lo que una extensión hace en el editor activo → la página ──
+  // Selección y desplazamiento: VS Code los pide al editor (el espejo); aquí se
+  // copian a la página, que solo los aplica al documento activo.
+  let selTimer = null, revealTimer = null, revealPending = null;
+  const origSetSelections = mirror.setSelections.bind(mirror);
+  mirror.setSelections = function (sels, source) {
+    const r = origSetSelections(sels, source);
+    if (!fromPage && !selTimer) {
+      selTimer = setTimeout(() => {
+        selTimer = null;
+        const uri = uriOfModel(mirror.getModel());
+        const s = mirror.getSelections() || [];
+        if (uri && s.length) send({ t: 'editor.selection', uri, selections: s.slice(0, 100).map(x => [x.selectionStartLineNumber, x.selectionStartColumn, x.positionLineNumber, x.positionColumn]) });
+      }, 0);
+    }
+    return r;
+  };
+  for (const name of ['revealRange', 'revealRangeInCenter', 'revealRangeInCenterIfOutsideViewport', 'revealRangeAtTop']) {
+    const orig = mirror[name].bind(mirror);
+    mirror[name] = function (range, scrollType) {
+      const r = orig(range, scrollType);
+      const uri = uriOfModel(mirror.getModel());
+      if (!fromPage && uri && range && Number.isSafeInteger(range.startLineNumber)) {
+        revealPending = { t: 'editor.reveal', uri, range: [range.startLineNumber, range.startColumn, range.endLineNumber, range.endColumn] };
+        if (!revealTimer) revealTimer = setTimeout(() => { revealTimer = null; if (revealPending) send(revealPending); revealPending = null; }, 50);
+      }
+      return r;
+    };
+  }
   function openDoc({ uri, lang, text, v }) {
     if (typeof text !== 'string' || text.length > MAX_DOC) return;
     const u = monaco.Uri.parse(uri);
@@ -451,8 +627,17 @@ export async function start({ m, port, config, sandbox = {} }) {
     const model = d ? d.model : null;
     if (mirror.getModel() !== model) mirror.setModel(model);
     if (model && Array.isArray(selections) && selections.length) {
-      mirror.setSelections(selections.map(s => new monaco.Selection(s[0], s[1], s[2], s[3])));
+      fromPage++;
+      try { mirror.setSelections(selections.map(s => new monaco.Selection(s[0], s[1], s[2], s[3]))); }
+      finally { fromPage--; }
     }
+  }
+  // una extensión quiere enseñar un documento abierto: el espejo lo enseña ya
+  // y la página cambia de pestaña si el usuario acaba de hacer algo
+  function showDoc(uri) {
+    if (!docs.has(uri)) return;
+    setActive({ uri });
+    send({ t: 'editor.show', uri });
   }
 
   // ── diagnósticos de las extensiones → la página ──
@@ -657,7 +842,7 @@ export async function start({ m, port, config, sandbox = {} }) {
     return {
       actors: out,
       commands: [...m.CommandsRegistry.getCommands().keys()].sort(),
-      overridden: ['IClipboardService', 'IDialogService', 'IEditorService', 'IFileDialogService', 'ILanguageStatusService', 'INotificationService', 'IOpenerService'],
+      overridden: ['IClipboardService', 'IDialogService', 'IEditorService', 'IFileDialogService', 'ILanguageStatusService', 'INotificationService', 'IOpenerService', 'IProgressService'],
     };
   }
 
@@ -684,6 +869,15 @@ export async function start({ m, port, config, sandbox = {} }) {
           break;
         }
         case 'cancel': { const c = tokens.get(msg.req); if (c) c.cancel(); break; }
+        case 'ui.result': {
+          const r = asks.get(msg.req);
+          if (!r) break;
+          asks.delete(msg.req);
+          const v = msg.value;
+          const okInt = x => Number.isSafeInteger(x) && x >= 0 && x < 100000;
+          r(v === true || v === false || okInt(v) ? v : typeof v === 'string' ? v.slice(0, 100000) : Array.isArray(v) && v.length <= 1000 && v.every(okInt) ? v : null);
+          break;
+        }
         case 'release': for (const h of msg.handles || []) handles.delete(h); break;
         case 'cmd.exec': {
           let value, ok = true;

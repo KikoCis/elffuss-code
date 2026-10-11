@@ -47,7 +47,7 @@ const browser = await chromium.launch({ args: [`--host-resolver-rules=${beacon.r
 const manifest = JSON.parse(fs.readFileSync(path.join(HERE, '../web/js/ext2/vendor-manifest.json'), 'utf8'));
 
 async function freshPage(server = srv) {
-  const ctx = await browser.newContext();
+  const ctx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch { /* — */ } });
   const page = await ctx.newPage();
   const requests = [];
@@ -72,6 +72,58 @@ const value = page => page.evaluate(() => window.monaco.editor.getEditors()[0].g
 const bridgeState = page => page.evaluate(async () => (await import('/js/ext2/bridge.js')).state());
 const waitRunning = page => until(async () => { const s = await bridgeState(page); return s.state === 'running' || s.state === 'error' ? s : null; }, { timeout: 60000 });
 const sandboxRequests = (server, since = 0) => server.requests.slice(since).filter(r => r.host.startsWith('localhost:')).map(r => r.url.split('?')[0]);
+
+// Lo que pide la extensión UI, contestado como lo haría una persona: un clic
+// en «Yes», Escape en el modal, «b» en el selector, dos marcadas en el de
+// varios, y un texto que la validación rechaza antes del bueno.
+async function uiFlow(page) {
+  await page.evaluate(() => { window.__x2ask = import('/js/ext2/bridge.js').then(b => b.runCommand('x2ui.ask')); });
+  const toast = await until(() => page.evaluate(() => {
+    const t = [...document.querySelectorAll('#x2-toasts .x2-toast')].find(x => x.textContent.includes('x2 asks'));
+    return t ? { text: t.querySelector('.x2-toast-text').textContent, from: t.querySelector('.x2-toast-from').textContent, els: t.querySelectorAll('.x2-toast-text *').length, buttons: [...t.querySelectorAll('.x2-toast-buttons button')].map(b => b.textContent) } : null;
+  }));
+  ok('U1 aviso con botones: el HTML y el enlace quedan en texto; dice qué extensión pide', !!toast && toast.text === 'x2 asks <b>bold</b> [link](https://toast.beacon.test/t)' && toast.els === 0
+    && toast.from.includes('X2 ui') && toast.buttons.includes('Yes') && toast.buttons.includes('No'), JSON.stringify(toast));
+  await page.click('#x2-toasts .x2-toast .x2-toast-buttons button:has-text("Yes")');
+  const dlg = await until(() => page.evaluate(() => {
+    const d = document.querySelector('#x2-dialog [role="dialog"]');
+    return d ? { modal: d.getAttribute('aria-modal'), text: d.textContent, focused: document.activeElement?.textContent, buttons: [...d.querySelectorAll('button')].map(b => b.textContent) } : null;
+  }));
+  ok('U2 aviso modal: diálogo con su detalle; el foco empieza en Cancelar', !!dlg && dlg.modal === 'true' && dlg.text.includes('x2 modal') && dlg.text.includes('x2 detail')
+    && dlg.buttons.join() === 'OK,Cancel' && dlg.focused === 'Cancel', JSON.stringify(dlg));
+  await page.keyboard.press('Escape');
+  const pick = await until(() => page.evaluate(() => {
+    const p = document.getElementById('x2-pick');
+    return p && !p.classList.contains('x2-inputbox') ? { items: [...p.querySelectorAll('.x2-pick-item .x2-pick-label')].map(x => x.textContent), ph: p.querySelector('input').placeholder, role: p.querySelector('input').getAttribute('role') } : null;
+  }));
+  ok('U3 selector: sus opciones como texto, combobox con su lista', !!pick && pick.items.join() === 'a,b,c' && pick.ph === 'x2 pick' && pick.role === 'combobox', JSON.stringify(pick));
+  await page.keyboard.type('b');
+  await page.keyboard.press('Enter');
+  const many = await until(() => page.evaluate(() => {
+    const p = document.getElementById('x2-pick');
+    const rows = p ? [...p.querySelectorAll('.x2-pick-item')] : [];
+    return rows.length === 3 ? rows.map(r => [r.querySelector('.x2-pick-label').textContent, r.getAttribute('aria-checked')]) : null;
+  }));
+  ok('U4 selector de varios: la marcada de antemano llega marcada', !!many && JSON.stringify(many) === JSON.stringify([['one', 'false'], ['two', 'true'], ['three', 'false']]), JSON.stringify(many));
+  await page.click('#x2-pick .x2-pick-item:has-text("three")');
+  await page.click('#x2-pick .x2-pick-foot .x2-primary');
+  await until(() => page.evaluate(() => !!document.querySelector('#x2-input input')));
+  await page.keyboard.type('bad');
+  await page.keyboard.press('Enter');
+  const invalid = await until(() => page.evaluate(() => { const e = document.querySelector('#x2-input .x2-input-error'); return e && !e.hidden ? e.textContent : null; }));
+  ok('U5 cuadro de texto: la validación de la extensión se enseña y se vuelve a pedir', invalid === 'x2 not that', String(invalid));
+  await page.fill('#x2-input input', 'good');
+  await page.keyboard.press('Enter');
+  const res = JSON.parse(await page.evaluate(() => window.__x2ask) || '{}');
+  ok('U6 la extensión recibe lo elegido: Yes, nada (Escape), b, [two, three], good', res.info === 'Yes' && res.modal === undefined && res.pick === 'b'
+    && JSON.stringify(res.many) === '["two","three"]' && res.input === 'good', JSON.stringify(res));
+  // progreso en la barra de estado
+  await page.evaluate(() => { window.__x2prog = import('/js/ext2/bridge.js').then(b => b.runCommand('x2ui.progress')); });
+  const prog = await until(() => page.evaluate(() => { const p = document.getElementById('x2-progress'); return p && p.textContent.includes('half') ? p.textContent : null; }));
+  ok('U7 progreso de la extensión en la barra de estado', !!prog && prog.includes('x2 working: half'), String(prog));
+  await page.evaluate(() => window.__x2prog);
+  ok('U8 y se va al terminar', !!(await until(() => page.evaluate(() => !document.getElementById('x2-progress')))));
+}
 
 // ── A. camino por defecto ──
 {
@@ -137,9 +189,20 @@ const sandboxRequests = (server, since = 0) => server.requests.slice(since).filt
   ok('C1 arranca solo con extensiones de código encendidas', s?.state === 'running', JSON.stringify(s?.error));
   const st = await until(async () => { const x = await bridgeState(page); return x.extensions.filter(e => e.state === 'active').length >= 4 ? x : null; }, { timeout: 30000 });
   ok('C2 las extensiones arrancan en el recinto sin errores', st && !st.extensions.some(e => e.state === 'error'), JSON.stringify(st?.extensions.map(e => [e.id, e.state, e.text])));
-  // lo que una extensión pide al usuario falla cerrado y no la deja colgada
-  const ui = await until(async () => { const x = await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('x2ui.report')); return x ? JSON.parse(x) : null; }, { timeout: 30000 });
-  ok('C2b avisos, diálogo modal, selector y texto: sin respuesta y sin colgarse; portapapeles vacío', !!ui && ui.info === undefined && ui.modal === undefined && ui.pick === undefined && ui.input === undefined && ui.clipboardRead === '', JSON.stringify(ui));
+  // portapapeles: se lee vacío; escribir solo con un gesto reciente. (Cada
+  // page.evaluate de Playwright cuenta como gesto, así que la escritura «sin
+  // gesto» se lanza desde la página pasados 6 s, cuando ya caducó.)
+  const ui0 = await until(async () => { const x = await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('x2ui.report')); return x ? JSON.parse(x) : null; }, { timeout: 30000 });
+  await page.evaluate(() => { setTimeout(() => import('/js/ext2/bridge.js').then(b => b.runCommand('x2ui.clip')), 6000); });
+  await sleep(6500);
+  const uiSt = await until(async () => { const s = await bridgeState(page); return s.ui?.dropped?.clipboard ? s : null; }, { timeout: 10000 });
+  const clipNoGesture = await page.evaluate(() => navigator.clipboard.readText().catch(e => 'ERR ' + e.message));
+  ok('C2b portapapeles: se lee vacío y escribir sin gesto se descarta', !!ui0 && ui0.clipboardRead === '' && uiSt?.ui.dropped.clipboard === 1 && clipNoGesture !== 'x2 clipboard 1', JSON.stringify({ ui0, dropped: uiSt?.ui?.dropped, clipNoGesture }));
+  await page.click('#statusbar');
+  await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('x2ui.clip'));
+  const clipGesture = await until(() => page.evaluate(() => navigator.clipboard.readText().then(t => (t === 'x2 clipboard 2' ? t : null)).catch(() => null)), { timeout: 5000 });
+  ok('C2c control positivo: con un gesto reciente, sí se escribe', clipGesture === 'x2 clipboard 2', String(clipGesture));
+  await uiFlow(page);
   ok('C3 iframe del recinto en el otro sitio, invisible y sin foco', await page.evaluate(o => { const f = document.getElementById('x2-sandbox'); return !!f && f.src.startsWith(o) && f.getAttribute('sandbox') === 'allow-scripts allow-same-origin' && f.inert && f.getAttribute('allow') === '' && getComputedStyle(f).opacity === '0'; }, srv.sandboxOrigin));
   ok('C4 el recinto no es del sitio de Code', new URL(srv.sandboxOrigin).hostname !== new URL(srv.codeOrigin).hostname);
 

@@ -61,6 +61,15 @@ ok('ctx.set con objeto', !validate({ t: 'ctx.set', key: 'k', value: { a: 1 } }).
 ok('providers.add con tipo desconocido', !validate({ t: 'providers.add', handle: 1, kind: 'webview', selector: [], meta: {} }).ok);
 ok('mensaje de más de 1 MB', !validate({ t: 'log', level: 'info', text: 'x'.repeat(10), pad: 'y'.repeat(LIMITS.message) }).ok);
 ok('prototipo raro no pasa', !validate(Object.create({ t: 'ready' })).ok);
+ok('ui.notify: texto y botones como cadenas; severidad conocida', validate({ t: 'ui.notify', req: 1, sev: 'warning', text: '<b>x</b>', actions: ['Yes', 'No'], source: 'pub.ext' }).ok
+  && !validate({ t: 'ui.notify', req: 1, sev: 'html', text: 'x', actions: [] }).ok && !validate({ t: 'ui.notify', req: 1, sev: 'info', text: 'x', actions: ['1', '2', '3', '4', '5', '6'] }).ok
+  && !validate({ t: 'ui.notify', req: 1, sev: 'info', text: 'x', actions: [{ label: 'x' }] }).ok);
+ok('ui.pick: separadores solos, opciones con texto', validate({ t: 'ui.pick', req: 2, items: [{ sep: 'g' }, { label: 'a', description: 'd', picked: true }], options: { canPickMany: false } }).ok
+  && !validate({ t: 'ui.pick', req: 2, items: [{ sep: 'g', label: 'x' }], options: { canPickMany: false } }).ok && !validate({ t: 'ui.pick', req: 2, items: [{ label: 1 }], options: { canPickMany: false } }).ok);
+ok('open.request: dirección con tope de 8 KB', validate({ t: 'open.request', req: 3, url: 'https://x.test/' }).ok && !validate({ t: 'open.request', req: 3, url: 'https://x.test/' + 'a'.repeat(9000) }).ok);
+ok('clipboard.write con tope; selección y desplazamiento con rangos válidos', !validate({ t: 'clipboard.write', text: 'x'.repeat(500001) }).ok && validate({ t: 'clipboard.write', text: 'x' }).ok
+  && validate({ t: 'editor.selection', uri: 'file:///a.js', selections: [[1, 1, 1, 3]] }).ok && !validate({ t: 'editor.selection', uri: 'file:///a.js', selections: [] }).ok
+  && !validate({ t: 'editor.reveal', uri: 'https://x.test/a', range: [1, 1, 1, 1] }).ok);
 ok('isPlainData: objetos y ArrayBuffer', isPlainData({ a: [1, 'x', null, { b: new ArrayBuffer(2) }] }));
 ok('isPlainData: rechaza funciones, Map y objetos con prototipo', !isPlainData({ f() {} }) && !isPlainData(new Map()) && !isPlainData({ d: new Date() }));
 ok('isPlainData: rechaza NaN', !isPlainData({ n: NaN }));

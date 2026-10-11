@@ -140,23 +140,42 @@ exports.activate = function (context) {
   },
 };
 
-// Pide cosas al usuario AL ARRANCAR (aviso con botones, aviso modal, selector,
-// cuadro de texto, portapapeles). En B1 todo eso falla cerrado: tiene que
-// recibir «ninguna respuesta» enseguida y terminar de arrancar, no quedarse
-// esperando.
+// Pide cosas al usuario. Al arrancar lee el portapapeles (vacío). x2ui.clip
+// escribe en él (la página solo lo hace con un gesto reciente del usuario).
+// Con x2ui.ask: un aviso con botones (texto con HTML y un enlace, que deben
+// quedar en texto), un aviso modal, un selector, uno de varios, y un cuadro de
+// texto con validación. x2ui.progress: progreso en la barra de estado.
 export const UI = {
-  manifest: base('ui', { activationEvents: ['onStartupFinished'], contributes: { commands: [{ command: 'x2ui.report', title: 'UI report', category: 'X2' }] } }),
+  manifest: base('ui', { activationEvents: ['onStartupFinished'], contributes: { commands: [
+    { command: 'x2ui.ask', title: 'UI ask', category: 'X2' },
+    { command: 'x2ui.report', title: 'UI report', category: 'X2' },
+    { command: 'x2ui.progress', title: 'UI progress', category: 'X2' },
+    { command: 'x2ui.clip', title: 'UI clipboard', category: 'X2' },
+  ] } }),
   files: {
     'extension.js': `const vscode = require('vscode');
 const out = {};
+let n = 0;
 exports.activate = async function (context) {
-  out.info = await vscode.window.showInformationMessage('x2 asks', 'Yes', 'No');
-  out.modal = await vscode.window.showWarningMessage('x2 modal', { modal: true }, 'OK');
-  out.pick = await vscode.window.showQuickPick(['a', 'b']);
-  out.input = await vscode.window.showInputBox({ prompt: 'x2' });
-  try { await vscode.env.clipboard.writeText('x2 secret'); out.clipboardWrite = 'resolved'; } catch (e) { out.clipboardWrite = 'threw'; }
   out.clipboardRead = await vscode.env.clipboard.readText();
-  context.subscriptions.push(vscode.commands.registerCommand('x2ui.report', () => JSON.stringify(out)));
+  context.subscriptions.push(
+    vscode.commands.registerCommand('x2ui.clip', async () => { n++; await vscode.env.clipboard.writeText('x2 clipboard ' + n); return n; }),
+    vscode.commands.registerCommand('x2ui.ask', async () => {
+      out.info = await vscode.window.showInformationMessage('x2 asks <b>bold</b> [link](https://toast.beacon.test/t)', 'Yes', 'No');
+      out.modal = await vscode.window.showWarningMessage('x2 modal', { modal: true, detail: 'x2 detail' }, 'OK');
+      out.pick = await vscode.window.showQuickPick(['a', 'b', 'c'], { placeHolder: 'x2 pick' });
+      const many = await vscode.window.showQuickPick([{ label: 'one' }, { label: 'two', picked: true }, { label: 'three' }], { canPickMany: true });
+      out.many = many ? many.map(x => x.label) : many;
+      out.input = await vscode.window.showInputBox({ prompt: 'x2 input', validateInput: v => (v === 'bad' ? 'x2 not that' : null) });
+      return JSON.stringify(out);
+    }),
+    vscode.commands.registerCommand('x2ui.report', () => JSON.stringify(out)),
+    vscode.commands.registerCommand('x2ui.progress', () => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'x2 working' }, async p => {
+      p.report({ message: 'half' });
+      await new Promise(r => setTimeout(r, 1500));
+      return 'done';
+    })),
+  );
 };
 `,
   },

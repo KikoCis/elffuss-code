@@ -14,6 +14,7 @@ import { validate, isPlainData, PROTOCOL, LIMITS } from './protocol.js';
 import { EditorPort } from './docs.js';
 import { Features } from './features.js';
 import { Commands } from './commands.js';
+import { ExtUI, loadCss, userActive } from './ui.js';
 import * as convert from './convert.js';
 
 const READY_TIMEOUT = 60000;
@@ -64,6 +65,7 @@ export function state() {
   return {
     state: session.state, error: session.error, violations: session.violations,
     denials: { n: session.denials.n, top: session.denials.top.map(x => [...x]) },
+    ui: { dropped: { ...session.ui.dropped } },
     extensions: [...session.status.values()].map(s => ({ ...s })),
     commands: session.commands ? session.commands.entries().map(({ id, label, hint }) => ({ id, label, hint })) : [],
   };
@@ -91,6 +93,8 @@ class Session {
     this.markerOwners = new Map();                 // uri → Set(owner)
     this.contextKeys = new Map();
     this.denials = { n: 0, top: [] };              // llamadas que el cortafuegos de RPC rechazó
+    this.names = new Map();                        // id → nombre visible (para decir quién pide algo)
+    this.ui = new ExtUI({ nameOf: id => this.names.get(id) || null, log: (level, text, id) => this.log(id || null, level, text) });
     this.readyPromise = new Promise((res, rej) => { this.onReady = res; this.onFail = rej; });
   }
 
@@ -131,6 +135,7 @@ class Session {
     await Promise.race([this.readyPromise, new Promise((_, rej) => { timer = setTimeout(() => rej(Object.assign(new Error('the extension sandbox did not start'), { code: 'timeout' })), READY_TIMEOUT); })])
       .finally(() => clearTimeout(timer));
     try { localStorage.setItem(RUNTIME_KEY, manifest.buildId); } catch { /* sin almacenamiento */ }
+    loadCss();
     // ide.js crea el editor después de cargar las extensiones: se le espera
     this.editor = await this.waitEditor();
     if (this.state === 'stopped') return;
@@ -206,9 +211,62 @@ class Session {
       case 'rpc.denied':
         if (msg.n >= this.denials.n) { this.denials = { n: msg.n, top: msg.top }; emit(); }
         break;
+      // lo que la extensión le pide al usuario: siempre se contesta
+      case 'ui.notify': this.reply(msg.req, this.ui.notify(msg)); break;
+      case 'ui.dialog': this.reply(msg.req, this.ui.dialog(msg)); break;
+      case 'ui.pick': this.reply(msg.req, this.ui.pick(msg)); break;
+      case 'ui.input': this.reply(msg.req, this.ui.input(msg)); break;
+      case 'ui.cancel': this.ui.cancel(msg.req); break;
+      case 'ui.progress': this.ui.setProgress(msg); break;
+      case 'clipboard.write': this.ui.clipboard(msg.text); break;
+      case 'open.request': this.reply(msg.req, this.openRequest(msg.url)); break;
+      case 'editor.show': this.show(msg.uri); break;
+      case 'editor.reveal': this.reveal(msg.uri, msg.range); break;
+      case 'editor.selection': this.selection(msg.uri, msg.selections); break;
       case 'pong': break;
       default: break;
     }
+  }
+
+  // contesta una pregunta del recinto con un valor plano (o null si falla)
+  reply(req, promise) {
+    Promise.resolve(promise).then(v => v, () => null).then(v => {
+      if (this.state === 'stopped' || this.state === 'error') return;
+      this.post({ t: 'ui.result', req, value: isPlainData(v) ? (v ?? null) : null });
+    });
+  }
+
+  // abrir una dirección externa: en esta parte, siempre no (gates.js la
+  // enseñará con un diálogo)
+  async openRequest() { return false; }
+
+  // una extensión quiere enseñar un documento abierto: solo se cambia de
+  // pestaña si el usuario acaba de hacer algo (un clic, una tecla); si no, el
+  // recinto vuelve a ver la pestaña de verdad
+  async show(uri) {
+    const model = this.docs?.modelForUri(uri);
+    const path = model && this.docs.pathOf(model);
+    if (!path) return;
+    if (this.editor.getModel() === model) return;
+    if (!userActive()) { this.log(null, 'info', 'an extension asked to show ' + path + ' without a recent click; the tab did not change'); this.docs.sendActive(); return; }
+    try { await (await import('../ide.js')).openFile(path); } catch { this.docs.sendActive(); }
+  }
+
+  reveal(uri, range) {
+    const model = this.docs?.modelForUri(uri);
+    if (!model || this.editor.getModel() !== model) return;
+    const r = convert.range(this.monaco, model, range);
+    if (r) this.editor.revealRangeInCenterIfOutsideViewport(r);
+  }
+
+  selection(uri, selections) {
+    const model = this.docs?.modelForUri(uri);
+    if (!model || this.editor.getModel() !== model) return;
+    const sels = selections.map(s => {
+      const a = model.validatePosition({ lineNumber: s[0], column: s[1] }), b = model.validatePosition({ lineNumber: s[2], column: s[3] });
+      return { selectionStartLineNumber: a.lineNumber, selectionStartColumn: a.column, positionLineNumber: b.lineNumber, positionColumn: b.column };
+    });
+    if (sels.length) this.editor.setSelections(sels);
   }
 
   log(id, level, text) {
@@ -283,6 +341,7 @@ class Session {
       }
     }
     const installed = new Set(records.map(r => r.id));
+    for (const r of records) this.names.set(r.id, String(r.displayName || r.id).slice(0, 200));
     const settings = {};
     for (const r of records) if (r.settings && typeof r.settings === 'object') Object.assign(settings, r.settings);
     this.post({ t: 'settings', json: JSON.stringify(settings) });
@@ -314,6 +373,7 @@ class Session {
     this.state = state;
     for (const p of this.pending.values()) { try { p(null); } catch { /* — */ } }
     this.pending.clear();
+    try { this.ui.dispose(); } catch { /* — */ }
     try { this.features?.dispose(); } catch { /* — */ }
     try { this.commands?.dispose(); } catch { /* — */ }
     try { this.docs?.dispose(); } catch { /* — */ }

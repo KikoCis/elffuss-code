@@ -1,0 +1,89 @@
+/* Nivel 2 de extensiones: avisos, diálogos, selector y cuadro de texto que
+   piden las extensiones con código, y los diálogos de Code que las vigilan
+   (abrir una dirección, vista previa, peticiones del agente). Solo se carga
+   en modo extensiones y todo cuelga de #x2-* / .x2-*: nada de esto toca las
+   reglas de Code ni entra CSS de VS Code. */
+
+#x2-toasts {
+  position: fixed; right: 12px; bottom: 34px; z-index: 160;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  width: min(92vw, 420px); pointer-events: none;
+}
+.x2-toast {
+  pointer-events: auto; width: 100%; background: var(--bg3, #161a24); color: var(--fg, #eae8f2);
+  border: 1px solid var(--line, #20252c); border-left: 3px solid var(--accent2, #8272ff);
+  border-radius: 9px; padding: 9px 10px 8px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  font-size: .8rem; line-height: 1.4;
+}
+.x2-toast.x2-warning { border-left-color: #e5a53a; }
+.x2-toast.x2-error { border-left-color: #ff6b8b; }
+.x2-toast-from { font-size: .7rem; color: var(--muted, #8b929c); margin-bottom: 3px; }
+.x2-toast-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9.5em; overflow: auto; }
+.x2-toast-buttons { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin-top: 7px; }
+.x2-toast-close { background: none; border: none; color: var(--muted, #8b929c); font-size: 1rem; cursor: pointer; padding: 0 4px; }
+.x2-toast-close:hover { color: var(--fg, #eae8f2); }
+
+.x2-btn {
+  background: none; border: 1px solid var(--line, #20252c); color: var(--fg, #eae8f2);
+  border-radius: 6px; padding: 5px 11px; font-size: .76rem; cursor: pointer; white-space: nowrap;
+}
+.x2-btn:hover:not([aria-disabled="true"]) { border-color: var(--accent2, #8272ff); }
+.x2-btn.x2-primary { background: linear-gradient(135deg, var(--accent, #c8a06a), var(--accent2, #8272ff)); border: none; color: #fff; }
+.x2-btn[aria-disabled="true"] { opacity: .55; cursor: default; }
+.x2-btn:focus-visible, .x2-toast-close:focus-visible { outline: 2px solid var(--accent2, #8272ff); outline-offset: 2px; }
+
+.x2-backdrop {
+  position: fixed; inset: 0; z-index: 170; background: rgba(5,6,10,.55);
+  display: flex; align-items: flex-start; justify-content: center; padding: 10vh 8px 8px;
+}
+.x2-modal {
+  width: min(92vw, 560px); max-height: 80vh; overflow: auto; background: var(--bg3, #161a24); color: var(--fg, #eae8f2);
+  border: 1px solid var(--accent2, #8272ff); border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.6); padding: 14px 16px 12px;
+}
+.x2-modal-title { margin: 0 0 8px; font-size: .95rem; }
+.x2-modal-text { margin: 0 0 8px; font-size: .82rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.x2-modal-text.x2-warning { color: #f0c27a; }
+.x2-modal-text.x2-error { color: #ff9db1; }
+.x2-modal-detail { margin: 0 0 8px; font-size: .76rem; color: var(--muted, #8b929c); white-space: pre-wrap; overflow-wrap: anywhere; }
+.x2-modal-buttons { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 10px; }
+.x2-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; background: var(--bg, #090a11);
+  border: 1px solid var(--line, #20252c); border-radius: 6px; padding: 8px 10px; margin: 0 0 8px;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; user-select: all;
+}
+.x2-code .x2-cc { color: #ff9db1; background: rgba(255,107,139,.14); border-radius: 3px; padding: 0 2px; }
+.x2-site { font-size: .8rem; margin: 0 0 6px; }
+.x2-site b { overflow-wrap: anywhere; }
+.x2-note { font-size: .76rem; color: #f0c27a; margin: 0 0 6px; }
+
+.x2-pick {
+  position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 165;
+  width: min(92vw, 560px); background: var(--bg3, #161a24); color: var(--fg, #eae8f2);
+  border: 1px solid var(--accent2, #8272ff); border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.6); overflow: hidden;
+}
+.x2-pick-title { font-size: .72rem; color: var(--muted, #8b929c); padding: 8px 14px 0; }
+.x2-pick-input { width: 100%; background: var(--bg, #090a11); border: none; border-bottom: 1px solid var(--line, #20252c); color: var(--fg, #eae8f2); padding: 10px 14px; font-size: .9rem; outline: none; }
+.x2-pick-list { max-height: 45vh; overflow-y: auto; padding: 4px; }
+.x2-pick-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: .82rem; }
+.x2-pick-item.sel, .x2-pick-item:hover { background: #7c5cff33; }
+.x2-pick-label { font-weight: 500; overflow-wrap: anywhere; }
+.x2-pick-desc { color: var(--muted, #8b929c); font-size: .74rem; overflow-wrap: anywhere; }
+.x2-pick-detail { flex-basis: 100%; color: var(--muted, #8b929c); font-size: .72rem; overflow-wrap: anywhere; }
+.x2-pick-sep { font-size: .68rem; color: var(--muted, #8b929c); padding: 6px 10px 2px; text-transform: uppercase; letter-spacing: .04em; }
+.x2-pick-empty { padding: 10px 12px; color: var(--muted, #8b929c); font-size: .8rem; }
+.x2-check { width: 1.1em; }
+.x2-pick-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 6px 10px 8px; border-top: 1px solid var(--line, #20252c); }
+.x2-pick-foot [hidden] { display: none; }
+.x2-input-prompt { font-size: .76rem; color: var(--muted, #8b929c); padding: 6px 14px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.x2-input-error { font-size: .76rem; color: #ff9db1; padding: 4px 14px 0; overflow-wrap: anywhere; }
+.x2-input-error[hidden] { display: none; }
+
+.x2-progress { margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50vw; }
+
+@media (max-width: 560px) {
+  #x2-toasts { right: 4vw; left: 4vw; width: auto; }
+  .x2-backdrop { padding-top: 6vh; }
+  .x2-modal-buttons { justify-content: stretch; }
+  .x2-modal-buttons .x2-btn { flex: 1 1 auto; }
+  .x2-progress { max-width: 40vw; }
+}
