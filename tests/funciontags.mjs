@@ -156,5 +156,32 @@ ok('17 · JSON envuelto en delimitadores nativos se rescata',
    cs.length === 1 && cs[0].tool === 'code.read' && cs[0].args.path === 'a.js',
    `${cs.length} llamadas: ${cs.map(x => x.tool).join(', ')}`);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Las dos respuestas del fuzz que estropeaban el valor en las capas de
+// RECUPERACIÓN de JSON, no en las etiquetas. Las dos escribían el fichero y
+// contestaban «Escrito».
+
+// ── 18. Una comilla sin escapar seguida de «, "» parecía el fin del valor.
+// `"content": "console.log("a", "b")\n"` cortaba en `console.log("a` y escribía
+// ese JS truncado. Ahora se elige el ÚLTIMO cierre candidato que deje el objeto
+// bien cerrado detrás.
+const C1 = '```tool\n{"tool": "code.write", "args": {"path": "f.js", "content": "console.log("a", "b")\n"}}\n```';
+cs = call(C1);
+ok('18 · una comilla sin escapar no trunca el valor',
+   cs[0]?.args?.content === 'console.log("a", "b")\n', ver(cs[0]?.args?.content));
+
+// ── 19. Una barra justo antes de un salto REAL (continuación de línea de shell)
+// se convertía en barra + la letra «n», y el salto se perdía.
+const C2 = '```tool\n{"tool": "code.write", "args": {"path": "s.sh", "content": "echo one \\\n  two\n"}}\n```';
+cs = call(C2);
+ok('19 · una continuación de línea de shell sobrevive',
+   cs[0]?.args?.content === 'echo one \\\n  two\n', ver(cs[0]?.args?.content));
+
+// ── 20. Y lo que NO puede perderse al arreglar lo de arriba: un mensaje cortado
+// a media escritura se sigue rechazando. Completarlo sería inventar contenido.
+ok('20 · un mensaje truncado de verdad NO se recupera',
+   call('```tool\n{"tool": "code.write", "args": {"path": "a.js", "content": "empieza y se corta').length === 0,
+   `${call('```tool\n{"tool": "code.write", "args": {"path": "a.js", "content": "empieza y se corta').length} llamadas`);
+
 console.log(fallos ? `\n❌ ${fallos} FALLO(S)` : '\n✅ las etiquetas <function> no estropean lo que escribe el modelo');
 process.exit(fallos ? 1 : 0);

@@ -165,7 +165,18 @@ function repairJson(raw) {
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
     if (esc) { out += ch; esc = false; continue; }
-    if (ch === '\\') { out += ch; esc = true; continue; }
+    if (ch === '\\') {
+      // Una barra solo abre un escape si lo que sigue PUEDE escaparse. Un modelo
+      // que escribe una continuación de línea de shell dentro del valor («echo
+      // uno \» + salto de línea REAL) no está escapando nada, y tratarlo como si
+      // lo fuera dejaba una barra pegada a un salto crudo —que no parsea— y más
+      // abajo acababa convertido en barra más la letra «n», con el salto
+      // perdido: un script roto escrito en silencio. Si no es un escape válido,
+      // la barra se escapa a sí misma y del carácter siguiente ya se encargan
+      // las ramas de abajo.
+      if (inStr && !'"\\/bfnrtu'.includes(s[i + 1] ?? '')) { out += '\\\\'; continue; }
+      out += ch; esc = true; continue;
+    }
     if (ch === '"') { inStr = !inStr; out += ch; continue; }
     if (inStr && ch === '\n') { out += '\\n'; continue; }
     if (inStr && ch === '\r') { out += '\\r'; continue; }
@@ -188,16 +199,31 @@ function looseToolCall(raw) {
   for (const key of ['path', 'content', 'search', 'replace', 'query', 'ext', 'command']) {
     const km = body.match(new RegExp('"' + key + '"\\s*:\\s*"'));
     if (!km) continue;
-    let val = '', closed = false;
-    for (let i = km.index + km[0].length; i < body.length; i++) {
+    // El cierre REAL se elige mirando todos los candidatos y quedándose con el
+    // ÚLTIMO que deje el objeto bien cerrado detrás, no con el primero.
+    //
+    // El primero se equivoca en cuanto el valor lleva una comilla seguida de
+    // «, "», que es lo que parece el final de un valor y el principio de la
+    // clave siguiente. Con `"content": "console.log("a", "b")\n"` cortaba en
+    // `console.log("a` y escribía ESE fichero diciendo «Escrito»: un JS roto,
+    // en silencio, y con el aviso de éxito puesto.
+    //
+    // Y no basta con coger el último: se exige que lo que venga después cierre
+    // el objeto. Si ningún candidato lo consigue, no se recupera nada, que es lo
+    // correcto cuando el mensaje se cortó a media escritura — completarlo sería
+    // inventar un contenido que el modelo no escribió.
+    const desde = km.index + km[0].length;
+    const candidatos = [];
+    for (let i = desde; i < body.length; i++) {
       const ch = body[i];
-      if (ch === '\\') { val += ch + (body[i + 1] || ''); i++; continue; }
-      if (ch === '"' && /^\s*(,\s*"|\}\s*[}\]]|\}\s*$|$)/.test(body.slice(i + 1))) { closed = true; break; } // cierre real
-      val += ch;
+      if (ch === '\\') { i++; continue; }
+      if (ch === '"' && /^\s*(,\s*"|\}\s*[}\]]|\}\s*$|$)/.test(body.slice(i + 1))) candidatos.push(i);
     }
-    // Si la cadena NUNCA cierra, el mensaje se truncó a media escritura: NO
-    // recuperar (completarlo sería inventar un content que no existe).
-    if (!closed) return null;
+    let val = null;
+    for (let k = candidatos.length - 1; k >= 0; k--) {
+      if (/^\s*(,|\})/.test(body.slice(candidatos[k] + 1))) { val = body.slice(desde, candidatos[k]); break; }
+    }
+    if (val === null) return null;
     try { val = JSON.parse('"' + val.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"'); } catch { /* crudo */ }
     args[key] = val;
   }
