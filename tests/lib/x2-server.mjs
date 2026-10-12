@@ -47,8 +47,7 @@ function safeJoin(root, urlPath) {
 const envInsecure = () => { const v = process.env.X2_INSECURE; return v === 'all' ? 'all' : v === '1' || v === 'exthost' ? 'exthost' : false; };
 
 // codeAliases: other host names that also get Code (with the browser told to
-// resolve them to 127.0.0.1), to see Code where level 2 has no sandbox, as on
-// code.elffuss.com today.
+// resolve them to 127.0.0.1), to see Code on a host config.js gives no sandbox.
 export async function startServer({ port = 0, webRoot = path.join(REPO, 'web'), insecure = envInsecure(), tamper = process.env.X2_TAMPER === '1', quiet = true, codeAliases = [] } = {}) {
   const requests = [];                        // { host, method, url }
   let codeHost = null, sandboxHost = null, origins = null;

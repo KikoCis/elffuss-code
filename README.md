@@ -55,10 +55,9 @@ and installs the *declarative* part of VS Code extensions: **color themes** (wit
 Color Theme picker), **TextMate grammars**, **snippets** and **language configurations**
 (comments, brackets, indentation). You can also install a `.vsix` file.
 
-- **No extension code runs** unless you turn it on for one extension (level 2, below,
-  not available on code.elffuss.com yet). Otherwise `main`/`browser` are ignored; the
-  panel says what each extension applies and what would need an extension host
-  (commands, views, debuggers…).
+- **No extension code runs** unless you turn it on for one extension (level 2, below).
+  Otherwise `main`/`browser` are ignored; the panel says what each extension applies and
+  what would need an extension host (commands, views, debuggers…).
 - **Your project stays in the browser.** Open VSX only sees what you search for and install.
 - Packages are checked against the SHA-256 that Open VSX publishes and kept in IndexedDB.
 - Grammars run on the same engine as VS Code (vscode-textmate + Oniguruma), loaded only
@@ -84,7 +83,7 @@ the declarative parts (counted the way they apply: a language Monaco already has
 count), *"Runs in Code's sandbox"* (with its commands, keybindings and settings),
 *"Needs Node: not available in the browser"*, the parts that *won't appear here* (views,
 webviews, debugger…) and *"Tested in Code"* from the runtime census below. Where level 2
-cannot run (code.elffuss.com today, Firefox, Safari, `?noext2`) the line says so with the
+cannot run (Firefox, Safari, `?noext2`, a site with no sandbox) the line says so with the
 reason, the run button is inert, and the **Works in Code** chip keeps only what works
 there. An extension that declares proposed VS Code APIs is marked: Code does not turn those
 APIs on, so some of its parts may fail (the census shows many such extensions start). The
@@ -173,17 +172,20 @@ address the dialog showed; and positive controls show the setup does catch leaks
   debugger, source control, status bar), the network or the whole project, extensions that
   replace typing (Vim, Emacs), `createQuickPick` and `createInputBox`, gutter icons, and
   Firefox and Safari in this version.
-- **Not available on code.elffuss.com yet:** the sandbox needs its own registrable domain
-  first: `web/js/ext2/config.js` refuses a sandbox on the same site as Code (a subdomain of
-  elffuss.com would share cookies and a process), and `deploy-sandbox.sh` checks it before
-  uploading. In order: merge this branch's `deploy.sh` filter for `vendor/x2/` into main
-  (any deploy without it deletes the bundle; `deploy-vendor.sh` refuses until main has
-  it), then `sandbox/x2/nginx.conf.example` (Code's vendor location sets Cache-Control
-  without `always`, so a missing file is never cached as immutable), `deploy-sandbox.sh`,
-  `deploy-vendor.sh` and `deploy.sh` (which refuses to ship a manifest whose build the
-  server lacks). Locally, open Code on `http://127.0.0.1:<port>` with
-  `tests/lib/x2-server.mjs`, which serves the sandbox on `localhost:<port>` (a different
-  site).
+- **Where the sandbox lives:** for code.elffuss.com, on `https://x2.utopiaia.com`, another
+  registrable domain. `web/js/ext2/config.js` names it and refuses a sandbox on the same
+  site as Code (a subdomain of elffuss.com would share cookies and a process);
+  `sandbox/x2/headers.json` names the same origin for the headers and nginx, and
+  `deploy-sandbox.sh` checks that both agree before uploading. Code on any other host gets
+  no sandbox. To publish, in order: the `deploy.sh` filter for `vendor/x2/` on main (any
+  deploy without it deletes the bundle; `deploy-vendor.sh` refuses until main has it),
+  `sandbox/x2/nginx.conf.example` for x2.utopiaia.com and Code's vendor location
+  (Cache-Control without `always`, so a missing file is never cached as immutable),
+  `deploy-sandbox.sh`, `deploy-vendor.sh`, a read-only check with
+  `X2_SANDBOX=https://x2.utopiaia.com node tests/x2_headers.mjs`, and `deploy.sh` last
+  (it refuses to ship a manifest whose build the server lacks). Locally, open Code on
+  `http://127.0.0.1:<port>` with `tests/lib/x2-server.mjs`, which serves the sandbox on
+  `localhost:<port>` (a different site).
 
 **What actually runs (runtime census, 2026-10-11).** Of the 500 most downloaded extensions
 on Open VSX, 89 have a browser entry. `tests/x2_census.mjs` installed each one from its
@@ -249,8 +251,8 @@ Tests (each starts its own loopback server; nothing goes to production):
 | Suite | What it proves |
 |---|---|
 | `x2_unit` | protocol validators, escaped markdown on a hostile corpus, conversions, keybindings and reserved chords, globs, headers, manifests, the RPC allowlist, the decoration whitelist, URL display, classification, texts, the package reader, the shipped census |
-| `x2_headers` | the sandbox documents' exact headers, 404 for anything else, Code never serves `/x2/`, the vendor files' headers and SRI, a missing vendor file not cached (also against a deployment); the generated nginx snippets |
-| `x2_deploy` | the deploy scripts against a folder that plays the server (fake `git`, `ssh` and `rsync`): only the manifest's files go up and nothing else may be there, a stray or corrupt file stops it, main must protect `vendor/x2/` first, the sandbox must be another site |
+| `x2_headers` | the sandbox documents' exact headers, 404 for anything else, Code never serves `/x2/`, the vendor files' headers and SRI, a missing vendor file not cached (also against production); the generated nginx snippets, and the sandbox vhost naming x2.utopiaia.com |
+| `x2_deploy` | the deploy scripts against a folder that plays the server (fake `git`, `ssh` and `rsync`): only the manifest's files go up and nothing else may be there, a stray or corrupt file stops it, main must protect `vendor/x2/` first, the sandbox must be another site and the one `headers.json` and `config.js` name (by default it deploys x2.utopiaia.com) |
 | `x2_smoke` | synthetic extensions end to end: commands, formatting, hovers, symbols, diagnostics, decorations, dialogs, the gates, the firewall, tampering, `?noext`/`?noext2`/kill switch |
 | `x2_bytes` | the default path and the level 1 states against main before level 2 (above) |
 | `x2_canary` | the canary and the drill (above), with positive controls |

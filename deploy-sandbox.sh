@@ -1,32 +1,39 @@
 #!/usr/bin/env bash
 # Sube los dos documentos del recinto de extensiones (sandbox/x2/v1/) a la
-# carpeta que sirve el dominio del recinto, x2.<dominio-del-recinto>. NUNCA a
-# la de Code: que el sitio de Code no sirva el recinto es parte del
-# aislamiento. Las cabeceras (CSP sin ningún host, Permissions-Policy…) las
-# pone nginx con los fragmentos que genera:
-#   node sandbox/x2/headers.mjs --nginx --sandbox https://x2.<dominio>
-# (plantilla del vhost: sandbox/x2/nginx.conf.example)
+# carpeta que sirve el host del recinto, x2.utopiaia.com. NUNCA a la de Code:
+# que el sitio de Code no sirva el recinto es parte del aislamiento. Las
+# cabeceras (CSP sin ningún host, Permissions-Policy…) las pone nginx con los
+# fragmentos que genera:
+#   node sandbox/x2/headers.mjs --nginx
+# (el vhost: sandbox/x2/nginx.conf.example)
 #
 #   export ELFFUSS_HOST=usuario@servidor  ELFFUSS_KEY=~/.ssh/tu_clave
-#   export X2_SANDBOX_DEST=/var/www/<carpeta-del-recinto>
-#   export X2_SANDBOX_ORIGIN=https://x2.<dominio-del-recinto>
 #   ./deploy-sandbox.sh
 #
+# El origen sale de sandbox/x2/headers.json (el recinto de producción) y la
+# carpeta es /var/www/<host del recinto>. X2_SANDBOX_ORIGIN y X2_SANDBOX_DEST
+# los cambian (las pruebas lo hacen), pero el paso 0 se niega si ese origen no
+# es el que nombran headers.json y web/js/ext2/config.js.
+#
 # Orden: este script, luego deploy-vendor.sh, luego deploy.sh (que publica
-# web/js/ext2/config.js con el dominio del recinto).
+# web/js/ext2/config.js con el recinto).
 set -euo pipefail
 cd "$(dirname "$0")"
 
 HOST=${ELFFUSS_HOST:?define ELFFUSS_HOST (usuario@servidor) antes de desplegar}
 KEY=${ELFFUSS_KEY:?define ELFFUSS_KEY (ruta a la clave ssh)}
-DEST=${X2_SANDBOX_DEST:?define X2_SANDBOX_DEST (la carpeta que sirve x2.<dominio-del-recinto>)}
-ORIGIN=${X2_SANDBOX_ORIGIN:?define X2_SANDBOX_ORIGIN (https://x2.<dominio-del-recinto>)}
+ORIGIN=${X2_SANDBOX_ORIGIN:-$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('sandbox/x2/headers.json','utf8')).environments.production.sandbox||'')")}
+case "$ORIGIN" in
+  (https://*.*) ;;
+  (*) echo "no hay recinto de producción (sandbox/x2/headers.json) ni X2_SANDBOX_ORIGIN: «$ORIGIN»" >&2; exit 1;;
+esac
+DEST=${X2_SANDBOX_DEST:-/var/www/${ORIGIN#https://}}
 case "$DEST" in
   (*elffuss-code*|*/web|*/web/|/) echo "X2_SANDBOX_DEST no puede ser la carpeta de Code: $DEST" >&2; exit 1;;
 esac
 
 # 0. el recinto es OTRO SITIO que Code (otro dominio registrable), y
-#    config.js nombra ese mismo origen
+#    headers.json y config.js nombran ese mismo origen
 node sandbox/x2/headers.mjs --site-check "$ORIGIN"
 
 # 1. los documentos cuadran con headers.json (hash del script en línea y CSP

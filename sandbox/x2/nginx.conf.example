@@ -1,23 +1,26 @@
-# nginx for the level 2 extension sandbox of Elffuss Code. A TEMPLATE: replace
-# SANDBOX_DOMAIN (a registrable domain used only for this) and SANDBOX_DIR
-# (the folder deploy-sandbox.sh fills), then generate the two header snippets:
+# nginx for the level 2 extension sandbox of Elffuss Code, on x2.utopiaia.com:
+# another registrable domain than code.elffuss.com (web/js/ext2/config.js and
+# sandbox/x2/headers.json name this origin; deploy-sandbox.sh refuses any
+# other). Its folder is /var/www/x2.utopiaia.com, the one deploy-sandbox.sh
+# fills, owned by the user that deploys. Generate the two header snippets with
 #
-#   node sandbox/x2/headers.mjs --nginx --sandbox https://x2.SANDBOX_DOMAIN
+#   node sandbox/x2/headers.mjs --nginx
 #
 # and save them as /etc/nginx/snippets/x2-sandbox.conf and x2-exthost.conf.
 # Order (README, "Extensions that run code"): main's deploy.sh protecting
-# vendor/x2/ first (deploy-vendor.sh refuses until it does), DNS and
-# certificate for a domain that is not a subdomain of Code's, this vhost,
-# nginx -t and reload, deploy-sandbox.sh, deploy-vendor.sh, then deploy.sh
-# with web/js/ext2/config.js naming the sandbox. Until that last step Code
-# says "not available on this site" and nothing changes for anyone.
+# vendor/x2/ first (deploy-vendor.sh refuses until it does), x2.utopiaia.com
+# resolving to the server that serves Code and its certificate, this vhost
+# and Code's vendor location (at the end of this file), nginx -t and reload,
+# deploy-sandbox.sh, deploy-vendor.sh, and deploy.sh last: it publishes
+# config.js naming this sandbox, and refuses while the server lacks the bundle
+# the manifest names.
 
 server {
   listen 443 ssl http2;
-  server_name x2.SANDBOX_DOMAIN;
-  ssl_certificate     /etc/letsencrypt/live/x2.SANDBOX_DOMAIN/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/x2.SANDBOX_DOMAIN/privkey.pem;
-  root /var/www/SANDBOX_DIR;
+  server_name x2.utopiaia.com;
+  ssl_certificate     /etc/letsencrypt/live/x2.utopiaia.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/x2.utopiaia.com/privkey.pem;
+  root /var/www/x2.utopiaia.com;
   access_log off;          # the sandbox keeps no log of who loaded it
   autoindex off;
   server_tokens off;
@@ -30,9 +33,8 @@ server {
   }
 
   # the extension-host document: only the exact query the library builds
-  # (escape the dots of the domain in the pattern: x2\.example\.org)
   location = /x2/v1/exthost-iframe.html {
-    if ($args !~ "^parentOrigin=https%3A%2F%2Fx2\.SANDBOX_DOMAIN_ESCAPED&vscodeWebWorkerExtHostId=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$") { return 404; }
+    if ($args !~ "^parentOrigin=https%3A%2F%2Fx2\.utopiaia\.com&vscodeWebWorkerExtHostId=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$") { return 404; }
     include snippets/x2-exthost.conf;
     try_files $uri =404;
   }
@@ -43,7 +45,7 @@ server {
 
 server {
   listen 80;
-  server_name x2.SANDBOX_DOMAIN;
+  server_name x2.utopiaia.com;
   access_log off;
   return 301 https://$host$request_uri;
 }

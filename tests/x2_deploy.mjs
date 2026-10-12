@@ -14,11 +14,13 @@
 //       server's whole folder is compared with the manifest
 //   D4  a stray file already on the server makes it fail (full listing, not
 //       a glob)
-//   D5  deploy-sandbox.sh refuses a sandbox on Code's own site
+//   D5  deploy-sandbox.sh refuses a sandbox on Code's own site, and one that
+//       headers.json and config.js do not name, before any upload
 //   D6  deploy-sandbox.sh uploads the two documents only, even with a stray
-//       file next to them, and removes anything else on the server
+//       file next to them, and removes anything else on the server; with
+//       nothing set, it deploys x2.utopiaia.com (headers.json) to its folder
 //   D7  check-output.mjs --live: browsers ask for the bundle only when the
-//       manifest is on and config.js gives Code a sandbox
+//       manifest is on and config.js gives Code a sandbox (it does now)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -131,27 +133,41 @@ ok('D4 a stray file already on the server makes it fail: the whole folder is com
 // D5
 r = run('deploy-sandbox.sh', { X2_SANDBOX_DEST: '/var/www/x2-sandbox', X2_SANDBOX_ORIGIN: 'https://x2.elffuss.com' });
 ok('D5 deploy-sandbox.sh refuses a sandbox on Code’s own site (x2.elffuss.com), before uploading', r.code === 1 && /same site as https:\/\/code\.elffuss\.com/.test(r.out) && !r.calls.some(c => /^(ssh|rsync) /.test(c)), r.out.slice(0, 300));
+r = run('deploy-sandbox.sh', { X2_SANDBOX_DEST: '/var/www/x2-sandbox', X2_SANDBOX_ORIGIN: 'https://x2.sandbox-elsewhere.example' });
+ok('D5 …and a sandbox on another site that headers.json and config.js do not name, before uploading', r.code === 1
+  && /headers\.json names https:\/\/x2\.utopiaia\.com for production/.test(r.out) && /config\.js names https:\/\/x2\.utopiaia\.com for code\.elffuss\.com/.test(r.out)
+  && !r.calls.some(c => /^(ssh|rsync) /.test(c)), r.out.slice(0, 300));
 
 // D6
 fs.writeFileSync(path.join(repo, 'sandbox/x2/v1/notes.txt'), 'not for the server\n');
 const sbx = path.join(server, 'x2-sandbox/x2/v1');
 fs.mkdirSync(sbx, { recursive: true });
 fs.writeFileSync(path.join(sbx, 'old.html'), 'an old document\n');
-r = run('deploy-sandbox.sh', { X2_SANDBOX_DEST: '/var/www/x2-sandbox', X2_SANDBOX_ORIGIN: 'https://x2.sandbox-elsewhere.example' });
+r = run('deploy-sandbox.sh', { X2_SANDBOX_DEST: '/var/www/x2-sandbox', X2_SANDBOX_ORIGIN: 'https://x2.utopiaia.com' });
 ok('D6 deploy-sandbox.sh uploads only its two documents (not a stray file next to them) and leaves nothing else on the server', r.code === 0
   && JSON.stringify(fs.readdirSync(sbx).sort()) === JSON.stringify(['exthost-iframe.html', 'sandbox.html']), r.out.slice(-300));
+r = run('deploy-sandbox.sh');
+const sbxProd = path.join(server, 'x2.utopiaia.com/x2/v1');
+ok('D6 with no origin or folder set, it deploys x2.utopiaia.com (headers.json) to /var/www/x2.utopiaia.com', r.code === 0
+  && r.calls.some(c => c.startsWith('rsync ') && c.endsWith(':/var/www/x2.utopiaia.com/x2/v1/'))
+  && fs.existsSync(sbxProd) && JSON.stringify(fs.readdirSync(sbxProd).sort()) === JSON.stringify(['exthost-iframe.html', 'sandbox.html'])
+  && /X2_SANDBOX=https:\/\/x2\.utopiaia\.com node tests\/x2_headers\.mjs/.test(r.out), r.out.slice(-300));
 
 // D7
 const live = (env = {}) => spawnSync('node', [path.join(repo, 'vendor/vscode-ext2/check-output.mjs'), '--live', path.join(repo, 'web')], { encoding: 'utf8', env: { ...process.env, ...env } }).status;
 const today = live();
 const cfg = path.join(repo, 'web/js/ext2/config.js');
 const cfg0 = fs.readFileSync(cfg, 'utf8');
-fs.writeFileSync(cfg, cfg0.replace("'code.elffuss.com': null,", "'code.elffuss.com': 'https://x2.sandbox-elsewhere.example',"));
-const withSandbox = live();
+const PROD = "'code.elffuss.com': 'https://x2.utopiaia.com',";
+const cfgNone = cfg0.replace(PROD, "'code.elffuss.com': null,");
+fs.writeFileSync(cfg, cfgNone);
+const noSandbox = live();
+fs.writeFileSync(cfg, cfg0);
 const man = path.join(repo, 'web/js/ext2/vendor-manifest.json');
 fs.writeFileSync(man, JSON.stringify({ ...manifest, enabled: false }));
 const switchedOff = live();
-ok('D7 check-output --live: not today (config.js gives Code no sandbox), yes once it does, no with the kill switch', today === 3 && withSandbox === 0 && switchedOff === 3, JSON.stringify({ today, withSandbox, switchedOff }));
+ok('D7 check-output --live: yes today (config.js gives Code x2.utopiaia.com), no without a sandbox for Code, no with the kill switch', cfg0.includes(PROD) && cfgNone !== cfg0
+  && today === 0 && noSandbox === 3 && switchedOff === 3, JSON.stringify({ today, noSandbox, switchedOff }));
 
 fs.rmSync(T, { recursive: true, force: true });
 console.log(fails ? `\n❌ ${fails} failed` : '\n✅ all passed');

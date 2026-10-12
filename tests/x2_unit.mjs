@@ -210,6 +210,17 @@ for (const name of Object.keys(spec.documents)) {
   }
 }
 ok('ninguna directiva de red nombra un host (ni \'self\')', noHost);
+// producción: lo que pondrá nginx en x2.utopiaia.com
+const prodO = originsFor('production');
+const cspS = cspFor('sandbox.html', prodO), cspE = cspFor('exthost-iframe.html', prodO);
+const uuid0 = '0123abcd-0123-4abc-8abc-0123456789ab';
+ok('producción: el recinto solo enmarca su documento del host de extensiones, y solo Code enmarca el recinto',
+  prodO.sandbox === 'https://x2.utopiaia.com' && / frame-src https:\/\/x2\.utopiaia\.com\/x2\/v1\/exthost-iframe\.html;/.test(cspS)
+  && /frame-ancestors https:\/\/code\.elffuss\.com$/.test(cspS) && /frame-ancestors 'self' https:\/\/code\.elffuss\.com$/.test(cspE), cspS.slice(-160));
+ok('producción: el host de extensiones solo con la consulta exacta, con x2.utopiaia.com como padre',
+  queryAllowed('exthost-iframe.html', `?parentOrigin=${encodeURIComponent('https://x2.utopiaia.com')}&vscodeWebWorkerExtHostId=${uuid0}`, prodO)
+  && !queryAllowed('exthost-iframe.html', `?parentOrigin=${encodeURIComponent('https://x2.utopiaiaXcom')}&vscodeWebWorkerExtHostId=${uuid0}`, prodO)
+  && !queryAllowed('exthost-iframe.html', `?parentOrigin=${encodeURIComponent('https://code.elffuss.com')}&vscodeWebWorkerExtHostId=${uuid0}`, prodO));
 ok('frame-ancestors del host de extensiones incluye \'self\' y Code', /frame-ancestors 'self' http:\/\/127\.0\.0\.1:1234/.test(cspFor('exthost-iframe.html', dev)));
 ok('frame-src del recinto: solo su documento', /frame-src http:\/\/localhost:1234\/x2\/v1\/exthost-iframe\.html(;|$)/.test(cspFor('sandbox.html', dev)));
 ok('meta CSP sin frame-ancestors', !/frame-ancestors/.test(expectedMeta('sandbox.html')));
@@ -226,7 +237,15 @@ ok('manifiesto con buildId de contenido', /^[0-9a-f]{16}$/.test(vm.buildId));
 ok('manifiesto roto no pasa', !validManifest({ ...vm, files: vm.files.slice(1) }) && !validManifest({ ...vm, buildId: '../x' }));
 ok('config: 127.0.0.1 → localhost del mismo puerto', sandboxOrigin({ hostname: '127.0.0.1', port: '8000', origin: 'http://127.0.0.1:8000' }) === 'http://localhost:8000');
 ok('config: localhost y hosts desconocidos → nada', sandboxOrigin({ hostname: 'localhost', port: '8000', origin: 'http://localhost:8000' }) === null && sandboxOrigin({ hostname: 'evil.test', port: '', origin: 'https://evil.test' }) === null);
-ok('config: producción sin dominio todavía → nada', sandboxOrigin({ hostname: 'code.elffuss.com', port: '', origin: 'https://code.elffuss.com' }) === null);
+ok('config: producción → x2.utopiaia.com, otro sitio que code.elffuss.com', sandboxOrigin({ hostname: 'code.elffuss.com', port: '', origin: 'https://code.elffuss.com' }) === 'https://x2.utopiaia.com'
+  && !sameSite('https://x2.utopiaia.com', 'https://code.elffuss.com'));
+// el mismo origen en los dos sitios que lo nombran: config.js (la página) y headers.json (cabeceras y nginx)
+ok('config: headers.json nombra el mismo recinto de producción que config.js, para cada origen de Code',
+  !!spec.environments.production.sandbox && spec.environments.production.code.every(o => { const u = new URL(o); return sandboxOrigin({ hostname: u.hostname, port: u.port, origin: u.origin }) === spec.environments.production.sandbox; }),
+  JSON.stringify(spec.environments.production));
+ok('config: el dominio viejo de Code (code.elffuss.utopiaia.com, mismo sitio que el recinto) no tiene recinto',
+  sandboxOrigin({ hostname: 'code.elffuss.utopiaia.com', port: '', origin: 'https://code.elffuss.utopiaia.com' }) === null
+  && sandboxOrigin({ hostname: 'code.elffuss.utopiaia.com', port: '', origin: 'https://code.elffuss.utopiaia.com' }, { 'code.elffuss.utopiaia.com': 'https://x2.utopiaia.com' }) === null);
 // el recinto tiene que ser OTRO SITIO: un subdominio del mismo dominio registrable (otro origen) no vale
 const prod = { hostname: 'code.elffuss.com', port: '', origin: 'https://code.elffuss.com' };
 ok('config: un recinto del mismo sitio que Code (x2.elffuss.com, también por http) se rechaza; otro dominio, no',

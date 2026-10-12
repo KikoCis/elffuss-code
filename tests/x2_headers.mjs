@@ -2,8 +2,9 @@
 //
 //   node tests/x2_headers.mjs
 //       against its own test server (tests/lib/x2-server.mjs)
-//   X2_SANDBOX=https://x2.<domain> X2_CODE=https://code.elffuss.com node tests/x2_headers.mjs
-//       against a deployment (after deploy-sandbox.sh, deploy-vendor.sh and deploy.sh)
+//   X2_SANDBOX=https://x2.utopiaia.com X2_CODE=https://code.elffuss.com node tests/x2_headers.mjs
+//       against production, once deploy-sandbox.sh and deploy-vendor.sh ran
+//       (it needs nothing from deploy.sh, so it can check before it too)
 //
 // Checks:
 //   H1  both sandbox documents, with their exact query shape: status 200, every
@@ -154,6 +155,14 @@ if (!remote) {
   const vendorBlock = /location \^~ \/vendor\/x2\/ \{[\s\S]*?\}/.exec(example)?.[0] || '';
   ok('H6 the template for Code’s vendor location adds Cache-Control only to successful responses (no always)',
     /add_header Cache-Control "public, max-age=31536000, immutable";/.test(vendorBlock) && !/Cache-Control[^\n]*always/.test(vendorBlock), vendorBlock.replace(/\s+/g, ' ').slice(0, 200));
+  // el vhost del recinto nombra el mismo host que headers.json (y config.js)
+  const prodHost = new URL(spec.environments.production.sandbox).hostname;
+  const esc = prodHost.replace(/\./g, '\\.');
+  const names = [...example.matchAll(/^\s*server_name ([^;]+);/gm)].map(m => m[1]);
+  ok(`H6 the sandbox vhost of the template is ${prodHost}: server name, certificate, folder and the extension-host query`,
+    names.length === 2 && names.every(n => n === prodHost)
+    && example.includes(`/etc/letsencrypt/live/${prodHost}/fullchain.pem`) && example.includes(`root /var/www/${prodHost};`)
+    && example.includes(`parentOrigin=https%3A%2F%2F${esc}&vscodeWebWorkerExtHostId=`), JSON.stringify(names));
 }
 
 await srv?.close();

@@ -4,11 +4,13 @@
 // recinto a otro sitio.
 //
 // El recinto tiene que ser OTRO SITIO (otro dominio registrable): así no
-// comparte almacenamiento, cookies ni proceso con Code. En producción el
-// dominio aún no existe (decisión del dueño): hasta entonces, el nivel 2 dice
-// «no disponible en este sitio» y Code sigue exactamente igual.
+// comparte almacenamiento, cookies ni proceso con Code. En producción vive en
+// x2.utopiaia.com (utopiaia.com no es elffuss.com). El mismo origen está en
+// sandbox/x2/headers.json, que da las cabeceras y el nginx del recinto, y
+// deploy-sandbox.sh se niega si los dos no coinciden. Un host que no esté aquí
+// no tiene recinto: el nivel 2 dice «no disponible en este sitio».
 const TABLA = {
-  'code.elffuss.com': null,
+  'code.elffuss.com': 'https://x2.utopiaia.com',
   // desarrollo y pruebas: el mismo servidor sirve el recinto en «localhost»,
   // que es otro sitio que 127.0.0.1. Abrir Code en http://localhost no vale
   // (sería el mismo sitio que el recinto): se usa 127.0.0.1.

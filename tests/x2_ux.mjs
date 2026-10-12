@@ -28,9 +28,9 @@
 //       what will work and offer the code button
 //   X3  also: "Install without its code" in the consent of a mixed extension,
 //       and the dialogs' primary button at 4.5:1 or more
-//   X7  where level 2 cannot start (Code served as code.elffuss.com): the
-//       lines say so, the run button is inert with the reason, and the filter
-//       hides what only brings code
+//   X7  where level 2 cannot start (Code served on a host config.js gives no
+//       sandbox): the lines say so, the run button is inert with the reason,
+//       and the filter hides what only brings code
 //   X8  keyboard: F6 and Code's palette reach a notification and come back,
 //       focus never falls to the page, a notification without buttons waits
 //       while hovered or focused, the quick pick and input box keep Tab inside
@@ -310,9 +310,9 @@ await ctx.close();
 }
 
 // ── X7: donde el nivel 2 no puede arrancar: Code en un host sin recinto en
-// config.js, como code.elffuss.com hoy (aquí «code.localhost», que el navegador
-// trata como contexto seguro y resuelve a sí mismo; config.js da a los dos lo
-// mismo: ningún recinto) ──
+// config.js (aquí «code.localhost», que el navegador trata como contexto
+// seguro y resuelve a sí mismo; code.elffuss.com sí tiene el suyo,
+// x2.utopiaia.com) ──
 {
   const alias = 'code.localhost';
   const srv2 = await startServer({ codeAliases: [alias] });
@@ -326,8 +326,8 @@ await ctx.close();
   await p2.goto(origin2 + '/?test-opfs', { waitUntil: 'domcontentloaded' });
   await p2.waitForFunction(() => !!window.monaco?.editor?.getEditors?.().length, null, { timeout: 30000 });
   const rt = await p2.evaluate(async () => (await import('/js/ext2/vendor.js')).runtimeInfo());
-  const sameAsProd = await p2.evaluate(async () => { const c = await import('/js/ext2/config.js'); return c.sandboxOrigin({ hostname: 'code.elffuss.com', origin: 'https://code.elffuss.com', port: '' }) === null && c.sandboxOrigin(location) === null; });
-  ok('X7 premise: Code on a host with no sandbox (as code.elffuss.com today): level 2 is not available on this site', rt.available === false && rt.reason === 'site' && sameAsProd, JSON.stringify(rt));
+  const premise = await p2.evaluate(async () => { const c = await import('/js/ext2/config.js'); return c.sandboxOrigin(location) === null && c.sandboxOrigin({ hostname: 'code.elffuss.com', origin: 'https://code.elffuss.com', port: '' }) === 'https://x2.utopiaia.com'; });
+  ok('X7 premise: Code on a host config.js gives no sandbox (code.elffuss.com has x2.utopiaia.com): level 2 is not available on this site', rt.available === false && rt.reason === 'site' && premise, JSON.stringify(rt));
   await panel(p2);
   await search(p2, 'elffuss-ux');
   await until(async () => (await p2.locator('#ext-results .ext-row').count()) === fixtures.length);

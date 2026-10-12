@@ -11,12 +11,15 @@
 //   node sandbox/x2/headers.mjs --pin
 //       recompute sandbox.html's bootstrap hash and write it to headers.json
 //       and to the document's meta CSP
-//   node sandbox/x2/headers.mjs --nginx --sandbox https://x2.<domain>
-//       print snippets/x2-sandbox.conf and snippets/x2-exthost.conf (refused
-//       when that origin is the same site as Code)
-//   node sandbox/x2/headers.mjs --site-check https://x2.<domain>
-//       the sandbox origin is another registrable domain than every Code
-//       origin, and web/js/ext2/config.js names that one (deploy-sandbox.sh)
+//   node sandbox/x2/headers.mjs --nginx [--sandbox https://x2.<domain>]
+//       print snippets/x2-sandbox.conf and snippets/x2-exthost.conf for the
+//       production sandbox of headers.json (https://x2.utopiaia.com), or for
+//       the one given (refused when it is not the one headers.json and
+//       config.js name, or is the same site as Code)
+//   node sandbox/x2/headers.mjs --site-check [https://x2.<domain>]
+//       that sandbox origin (by default headers.json's) is another registrable
+//       domain than every Code origin, and both headers.json and
+//       web/js/ext2/config.js name it (deploy-sandbox.sh)
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -149,17 +152,21 @@ export function nginx(sandbox) {
 // registrable domain), or it would share cookies and a process with Code.
 // web/js/ext2/config.js refuses a same-site sandbox at run time; this refuses
 // it before anything is deployed.
+export const productionSandbox = () => loadSpec().environments.production.sandbox || null;
+
 export async function siteProblems(sandbox) {
   const { sameSite, sandboxOrigin } = await import('../../web/js/ext2/config.js');
   const problems = [];
   let u;
   try { u = new URL(sandbox); } catch { return ['not a URL: ' + sandbox]; }
   if (u.protocol !== 'https:' || u.origin !== sandbox.replace(/\/$/, '')) problems.push('the sandbox origin must be https://host, with nothing after it: ' + sandbox);
+  const named = productionSandbox();
+  if (named !== u.origin) problems.push(`sandbox/x2/headers.json names ${named || 'no sandbox'} for production, not ${u.origin}`);
   for (const code of loadSpec().environments.production.code) {
     if (sameSite(code, u.origin)) problems.push(`${u.origin} is the same site as ${code}: use another registrable domain`);
     const c = new URL(code);
     const configured = sandboxOrigin({ hostname: c.hostname, origin: c.origin, port: c.port });
-    if (configured && configured !== u.origin) problems.push(`web/js/ext2/config.js names ${configured} for ${c.hostname}, not ${u.origin}`);
+    if (configured !== u.origin) problems.push(`web/js/ext2/config.js names ${configured || 'no sandbox'} for ${c.hostname}, not ${u.origin}`);
   }
   return problems;
 }
@@ -167,16 +174,18 @@ export async function siteProblems(sandbox) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.includes('--pin')) pin();
+  // the origin after a flag, or headers.json's production sandbox when none is given
+  const after = flag => { const v = args[args.indexOf(flag) + 1]; return v && !v.startsWith('--') ? v : null; };
   if (args.includes('--site-check')) {
-    const s = args[args.indexOf('--site-check') + 1] || '';
+    const s = after('--site-check') || productionSandbox() || '';
     const problems = await siteProblems(s);
     for (const p of problems) console.error('  ✗ ' + p);
     console.log(problems.length ? `${problems.length} problems` : `${s} is another site than Code`);
     process.exit(problems.length ? 1 : 0);
   }
   if (args.includes('--nginx')) {
-    const s = args[args.indexOf('--sandbox') + 1];
-    if (!args.includes('--sandbox') || !/^https:\/\/[a-z0-9.-]+$/.test(s || '')) { console.error('--nginx needs --sandbox https://x2.<domain>'); process.exit(2); }
+    const s = (args.includes('--sandbox') ? after('--sandbox') : productionSandbox()) || '';
+    if (!/^https:\/\/[a-z0-9.-]+$/.test(s)) { console.error('--nginx needs a sandbox origin https://x2.<domain> (headers.json or --sandbox)'); process.exit(2); }
     const problems = await siteProblems(s);
     if (problems.length) { for (const p of problems) console.error('  ✗ ' + p); process.exit(1); }
     process.stdout.write(nginx(s));
