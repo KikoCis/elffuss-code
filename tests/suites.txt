@@ -14,40 +14,69 @@
 #              the internet or production. They are left out of both modes.
 
 [both]
+a11y-names
+api-signal
 arch
+attach-chips
 autoedit_settings
 bigfile_edit
+bridge-pause
+bridge-sums
+bridge-version
 broker-origenes
 bugs
+ceo-cycle
 ceo_persist
+chat-opts
+chatlinks
 city
 codeedit
 codeedit_agent
 contrast
+convclose
 conversations
 ctxmenu
 e2e
 edit-bateria
+editor-save
+english-ui
+enterqueue
 execbutton
 ext_unit
 extensions
 filelinks
 filelinks2
+funciontags
 glob_rm
 goalfail
 goalmode
+goalstop
+hardwork-queue
 htmlpreview
 htmlpreview_css
+keyboard-ux
+lab-ux
+labstop
+landing
+links
 litert-contexto
+litert-stop
 litertcache
 longsession
+md
+messages-ux
 mind
+mind-consent
 mind_stars
 mindpersist
+mobile-drawer
 modelcache
 modelcache_honest
 multiwrite
+notif-run
 notify
+onnx-autoload
+onnx-stop
 palette_text
 playstop
 previewstorage
@@ -58,17 +87,26 @@ reanuda
 retry-test
 run-bateria
 sendfeedback
+settings-ux
+speedchip
 stop
 stop_ide
+stopqueue
+storage-honest
 streampreview
+sw-notif
 swe_bench
 swe_style
+sync-core
 tabmenu
 telemetry
 terminal
+texto-plano
 toolparse
 toolparse_malformed
 toolparse_missingbrace
+view-list
+web-honest
 
 [once]
 x2_unit
@@ -90,13 +128,17 @@ alltools: web.search and web.fetch read real pages through the proxy (internet)
 appbuild_gif: builds an app with the real model on WebGPU and needs ffmpeg
 bridge: the real Bridge binary only accepts fixed origins (port 8799) on its fixed port 8765
 bridge_autodetect: needs a Bridge already running and its BRIDGE_TOKEN
+chrome-args: a helper module (Chromium flags from ELFFUSS_CHROME_ARGS), not a suite
 clone: clones a public repository from GitHub (internet)
 demo_code_final: records the demo video with the real model on WebGPU
 diag_sw: a diagnostic of the model cache with a real model, against production
 e4b_live: the real model (Gemma-4 E4B, about 3 GB) on WebGPU
+ext_fixtures: a helper module (the fixture packages of the extension suites), not a suite
+litert-stop-real: stopping the real model (Gemma-4 E4B through LiteRT-LM) on WebGPU, with the installed Chrome and a persistent profile
 make_og: renders the social card from images in other repositories
 mind_video: records a video, not a test
 shot_utopiaia: a screenshot of a production site
+test_proxy: Python, not Node: python3 tests/test_proxy.py (the hardened /proxy of server/serve.py, offline)
 warmup_code: warms up the real model in a persistent profile
 x2_census: manual: downloads and runs the top-500's browser extensions from Open VSX
 catalog_census: manual: reads every extension's package.json in Open VSX (about 20,000 requests); its last run is in tests/catalog-census/
