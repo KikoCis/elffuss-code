@@ -48,7 +48,9 @@ const DECLARATIVAS = new Set(['Themes', 'Snippets', 'Programming Languages']);
 // Funciones que no funcionan, en llano y sin repetir.
 export function missingFeatures(f) {
   const claves = [];
-  for (const c of f.categories || []) if (POR_CATEGORIA[c]) claves.push(POR_CATEGORIA[c]);
+  // las categorías hablan de lo que hace su código: sin código no falta nada
+  // (un paquete de snippets que se etiqueta «Machine Learning» no deja de funcionar)
+  if (f.hasCode) for (const c of f.categories || []) if (POR_CATEGORIA[c]) claves.push(POR_CATEGORIA[c]);
   const principales = [...new Set(claves)];
   for (const i of f.ignored || []) {
     const k = Object.hasOwn(POR_CLAVE, i.key) ? POR_CLAVE[i.key] : 'fOther';
@@ -63,6 +65,68 @@ function loPrincipal(principales, faltan) {
   const concretas = faltan.filter(x => x !== tx('fOther'));
   return lista((principales.length ? principales : concretas.length ? concretas : [tx('fOwn')]).slice(0, 3));
 }
+
+// ── de un package.json analizado (vsix.js analyzeManifest) o de un registro
+// instalado a los «hechos» de arriba. `h` es el host de extensiones (host.js)
+// o algo con la misma forma: builtinLanguage, grammarSkippedFor, languageName,
+// languageExtensions. Así el panel, las pruebas y el generador de la lista de
+// populares (tests/ext_popular_build.mjs) dicen lo mismo.
+const BONITOS = {
+  javascript: 'JavaScript', typescript: 'TypeScript', javascriptreact: 'JavaScript React', typescriptreact: 'TypeScript React',
+  html: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less', json: 'JSON', jsonc: 'JSON', vue: 'Vue', python: 'Python', markdown: 'Markdown',
+  shellscript: 'Shell', go: 'Go', rust: 'Rust', java: 'Java', php: 'PHP', ruby: 'Ruby', csharp: 'C#', cpp: 'C++', c: 'C', yaml: 'YAML',
+};
+export function languageName(h, id, langs = []) {
+  return langs.find(l => l.id === id && esTexto(l.name))?.name || h?.languageName?.(id) || BONITOS[id] || id;
+}
+export function languageExts(h, id, langs = []) {
+  const propias = langs.filter(l => l.id === id).flatMap(l => l.extensions || []);
+  return [...new Set(propias.length ? propias : h?.languageExtensions?.(id) || [])];
+}
+function facts(h, base, { themes = [], grammarLangs = [], langs = [], snippets = [] }) {
+  const salta = l => !!h?.grammarSkippedFor?.(l);
+  const deSerie = id => !!h?.builtinLanguage?.(id);
+  const conGram = [...new Set(grammarLangs.filter(l => l && !salta(l)))];
+  // snippets de un lenguaje que Code no tiene (javascriptreact, vue…) no
+  // saldrían nunca: ni se cuentan ni se prometen. Y un mismo fichero que sirve
+  // a varios lenguajes se cuenta una vez.
+  const existe = id => langs.some(l => l.id === id) || !!h?.languageName?.(id) || deSerie(id);
+  const porLang = new Map();
+  const vistos = new Set();
+  for (const s of snippets.filter(x => existe(x.language))) {
+    const n = !Number.isFinite(s.count) ? NaN : s.key && vistos.has(s.key) ? 0 : s.count;
+    if (s.key) vistos.add(s.key);
+    porLang.set(s.language, (porLang.has(s.language) ? porLang.get(s.language) : 0) + n);
+  }
+  return {
+    ...base, themes,
+    highlight: conGram.map(id => ({ id, name: languageName(h, id, langs), exts: languageExts(h, id, langs) })),
+    settingsOnly: langs.filter(l => l.config && !deSerie(l.id) && !conGram.includes(l.id)).map(l => languageName(h, l.id, langs)),
+    keepsBuiltin: [...new Set(grammarLangs.filter(l => l && salta(l)))].map(id => languageName(h, id, langs)),
+    snippets: [...porLang].map(([id, n]) => ({ id, name: languageName(h, id, langs), count: Number.isFinite(n) ? n : null })),
+  };
+}
+export function factsFromManifest(h, a) {
+  return facts(h, { hasCode: a.hasCode, browserEntry: a.browserEntry, categories: a.categories || [], sizes: a.sizes || {}, webviews: a.webviews, ignored: a.ignored || [], pack: a.pack || [] }, {
+    themes: a.themeLabels || [], grammarLangs: a.grammarLangs || [], langs: a.languageList || [],
+    snippets: (a.snippetLangs || []).map(language => ({ language, count: null })),
+  });
+}
+export function factsFromRecord(h, e) {
+  // registros de antes de guardar categorías: se asume que lo que se aplica es lo principal
+  const categories = e.categories || ['Programming Languages'];
+  return facts(h, { hasCode: e.hasCode, browserEntry: !!e.browserEntry, categories, sizes: e.sizes || {}, webviews: e.webviews, ignored: e.ignored || [], pack: e.pack || [] }, {
+    themes: (e.themes || []).map(t => t.label), grammarLangs: (e.grammars || []).map(g => g.language ?? null),
+    langs: (e.languages || []).map(l => ({ id: l.id, name: l.aliases?.[0], extensions: l.extensions || [], config: !!l.configKey })),
+    snippets: (e.snippets || []).map(s => ({ language: s.language, key: s.key, count: Number.isFinite(s.count) ? s.count : null })),
+  });
+}
+
+// ¿Hace algo al instalarla? Lo que decide el filtro «Solo las que funcionan en
+// Code» del panel: entera o en parte (lo principal funciona). Las que solo
+// funcionarían por su código, o en las que lo principal es su código y solo
+// quedaría un resto (unos snippets de una extensión de depurar), no.
+export const works = v => v.kind === 'full' || v.kind === 'partial';
 
 export function describe(f) {
   const partes = [];        // { tipo, texto }
