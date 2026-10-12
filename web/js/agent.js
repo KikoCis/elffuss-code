@@ -1,5 +1,5 @@
 // Bucle agéntico de Elffuss Code (mismo protocolo que Elffuss SO).
-import { runTool, toolHelp, snapshot } from './tools/index.js';
+import { runTool, toolHelp, snapshot, PARAM_EXACTO, PARAM_NUMERO } from './tools/index.js';
 import { skillsPromptBlock } from './skills.js';
 import * as telemetry from './telemetry.js';
 
@@ -258,13 +258,30 @@ export function parseFunctionTags(text) {
   let m;
   while ((m = re.exec(text))) {
     const args = {};
-    const pre = /<param\s+name=["']([\w.\-]+)["']\s*>([\s\S]*?)<\/param\s*>/g;
+    // Dos cuerpos posibles, y el de CDATA va PRIMERO a propósito: dentro de
+    // `<![CDATA[…]]>` el contenido puede llevar `</param>`, que es justo lo que
+    // rompe el patrón no voraz. Fuera del CDATA se permite espacio, porque ahí
+    // el modelo pone sus saltos de línea de formato.
+    const pre = /<param\s+name=["']([\w.\-]+)["']\s*>(?:\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/param\s*>|([\s\S]*?)<\/param\s*>)/g;
     let p;
     while ((p = pre.exec(m[2]))) {
-      const bruto = p[2].trim();
-      let v = bruto;
-      try { v = JSON.parse(bruto); } catch { /* texto tal cual: lo normal en una ruta */ }
-      args[p[1]] = v;
+      const nombre = p[1];
+      const crudo = p[2] !== undefined ? p[2] : (p[3] || '');
+      if ((PARAM_EXACTO[m[1]] || []).includes(nombre)) {
+        // TAL CUAL, byte a byte. Ni trim ni JSON.parse: este valor ES el
+        // fichero, o el texto que tiene que casar con él.
+        args[nombre] = crudo;
+      } else {
+        const v = crudo.trim();
+        if ((PARAM_NUMERO[m[1]] || []).includes(nombre)) {
+          const n = Number(v);
+          // Si no es un número, se deja el texto: que el error salga donde se
+          // usa, con el valor que mandó el modelo, en vez de un NaN callado.
+          args[nombre] = (v !== '' && Number.isFinite(n)) ? n : v;
+        } else {
+          args[nombre] = v;
+        }
+      }
     }
     out.push({ tool: m[1], args });
   }

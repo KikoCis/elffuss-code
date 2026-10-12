@@ -21,6 +21,34 @@ export const TOOLS = {
   'web.fetch':  { desc: 'Leer el contenido de texto de una URL (documentación, referencia)', params: { url: 'https://…' }, run: a => web.fetchUrl(a) },
 };
 
+// Cómo llega el valor de un <param> cuando el modelo usa etiquetas.
+// ─────────────────────────────────────────────────────────────────────────────
+// Por defecto se RECORTA, porque el modelo escribe el valor en su propia línea
+// («<param name="path">\n  src/a.js\n</param>») y ese espacio es formato suyo,
+// no parte de la ruta. Pero hay dos excepciones, y una se nos escapó en
+// producción desde b7d7db0:
+//
+//   · EXACTO: el valor ES el fichero, o el texto que tiene que casar con él
+//     byte a byte. Recortarlo deja la primera línea sin sangría y el fichero sin
+//     salto final. En `code.edit` es peor que cosmético: `search` se compara con
+//     el contenido real, así que un trim hace que no case y la edición falla EN
+//     SILENCIO.
+//   · NÚMERO: el valor es una cuenta de líneas; el resto del código la usa como
+//     número y no como la cadena "100".
+//
+// Lo que NO está aquí se recorta, y nada se pasa por `JSON.parse`: un fichero
+// .json es texto, no un objeto, y un valor entrecomillado conserva sus comillas.
+// `tests/funciontags.mjs` comprueba que cada nombre de aquí es un parámetro de
+// verdad, para que renombrar uno no deje la excepción apuntando al aire.
+export const PARAM_EXACTO = {
+  'code.write': ['content'],
+  'code.edit': ['search', 'replace'],
+};
+export const PARAM_NUMERO = {
+  'code.tree': ['depth'],
+  'code.read': ['offset', 'limit', 'around'],
+};
+
 export function toolHelp() {
   return Object.entries(TOOLS).map(([n, t]) =>
     `- ${n}(${Object.keys(t.params).join(', ')}): ${t.desc}`).join('\n');
