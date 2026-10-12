@@ -158,7 +158,7 @@ function appendLog(node) {
 function addMsg(cls, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + cls;
-  // las respuestas se renderizan como markdown (estilo plugin de Claude Code);
+  // las respuestas se renderizan como markdown (estilo plugin de agente);
   // lo del usuario y los errores, como texto plano
   if (/^(assistant$|sys)/.test(cls)) {
     div.classList.add('md');
@@ -173,7 +173,7 @@ function addMsg(cls, text) {
   return div;
 }
 
-// estilo plugin de Claude Code: ● herramienta en negrita + detalle plegable
+// estilo plugin de agente: ● herramienta en negrita + detalle plegable
 function addTool(tool, arg) {
   const div = document.createElement('div');
   div.className = 'msg tool';
@@ -1432,8 +1432,10 @@ function renderSettings() {
 
   // --- Skills ---
   box.append(el('div', 'sk-h', 'Skills'));
-  const skBtn = el('button', 'primary wide', '🧩 Gestionar skills de Claude Code');
-  skBtn.textContent = t("setManageSkillsBtn");
+  // El texto va por i18n y no a mano: esta app habla seis idiomas y un literal
+  // aquí sale siempre en español. Antes estaba escrito Y sobrescrito en la línea
+  // siguiente, o sea que el literal era texto muerto que confundía.
+  const skBtn = el('button', 'primary wide', t('setManageSkillsBtn'));
   skBtn.onclick = openSkillsPanel;
   box.appendChild(skBtn);
 }

@@ -330,7 +330,7 @@ body.hide-tree #sidebar { display: none; }
 .msg.user { background: var(--accent2); color: #fff; align-self: flex-end; }
 .msg.assistant { background: var(--bg3); border: 1px solid var(--line); align-self: flex-start; }
 .msg.err { border-color: #a03050; }
-/* herramientas estilo plugin de Claude Code: ● nombre + args + resultado plegable */
+/* herramientas estilo plugin de agente: ● nombre + args + resultado plegable */
 .msg.tool { display: flex; align-items: center; gap: 7px; background: none; padding: 2px 6px; font-size: .8rem; }
 .msg.tool .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
 .msg.tool b { color: var(--fg); font-weight: 600; font-family: ui-monospace, monospace; font-size: .76rem; }
@@ -373,7 +373,7 @@ body.hide-tree #sidebar { display: none; }
 #prompt:focus { border-color: var(--accent2); }
 #composer button { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 9px; color: #fff; padding: 0 14px; cursor: pointer; }
 
-/* ---------- markdown en el chat (estilo plugin de Claude Code) ---------- */
+/* ---------- markdown en el chat (estilo plugin de agente) ---------- */
 .msg.md { white-space: normal; }
 .proposal-exec-btn { display: block; margin-top: 10px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 8px; padding: 8px 14px; font-size: .78rem; font-weight: 600; cursor: pointer; }
 .proposal-exec-btn:hover { filter: brightness(1.1); }
@@ -431,7 +431,7 @@ a.file-link:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1
   #code-flip { bottom: 76px; }
 }
 
-/* ---------- composer estilo plugin de Claude Code ---------- */
+/* ---------- composer estilo plugin de agente ---------- */
 #composer-wrap { border-top: 1px solid var(--line); background: var(--bg2); }
 #ctx-meter { display: flex; align-items: center; gap: 8px; padding: 5px 12px 0; font-size: .68rem; color: var(--muted); }
 #ctx-meter .ctx-track { flex: 1; height: 3px; background: var(--bg); border-radius: 2px; overflow: hidden; }
