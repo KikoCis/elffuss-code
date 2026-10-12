@@ -87,3 +87,14 @@
 #ext-themepick .tp-item { display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; background: none; border: none; color: var(--fg); padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: .84rem; }
 #ext-themepick .tp-item.sel, #ext-themepick .tp-item:hover { background: rgba(130,114,255,.2); }
 #ext-themepick .tp-item .muted { font-size: .72rem; color: var(--muted); }
+/* «Solo las que funcionan en Code», cuántas se ocultaron, populares */
+.ext-filter { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 0; font-size: .76rem; color: var(--fg); cursor: pointer; }
+.ext-filter input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent2); cursor: pointer; }
+.ext-filter input:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.ext-row[hidden], .ext-hidden[hidden] { display: none; }
+.ext-hidden { font-size: .74rem; margin: 2px 0 6px; overflow-wrap: anywhere; }
+.ext-pop-note { margin: 0 0 6px; font-size: .74rem; line-height: 1.4; }
+.ext-kind { font-size: .64rem; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.ext-kind-theme { color: #d2a8ff; border-color: rgba(210,168,255,.4); }
+.ext-kind-language { color: #79c0ff; border-color: rgba(121,192,255,.4); }
+.ext-kind-snippets { color: #7ee787; border-color: rgba(126,231,135,.4); }

@@ -29,8 +29,17 @@ function deOpenVsx(u) {
 }
 const seg = s => encodeURIComponent(String(s));
 
+// «…/api/ns/name/<plataforma>/<versión>/file/x.vsix» → la plataforma, o ''
+// (las publicadas por plataforma no tienen package.json en la ruta sin ella)
+function plataformaDe(download) {
+  try {
+    const p = new URL(download).pathname.split('/').filter(Boolean);
+    return p[0] === 'api' && p.length === 7 && p[5] === 'file' && /^[a-z0-9-]+$/.test(p[3]) ? p[3] : '';
+  } catch { return ''; }
+}
 const resumen = e => ({
   namespace: String(e.namespace || ''), name: String(e.name || ''), version: String(e.version || ''),
+  platform: plataformaDe(e.files?.download),
   displayName: String(e.displayName || e.name || ''), description: String(e.description || ''),
   downloadCount: Number(e.downloadCount) || 0, verified: !!e.verified, deprecated: !!e.deprecated,
   icon: (() => { try { const u = new URL(e.files?.icon); return ORIGENES_ICONO.has(u.origin) ? u.href : null; } catch { return null; } })(),
@@ -64,8 +73,8 @@ export async function manifest(meta, { signal } = {}) {
 
 // El package.json de un resultado de búsqueda, sin pedir antes sus metadatos:
 // una sola petición por fila para decir qué haría antes de instalarla.
-export function manifestOf({ namespace, name, version }, { signal } = {}) {
-  return getJson(`${BASE}/api/${seg(namespace)}/${seg(name)}/${seg(version)}/file/package.json`, signal);
+export function manifestOf({ namespace, name, version, platform = '' }, { signal } = {}) {
+  return getJson(`${BASE}/api/${seg(namespace)}/${seg(name)}/${platform ? seg(platform) + '/' : ''}${seg(version)}/file/package.json`, signal);
 }
 
 export async function text(url, { signal, max = 200_000 } = {}) {

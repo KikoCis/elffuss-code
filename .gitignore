@@ -17,3 +17,6 @@ CLAUDE.md
 
 # motor propio: repo privado aparte, se sube por rsync (nunca por git)
 web/js/engine/
+
+# cachés de red de los scripts de tests
+tests/.cache/
