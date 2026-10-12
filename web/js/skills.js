@@ -6,6 +6,10 @@
 // SKILL.md que se inyecta. Se guardan en IndexedDB (nada sale del navegador).
 import * as db from './db.js';
 
+// Un error con `code` lo traduce el panel (skErr_<code>); el mensaje en
+// español queda para quien llame sin interfaz (las herramientas del agente).
+const fallo = (code, msg) => Object.assign(new Error(msg), { code });
+
 const KEY = 'skills';          // skills instaladas
 const SRC_KEY = 'skills.sources'; // repos personalizados añadidos por el usuario
 const MAX_SKILL = 12_000;      // caracteres del cuerpo que se inyectan al modelo
@@ -57,12 +61,15 @@ export async function install(skill) {
 }
 
 // Mensaje «cómo usarla» tras instalar: qué hace + un ejemplo de qué pedir.
-export function usageMessage(skill) {
+// `txt` trae los textos en el idioma de la interfaz ({name} se sustituye); sin
+// él, en español.
+export function usageMessage(skill, txt = {}) {
   const desc = (skill.description || '').trim();
-  const ejemplo = firstExample(skill) || `algo relacionado con «${skill.name}»`;
-  return `✳ **Skill «${skill.name}» instalada.**\n\n` +
+  const f = (s, d) => (s || d).replace('{name}', skill.name);
+  const ejemplo = firstExample(skill) || f(txt.about, 'algo relacionado con «{name}»');
+  return `✳ **${f(txt.installed, 'Skill «{name}» instalada.')}**\n\n` +
     (desc ? desc + '\n\n' : '') +
-    `Ya la sigo en cada conversación. Para usarla, pídeme por ejemplo:\n\n> ${ejemplo}`;
+    `${f(txt.follow, 'Ya la sigo en cada conversación. Para usarla, pídeme por ejemplo:')}\n\n> ${ejemplo}`;
 }
 
 // Intenta sacar un ejemplo de uso del cuerpo del SKILL.md (líneas de ejemplo/uso).
@@ -89,7 +96,7 @@ export async function sources() {
 }
 export async function addSource(repoOrUrl, label) {
   const repo = repoOrUrl.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').replace(/\/$/, '');
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('Usa owner/repo (o la URL de GitHub)');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw fallo('badRepo', 'Usa owner/repo (o la URL de GitHub)');
   const custom = (await db.get('kv', SRC_KEY).catch(() => null)) || [];
   if (!custom.some(s => s.repo === repo) && !DEFAULT_SOURCES.some(s => s.repo === repo))
     custom.push({ repo, label: label || repo });
@@ -108,9 +115,9 @@ export async function listFromRepo(repo) {
   for (const b of ['main', 'master']) {
     const r = await fetch(`https://api.github.com/repos/${repo}/git/trees/${b}?recursive=1`);
     if (r.ok) { tree = await r.json(); branch = b; break; }
-    if (r.status === 403) throw new Error('GitHub limitó las peticiones (60/h sin login). Reintenta en unos minutos.');
+    if (r.status === 403) throw fallo('rate', 'GitHub limitó las peticiones (60/h sin login). Reintenta en unos minutos.');
   }
-  if (!tree) throw new Error('No pude leer el repo (¿existe y es público?)');
+  if (!tree) throw fallo('noRepo', 'No pude leer el repo (¿existe y es público?)');
   return (tree.tree || [])
     .filter(n => /(^|\/)SKILL\.md$/i.test(n.path))
     .map(n => ({ repo, branch, path: n.path, dir: n.path.replace(/\/SKILL\.md$/i, ''), name: n.path.replace(/\/SKILL\.md$/i, '').split('/').pop() || repo }))
@@ -124,7 +131,7 @@ export async function installFromRepo(entry) {
     const r = await fetch(`https://raw.githubusercontent.com/${entry.repo}/${b}/${entry.path}`);
     if (r.ok) { md = await r.text(); break; }
   }
-  if (md == null) throw new Error('No pude descargar el SKILL.md');
+  if (md == null) throw fallo('noMd', 'No pude descargar el SKILL.md');
   const skill = parseSkill(md, entry.name);
   return install({ ...skill, repo: entry.repo, path: entry.path });
 }

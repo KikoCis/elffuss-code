@@ -89,6 +89,13 @@ button.dot:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2p
 main { flex: 1; display: grid; grid-template-columns: 46px 235px minmax(0, 1fr) minmax(440px, 34%); grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
 body.hide-tree main { grid-template-columns: 46px 0 minmax(0, 1fr) minmax(440px, 34%); }
 body.hide-tree #sidebar { display: none; }
+/* Cada pieza en SU columna. Sin esto, al ocultar el explorador (display:none)
+   el resto se corría una columna a la izquierda: el editor caía en la de 0 px y
+   desaparecía, el chat ocupaba su sitio y la columna del chat quedaba vacía. */
+#activity { grid-column: 1; }
+#sidebar { grid-column: 2; }
+#editor-wrap { grid-column: 3; }
+#chat { grid-column: 4; }
 
 /* barra de actividad estilo VS Code */
 #activity {
@@ -293,8 +300,6 @@ body.hide-tree #sidebar { display: none; }
 #model-bar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .25s; }
 #model-progress .mp-acciones { display: flex; gap: 6px; }
 #model-progress .mp-acciones button { background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; font: inherit; font-size: .78rem; cursor: pointer; }
-.sk-msg { font-size: .74rem; }
-.sk-msg.err { color: #ff8fb0; }
 
 /* ---------- chat ---------- */
 #chat { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg2); min-height: 0; }
@@ -415,6 +420,7 @@ a.file-link:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1
 /* ---------- móvil: cabecera fija + chat/editor conmutables ---------- */
 @media (max-width: 760px) {
   main { grid-template-columns: 1fr; }
+  #activity, #sidebar, #editor-wrap, #chat { grid-column: 1; }
   #activity, #sidebar { display: none; }
   #code-flip { display: block; }
   #editor-wrap { display: none; }
@@ -491,21 +497,55 @@ a.file-link:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1
 #menu .menu-item span { color: var(--muted); font-size: .74rem; }
 #chat { position: relative; }
 
-/* panel de skills */
-.skills-panel h3 { margin: 0 0 4px; font-size: 1rem; }
-.sk-h { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 12px 0 6px; }
-.sk-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; font-size: .82rem; }
-.sk-row b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sk-row .muted { color: var(--muted); font-size: .74rem; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
-.sk-row a { color: var(--accent2); font-size: .74rem; text-decoration: none; }
-.sk-row input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 9px; font-size: .78rem; }
-.sk-row button.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: .76rem; }
-.sk-row button.ghost { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: .76rem; }
-#settings-panel { max-height: 55vh; overflow-y: auto; flex-direction: column; }
+/* panel de skills: «Instaladas» y «Explorar catálogos», una acción por fila.
+   El contenido no pasa de un ancho legible aunque el panel ocupe toda la
+   pantalla; los nombres largos parten en vez de cortarse («Co…» en el móvil). */
+.skills-panel { width: 100%; max-width: 880px; display: flex; flex-direction: column; gap: 4px; font-size: .84rem; }
+.skills-panel .sk-intro { margin: 0 0 4px; line-height: 1.45; }
+.skills-panel > .sk-msg { margin: 0; min-height: 1.2em; }
+.skills-panel section { display: flex; flex-direction: column; }
+.sk-h { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 12px 0 6px; font-weight: 600; }
+.sk-h:focus { outline: none; }
+.sk-h:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.sk-nota, .sk-vacio { margin: 0 0 8px; font-size: .78rem; }
+.sk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; font-size: .82rem; }
+.sk-info { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sk-info b { overflow-wrap: anywhere; }
+.sk-info .muted, .sk-info a { font-size: .74rem; overflow-wrap: anywhere; }
+.sk-row .muted { color: var(--muted); }
+.sk-row a { color: var(--accent2); text-decoration: none; }
+.sk-row a:hover { text-decoration: underline; }
+.sk-row > button { flex: 0 0 auto; min-width: 84px; }
+.sk-browse { flex: 1 0 100%; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.sk-browse[hidden] { display: none; }
+.sk-browse .sk-row { background: var(--bg2); }
+.sk-add { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.sk-add input { flex: 1 1 220px; min-width: 0; background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 7px 9px; font-size: .8rem; }
+.skills-panel button.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: .78rem; }
+.skills-panel button.ghost { background: none; border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: .78rem; }
+.skills-panel button[aria-disabled="true"] { opacity: .7; cursor: default; }
+.skills-panel button[aria-busy="true"] { cursor: progress; }
+.skills-panel button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.sk-remove-repo { margin-top: 8px; }
+.sk-msg { font-size: .76rem; }
+.sk-msg.err { color: #ff8fb0; }
 
-/* el panel de ajustes/skills se SUPERPONE (no empuja el IDE) */
-#settings-panel { position: fixed; top: 46px; left: 46px; right: 0; z-index: 90; max-height: 78vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
-@media (max-width: 760px) { #settings-panel { left: 0; } }
+/* El panel de Ajustes / Skills / Extensiones se SUPERPONE (no empuja el IDE) y
+   ocupa ENTERO el hueco de trabajo: de la cabecera al pie y del borde del
+   explorador al de la ventana. Antes era una persiana de la altura de su
+   contenido (top fijo a 46 px y max-height 78vh): por debajo asomaban el
+   editor y el chat, y empezaba 5 px por debajo de la cabecera. La barra de
+   actividad y el explorador quedan a la vista y funcionando; al ocultar el
+   árbol, el panel se ensancha hasta la barra. */
+#settings-panel {
+  position: fixed; top: var(--ide-top, 41px); left: 281px; right: 0; bottom: 0; z-index: 90;
+  max-height: none; overflow-y: auto; overscroll-behavior: contain; flex-direction: column;
+  border-left: 1px solid var(--line); border-bottom: none;
+}
+#settings-panel > * { flex-shrink: 0; }
+body.hide-tree #settings-panel, body.chat-full #settings-panel { left: 46px; }
+@media (max-width: 760px) { #settings-panel, body.hide-tree #settings-panel { left: 0; border-left: none; } }
 
 /* ---------- móvil: cajón con el árbol y las herramientas ----------
    En el móvil la barra de actividad, el árbol y la barra de menús están

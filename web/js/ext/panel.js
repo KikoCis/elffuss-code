@@ -174,6 +174,7 @@ function pinta() {
   // aquí no existe), y si no, sin rol de diálogo.
   box.setAttribute('role', 'dialog');
   box.setAttribute('aria-labelledby', 'ext-title');
+  box.dataset.kind = 'ext';
   const cerrar = el('button', null, '✕');
   cerrar.id = 'settings-close';
   cerrar.type = 'button';
