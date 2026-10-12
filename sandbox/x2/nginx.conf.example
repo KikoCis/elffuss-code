@@ -16,12 +16,15 @@
 # the manifest names.
 
 server {
-  listen 443 ssl http2;
+  listen 443 ssl;          # http2 is per socket: set it where the other vhosts on :443 do
   server_name x2.utopiaia.com;
   ssl_certificate     /etc/letsencrypt/live/x2.utopiaia.com/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/x2.utopiaia.com/privkey.pem;
   root /var/www/x2.utopiaia.com;
-  access_log off;          # the sandbox keeps no log of who loaded it
+  # its own log, with the address truncated (log_format elffuss_anon of the
+  # server's conf.d/elffuss-zones.conf): no record of who loaded it
+  access_log /var/log/nginx/x2.utopiaia.com.access.log elffuss_anon;
+  error_log  /var/log/nginx/x2.utopiaia.com.error.log;
   autoindex off;
   server_tokens off;
 
@@ -46,8 +49,11 @@ server {
 server {
   listen 80;
   server_name x2.utopiaia.com;
-  access_log off;
-  return 301 https://$host$request_uri;
+  access_log /var/log/nginx/x2.utopiaia.com.access.log elffuss_anon;
+  # in a location, not at server level: a server-level return runs before
+  # certbot's nginx authenticator gets to answer the HTTP-01 challenge, and the
+  # certificate would stop renewing
+  location / { return 301 https://$host$request_uri; }
 }
 
 # In the server block of Code (code.elffuss.com), for the verified vendor

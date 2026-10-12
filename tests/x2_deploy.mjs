@@ -63,6 +63,11 @@ function fakeSsh(LOG, SERVER) {
   const cmd = process.argv.at(-1).replaceAll('/var/www/', SERVER);
   const dir = (/cd '([^']+)'/.exec(cmd) || /mkdir -p '([^']+)'/.exec(cmd) || [])[1];
   if (/^mkdir -p/.test(cmd)) { fs.mkdirSync(dir, { recursive: true }); process.exit(0); }
+  // stat -c '%a %n' NAMES: the octal mode of each, as GNU stat prints it
+  if (/stat -c '%a %n'/.test(cmd)) {
+    for (const n of cmd.split("stat -c '%a %n' ")[1].trim().split(/\s+/)) console.log((fs.statSync(path.join(dir, n)).mode & 0o777).toString(8) + ' ' + n);
+    process.exit(0);
+  }
   if (/sha256sum/.test(cmd)) {
     if (!fs.existsSync(dir)) process.exit(1);
     const globs = /find \./.test(cmd) ? null : ((/sha256sum ([^"|;&]+)/.exec(cmd) || [])[1] || '').trim().split(/\s+/);
@@ -85,7 +90,9 @@ function fakeRsync(LOG, SERVER) {
   const src = a.at(-2), dst = a.at(-1).replace(/^[^:]*:/, '').replaceAll('/var/www/', SERVER);
   fs.mkdirSync(dst, { recursive: true });
   const files = names || fs.readdirSync(src).filter(f => fs.statSync(path.join(src, f)).isFile());
-  for (const f of files) { const to = path.join(dst, f); if (a.includes('--ignore-existing') && fs.existsSync(to)) continue; fs.copyFileSync(path.join(src, f), to); }
+  for (const f of files) { const to = path.join(dst, f); if (a.includes('--ignore-existing') && fs.existsSync(to)) continue; fs.copyFileSync(path.join(src, f), to); fs.chmodSync(to, fs.statSync(path.join(src, f)).mode & 0o777); }
+  // rsync -a SRC/ DEST/ gives DEST the mode of SRC (a mktemp -d folder is 700)
+  if (a.includes('-a') && !names) fs.chmodSync(dst, fs.statSync(src).mode & 0o777);
   if (a.includes('--delete') && !names) for (const f of fs.readdirSync(dst)) if (!files.includes(f)) fs.rmSync(path.join(dst, f), { recursive: true });
 }
 for (const [name, fn] of [['ssh', fakeSsh], ['rsync', fakeRsync]]) exe(name, `#!/usr/bin/env node\n(${fn.toString()})(${JSON.stringify(log)}, ${JSON.stringify(server + '/')});\n`);
@@ -152,6 +159,8 @@ ok('D6 with no origin or folder set, it deploys x2.utopiaia.com (headers.json) t
   && r.calls.some(c => c.startsWith('rsync ') && c.endsWith(':/var/www/x2.utopiaia.com/x2/v1/'))
   && fs.existsSync(sbxProd) && JSON.stringify(fs.readdirSync(sbxProd).sort()) === JSON.stringify(['exthost-iframe.html', 'sandbox.html'])
   && /X2_SANDBOX=https:\/\/x2\.utopiaia\.com node tests\/x2_headers\.mjs/.test(r.out), r.out.slice(-300));
+const modes = fs.existsSync(sbxProd) ? [sbxProd, ...['sandbox.html', 'exthost-iframe.html'].map(f => path.join(sbxProd, f))].map(p => (fs.statSync(p).mode & 0o777).toString(8)).join(' ') : 'missing';
+ok('D6 the web server can read what it uploaded: folder 755, documents 644 (rsync -a of a mktemp folder left 700 and both 404)', modes === '755 644 644', modes);
 
 // D7
 const live = (env = {}) => spawnSync('node', [path.join(repo, 'vendor/vscode-ext2/check-output.mjs'), '--live', path.join(repo, 'web')], { encoding: 'utf8', env: { ...process.env, ...env } }).status;

@@ -46,7 +46,11 @@ node sandbox/x2/headers.mjs --check
 DOCS=(sandbox.html exthost-iframe.html)
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
-for f in "${DOCS[@]}"; do cp "sandbox/x2/v1/$f" "$STAGE/$f"; done
+# mktemp -d crea la carpeta con 700 y rsync -a copia ese modo a x2/v1/ del
+# servidor: nginx (otro usuario) no podría ni entrar y los dos documentos
+# darían 404 con «Permission denied» en el log de errores
+chmod 755 "$STAGE"
+for f in "${DOCS[@]}"; do cp "sandbox/x2/v1/$f" "$STAGE/$f"; chmod 644 "$STAGE/$f"; done
 ssh -i "$KEY" "$HOST" "mkdir -p '$DEST/x2/v1'"
 rsync -a --delete -e "ssh -i $KEY" "$STAGE/" "$HOST:$DEST/x2/v1/"
 
@@ -56,6 +60,13 @@ REMOTE=$(ssh -i "$KEY" "$HOST" "cd '$DEST/x2/v1' && find . -mindepth 1 -maxdepth
 if [ "$REMOTE" != "$EXPECTED" ]; then
   echo "✗ el servidor no tiene exactamente los documentos del recinto (y nada más):" >&2
   diff <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$REMOTE") >&2 || true
+  exit 1
+fi
+# y que el servidor web los pueda leer: la carpeta 755 y los documentos 644
+MODES=$(ssh -i "$KEY" "$HOST" "cd '$DEST/x2/v1' && stat -c '%a %n' . ${DOCS[*]}")
+if [ "$MODES" != "$(printf '755 .\n644 sandbox.html\n644 exthost-iframe.html')" ]; then
+  echo "✗ permisos en el servidor (se esperaba 755 la carpeta y 644 los documentos):" >&2
+  printf '%s\n' "$MODES" >&2
   exit 1
 fi
 echo "recinto en el servidor y verificado; mira sus cabeceras con: X2_SANDBOX=$ORIGIN node tests/x2_headers.mjs"
