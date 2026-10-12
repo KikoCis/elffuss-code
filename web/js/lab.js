@@ -72,7 +72,10 @@ const BENCHES = [
 // descartaba al arrancar y se quedaba sin modelo.
 const BRAINS = [
   ['rules', 'Reglas (sin GPU)', 'Determinista. Valida el arnés sin bajar pesos.'],
-  ['onnx:qwen3.5-0.8b', 'Qwen3.5-0.8B (CPU/wasm)', 'El ligero, por transformers.js.'],
+  // «(CPU/wasm)» era FALSO y por eso estaba aquí: su dtype es q4f16 y el
+  // backend de CPU no tiene kernel para `GatherBlockQuantized`, así que en wasm
+  // revienta tras bajar ~600 MB. Exige WebGPU, como los dos de abajo.
+  ['onnx:qwen3.5-0.8b', 'Qwen3.5-0.8B (WebGPU, ~600 MB)', 'El ligero, por transformers.js. Necesita WebGPU.'],
   ['litert:gemma-e2b', 'Gemma-4 E2B (~2 GB)', 'WebGPU.'],
   ['litert:gemma-e4b', 'Gemma-4 E4B (~2.8 GB)', 'WebGPU. El mejor.'],
 ];

@@ -654,10 +654,12 @@ async function pickLocalBrain() {
     if (c.maxBuf >= 2 ** 30 && c.mem >= 6) return 'litert:gemma-e2b';   // ~2 GB
   }
   if (c.gpu && isMobile()) return 'litert:gemma-e2b';
-  return ONNX_LIGERO;
+  // Sin GPU no hay modelo local, y eso es un NULL explícito. Antes devolvía el
+  // ligero, que es justo el que NO puede correr sin WebGPU: la rama sin GPU
+  // elegía el modelo que exige GPU y el usuario se comía ~600 MB para acabar en
+  // básico. Quien llama ya filtra los ids falsos.
+  return c.gpu ? ONNX_LIGERO : null;
 }
-// heurística vieja como último recurso síncrono
-const defaultBrain = () => !realGPU ? ONNX_LIGERO : (isMobile() ? 'litert:gemma-e2b' : 'litert:gemma-e4b');
 
 // El runtime propio y su modelo grande se SONDEAN, no se cablean: el motor
 // llega por rsync y el modelo son gigabytes que pueden no estar alojados.
@@ -723,7 +725,20 @@ function modelOptionsLocales() {
   // primeros lo dejaba igual de visible aquí. Es el mismo modo de fallo que el
   // comentario de arriba avisa para Bonsai: un nombre duplicado es un nombre
   // que se queda viejo.
-  opts.push({ id: 'onnx:qwen3.5-0.8b', label: 'Qwen3.5-0.8B · WebGPU (~600 MB)' });
+  //
+  // Y EXIGE WebGPU, como las dos de arriba. Era la única sin condición, y eso
+  // costaba ~600 MB de descarga para nada: su dtype es q4f16 y el backend de CPU
+  // no tiene kernel para `GatherBlockQuantized`, así que en wasm revienta DESPUÉS
+  // de bajarlo entero y cae al modo básico. Y no hay variante que lo salve: `q4`
+  // peta con bad_alloc en este modelo (ver model-config.js), o sea que NINGÚN
+  // dtype funciona aquí sin GPU. Ofrecerlo era prometer un fallo que llega
+  // después de la espera, que es la peor forma de fallar — lo mismo que avisa el
+  // comentario del motor propio unas líneas más arriba.
+  //
+  // Consecuencia aceptada (Kiko, 2026-10-12): en un navegador sin WebGPU no hay
+  // NINGÚN modelo local, solo el modo básico. Se dice en el selector en vez de
+  // dejarlo vacío sin explicación.
+  if (realGPU) opts.push({ id: 'onnx:qwen3.5-0.8b', label: 'Qwen3.5-0.8B · WebGPU (~600 MB)' });
   if (realGPU && ENGINE_READY) opts.push({ id: 'engine:qwen35-0.8b', label: 'Qwen3.5-0.8B · Elffuss Engine (~800 MB)' });
   // El 27B se guarda tras la primera descarga (repartido en dos servidores y
   // troceado, porque el navegador corta un fichero suelto sobre 1,94 GB), así
@@ -901,7 +916,9 @@ async function changeModel(id) {
       sessionStorage.setItem('elffusscode.skipGemma', '1');
       showModelProgress(t('fallbackToast'));
       loadingId = null;
-      const okc = await changeModel(ONNX_LIGERO);
+      // Solo si hay GPU: el ligero la exige, así que sin ella este respaldo
+      // cambiaba un fallo por otro, y el segundo tras bajar ~600 MB.
+      const okc = realGPU ? await changeModel(ONNX_LIGERO) : false;
       _fellBack = false;
       if (okc) return true;
     }
@@ -931,7 +948,7 @@ let _fellBack = false;
 async function preloadModel() {
   const saved = localStorage.getItem('elffusscode.model');
   if (saved === 'rules') return;
-  await realGPUCheck; // que defaultBrain()/modelOptions() vean el adaptador real, no solo la API
+  await realGPUCheck; // que modelOptions()/pickLocalBrain() vean el adaptador real, no solo la API
   // Las sondas del motor y del modelo grande resuelven DESPUÉS de que se pinte
   // el selector, así que hay que repintarlo: sin esto la opción no aparece
   // hasta que algo más fuerce un refresco, y el usuario no la ve nunca.
@@ -939,10 +956,10 @@ async function preloadModel() {
   if (hayMotor || hay27 || hayMini) rebuildSelect();
   const avail = new Set(modelOptions().map(o => o.id));
   const skipGemma = sessionStorage.getItem('elffusscode.skipGemma') === '1';
-  const def = skipGemma ? ONNX_LIGERO : await pickLocalBrain();
+  const def = skipGemma ? (realGPU ? ONNX_LIGERO : null) : await pickLocalBrain();
   const chain = [...new Set([saved, def, ONNX_LIGERO]
     .filter(id => id && id !== 'rules' && avail.has(id)))];
-  // MÓVIL: no descargar ~1,9 GB sin permiso. defaultBrain() elige gemma-e2b en
+  // MÓVIL: no descargar ~1,9 GB sin permiso. pickLocalBrain() elige gemma-e2b en
   // móvil, y medido el 2026-09-08 con un iPhone emulado contra producción: al
   // abrir la página arrancaban OCHO peticiones de pesos sin que el usuario
   // pidiera nada. Son casi dos gigas de datos de alguien que solo entró a
@@ -1128,6 +1145,14 @@ function renderSettings() {
       sub: SUBS[o.id] || partes.slice(1).join(' · ').trim(),
     };
   });
+  // Sin WebGPU la lista local se queda en «Reglas», y una lista casi vacía sin
+  // explicación es una pregunta de soporte. Se dice POR QUÉ, en palabras de
+  // persona, y con la salida a mano (otro navegador, o un modelo externo).
+  if (!realGPU) {
+    const aviso = el('div', 'sk-nota', t('setBrainNeedsGpu'));   // la clase que ya existe, no una nueva
+    aviso.setAttribute('role', 'note');
+    box.appendChild(aviso);
+  }
   const grid = el('div', 'model-grid');
   grid.setAttribute('role', 'group');
   grid.setAttribute('aria-label', t('setBrainTitle'));
