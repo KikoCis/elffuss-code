@@ -299,3 +299,55 @@ export function slowRegexVsix() {
     },
   }, [['extension/conf.json', JSON.stringify({ wordPattern: '(a+)+$', brackets: [['(', ')']] })]]);
 }
+
+// ── lo que se ve al instalar (ext_feedback.mjs) ──────────────────────────────
+// Solo código: vistas previas propias, comandos, menús y dos lenguajes SIN
+// gramática ni configuración (como una extensión real de vista previa). Aquí no
+// aporta nada visible: no se ofrece instalarla.
+export function codeOnlyVsix() {
+  return paquete({
+    name: 'previewer', displayName: 'Rich Previewer', description: 'LaTeX, STL and video preview with right-click copy',
+    categories: ['Visualization', 'Other'], main: './dist/extension.js',
+    contributes: {
+      languages: [{ id: 'csv', aliases: ['CSV'], extensions: ['.csv'] }, { id: 'tsv', aliases: ['TSV'], extensions: ['.tsv'] }],
+      commands: [{ command: 'pv.copy', title: 'Copy' }], menus: { 'editor/context': [] },
+      customEditors: [{ viewType: 'pv.stl', displayName: 'STL', selector: [{ filenamePattern: '*.stl' }] }],
+      configuration: { properties: {} },
+    },
+  }, [['extension/dist/extension.js', 'throw new Error("must never run")', { method: 99 }]]);
+}
+// Resaltado + configuración de un lenguaje nuevo, y además código para el
+// navegador (formatear, comandos): funciona en parte.
+export const TOMLISH = { lang: 'tomlish', ext: '.tomlish', scope: 'source.tomlish', key: '#E06C75' };
+export function partialLangVsix() {
+  const g = { scopeName: TOMLISH.scope, patterns: [{ match: '^\\s*[a-z]+(?=\\s*=)', name: 'variable.other.key.tomlish' }, { match: '#.*$', name: 'comment.line.tomlish' }] };
+  return paquete({
+    name: 'tomlish', displayName: 'Tomlish Support', description: 'Fully-featured Tomlish support',
+    categories: ['Programming Languages', 'Formatters'], main: './dist/extension.js', browser: './dist/browser.js',
+    contributes: {
+      languages: [{ id: TOMLISH.lang, aliases: ['Tomlish'], extensions: [TOMLISH.ext], configuration: './conf.json' }],
+      grammars: [{ language: TOMLISH.lang, scopeName: TOMLISH.scope, path: './g.json' }],
+      commands: [{ command: 't.fmt', title: 'Format' }], configuration: { properties: {} },
+    },
+  }, [['extension/g.json', JSON.stringify(g)], ['extension/conf.json', JSON.stringify({ comments: { lineComment: '#' }, brackets: [['[', ']'], ['{', '}']], autoClosingPairs: [{ open: '[', close: ']' }, { open: '"', close: '"' }] })],
+    ['extension/dist/extension.js', 'throw new Error("must never run")', { method: 99 }]]);
+}
+// Solo temas, sin código.
+export const PURE_DARK = '#2A1B3D';
+export function pureThemeVsix() {
+  const t = bg => JSON.stringify({ colors: { 'editor.background': bg, 'editor.foreground': '#F8F8F2' }, tokenColors: [{ scope: 'keyword', settings: { foreground: '#FF79C6' } }] });
+  return paquete({ name: 'pure-theme', displayName: 'Pure Theme', categories: ['Themes'], contributes: { themes: [
+    { label: 'Pure Night', uiTheme: 'vs-dark', path: './night.json' }, { label: 'Pure Dusk', uiTheme: 'vs-dark', path: './dusk.json' },
+  ] } }, [['extension/night.json', t(PURE_DARK)], ['extension/dusk.json', t('#3A2B4D')]]);
+}
+// Snippets para JavaScript, sin código.
+export function jsSnippetsVsix() {
+  const s = {
+    'Console log': { prefix: 'clg', body: 'console.log($1);' },
+    'Import': { prefix: 'imp', body: "import $1 from '$2';" },
+    'Arrow': { prefix: 'fn', body: 'const $1 = ($2) => {$0};' },
+    'Group': { Inner: { prefix: 'thr', body: 'throw new Error($1);' } },
+  };
+  return paquete({ name: 'js-snips', displayName: 'JS Snips', categories: ['Snippets'], contributes: { snippets: [{ language: 'javascript', path: './s.json' }, { language: 'typescript', path: './s.json' }] } },
+    [['extension/s.json', JSON.stringify(s)]]);
+}

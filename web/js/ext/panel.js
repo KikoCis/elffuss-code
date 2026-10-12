@@ -8,6 +8,7 @@
 // <summary>), los resultados y avisos se anuncian (role=status/alert), el
 // foco no se pierde al repintar ni al cerrar, y Escape cierra el panel.
 import { tx } from './i18n.js';
+import { describe, lista, listaO, esTexto } from './verdict.js';
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
@@ -21,6 +22,7 @@ let desuscribe = null;
 let abridor = null;                     // quién tenía el foco al abrir el panel
 let focoPendiente = null;               // control a recuperar tras repintar «Instaladas»
 let nDetalle = 0;
+let ideCargado = null;                  // ../ide.js, para contar pestañas al pintar «Instaladas»
 
 function ponCss() {
   if (cssPuesto) return;
@@ -57,6 +59,7 @@ export function open(h, { themes = false } = {}) {
   if (!$('ext-panel')?.isConnected || box.hidden) abridor = document.activeElement;
   estado.msg = null;                    // un aviso viejo no se repite al volver a abrir
   pinta();
+  if (!ideCargado) ide().then(m => { ideCargado = m; if ($('ext-panel')?.isConnected) pintaInstaladas(); });
 }
 
 function cierraPanel() {
@@ -70,7 +73,7 @@ export function close() { if ($('ext-panel')?.isConnected && !$('settings-panel'
 // ── mensajes legibles (exportados para las pruebas en Node) ──
 const ERRORES = {
   rate: 'errRate', sha: 'errSha', nothing: 'errNothing', notvsix: 'errNotVsix', notfound: 'errNotFound',
-  big: 'errBig', noname: 'errNoName', blocked: 'errBlocked',
+  big: 'errBig', noname: 'errNoName', blocked: 'errBlocked', codeonly: 'notHere',
 };
 export function textoError(e) {
   const code = e?.code;
@@ -115,6 +118,7 @@ function aviso(texto, error = false) {
   m.hidden = false;
   m.textContent = texto || '';
   m.classList.toggle('err', !!error);
+  m.classList.remove('ext-msg-sr');
 }
 // Estado de la búsqueda para el lector de pantalla (la cabecera visible se
 // rehace en cada repintado y no podría anunciarse).
@@ -126,34 +130,76 @@ function anunciaBusqueda(texto) {
 // «Aplica: 2 temas · No aplica: commands (necesita su código)», con lo que de
 // verdad se aplicaría aquí: la gramática de un lenguaje de serie sin Monarch
 // (JSON) y la configuración de un lenguaje de serie no se aplican, y no cuentan.
-function resumen({ themes = 0, grammarLangs = [], languageList = [], snippetLangs = [], ignored = [], hasCode = false, pack = [] }) {
-  const saltaGram = l => !!l && !!host.grammarSkippedFor?.(l);
+// ── qué hace cada extensión, en llano (verdict.js) ──
+const BONITOS = {
+  javascript: 'JavaScript', typescript: 'TypeScript', javascriptreact: 'JavaScript React', typescriptreact: 'TypeScript React',
+  html: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less', json: 'JSON', jsonc: 'JSON', vue: 'Vue', python: 'Python', markdown: 'Markdown',
+  shellscript: 'Shell', go: 'Go', rust: 'Rust', java: 'Java', php: 'PHP', ruby: 'Ruby', csharp: 'C#', cpp: 'C++', c: 'C', yaml: 'YAML',
+};
+function nombreLenguaje(id, langs = []) {
+  return langs.find(l => l.id === id && esTexto(l.name))?.name || host?.languageName?.(id) || BONITOS[id] || id;
+}
+function extsDe(id, langs = []) {
+  const propias = langs.filter(l => l.id === id).flatMap(l => l.extensions || []);
+  return [...new Set(propias.length ? propias : host?.languageExtensions?.(id) || [])];
+}
+// Hechos comunes a un package.json (antes de instalar) y a un registro instalado.
+function hechos(base, { themes = [], grammarLangs = [], langs = [], snippets = [] }) {
+  const salta = l => !!host.grammarSkippedFor?.(l);
   const deSerie = id => !!host.builtinLanguage?.(id);
-  const gramSaltadas = [...new Set(grammarLangs.filter(saltaGram))];
-  const confSaltadas = [...new Set(languageList.filter(l => l.config && deSerie(l.id)).map(l => l.id))];
-  const grammars = grammarLangs.filter(l => !saltaGram(l)).length;
-  const languages = languageList.filter(l => !deSerie(l.id)).length;
-  const aplica = [];
-  if (themes) aplica.push(tx('themes', { n: themes }));
-  if (grammars) aplica.push(tx('grammars', { n: grammars }));
-  if (languages) aplica.push(tx('languages', { n: languages }));
-  if (snippetLangs.length) aplica.push(tx('snippets', { langs: snippetLangs.slice(0, 6).join(', ') + (snippetLangs.length > 6 ? '…' : '') }));
-  const porMotivo = { code: [], later: [] };
-  for (const i of ignored) (porMotivo[i.why] || porMotivo.later).push(i.key);
-  const no = [...gramSaltadas.map(lang => tx('grammarNotApplied', { lang })), ...confSaltadas.map(lang => tx('settingsNotApplied', { lang }))];
-  if (porMotivo.code.length) no.push(`${porMotivo.code.join(', ')} (${tx('needsCode')})`);
-  if (porMotivo.later.length) no.push(`${porMotivo.later.join(', ')} (${tx('notYet')})`);
-  const lineas = [];
-  lineas.push(aplica.length ? { cls: 'ext-applies', t: tx('applies', { list: aplica.join(' · ') }) } : { cls: 'ext-nothing', t: tx('nothing') });
-  if (no.length) lineas.push({ cls: 'ext-ignored', t: tx('ignores', { list: no.join(' · ') }) });
-  if (hasCode) lineas.push({ cls: 'ext-ignored', t: tx('hasCode') });
-  if (pack.length) lineas.push({ cls: 'ext-ignored', t: tx('pack', { n: pack.length }) });
-  return { lineas, any: aplica.length > 0 };
+  const conGram = [...new Set(grammarLangs.filter(l => l && !salta(l)))];
+  // snippets de un lenguaje que Code no tiene (javascriptreact, vue…) no
+  // saldrían nunca: ni se cuentan ni se prometen. Y un mismo fichero que sirve
+  // a varios lenguajes se cuenta una vez.
+  const existe = id => langs.some(l => l.id === id) || !!host.languageName?.(id) || !!host.builtinLanguage?.(id);
+  const porLang = new Map();
+  const vistos = new Set();
+  for (const s of snippets.filter(x => existe(x.language))) {
+    const n = !Number.isFinite(s.count) ? NaN : s.key && vistos.has(s.key) ? 0 : s.count;
+    if (s.key) vistos.add(s.key);
+    porLang.set(s.language, (porLang.has(s.language) ? porLang.get(s.language) : 0) + n);
+  }
+  return {
+    ...base, themes,
+    highlight: conGram.map(id => ({ id, name: nombreLenguaje(id, langs), exts: extsDe(id, langs) })),
+    settingsOnly: langs.filter(l => l.config && !deSerie(l.id) && !conGram.includes(l.id)).map(l => nombreLenguaje(l.id, langs)),
+    keepsBuiltin: [...new Set(grammarLangs.filter(l => l && salta(l)))].map(id => nombreLenguaje(id, langs)),
+    snippets: [...porLang].map(([id, n]) => ({ id, name: nombreLenguaje(id, langs), count: Number.isFinite(n) ? n : null })),
+  };
+}
+function hechosDeManifiesto(a) {
+  return hechos({ hasCode: a.hasCode, browserEntry: a.browserEntry, categories: a.categories || [], sizes: a.sizes || {}, webviews: a.webviews, ignored: a.ignored || [], pack: a.pack || [] }, {
+    themes: a.themeLabels || [], grammarLangs: a.grammarLangs || [], langs: a.languageList || [],
+    snippets: (a.snippetLangs || []).map(language => ({ language, count: null })),
+  });
+}
+function hechosDeRegistro(e) {
+  // registros de antes de guardar categorías: se asume que lo que se aplica es lo principal
+  const categories = e.categories || ['Programming Languages'];
+  return hechos({ hasCode: e.hasCode, browserEntry: !!e.browserEntry, categories, sizes: e.sizes || {}, webviews: e.webviews, ignored: e.ignored || [], pack: e.pack || [] }, {
+    themes: (e.themes || []).map(t => t.label), grammarLangs: (e.grammars || []).map(g => g.language ?? null),
+    langs: (e.languages || []).map(l => ({ id: l.id, name: l.aliases?.[0], extensions: l.extensions || [], config: !!l.configKey })),
+    snippets: (e.snippets || []).map(s => ({ language: s.language, key: s.key, count: Number.isFinite(s.count) ? s.count : null })),
+  });
+}
+// El bloque del veredicto: primero la frase que decide, luego el detalle.
+function bloqueVeredicto(f, v, { principal = true } = {}) {
+  const box = el('div', 'ext-verdict ext-v-' + v.kind);
+  box.id = 'ext-v-' + (++nDetalle);
+  if (principal || v.kind === 'code' || v.kind === 'nothing') box.appendChild(el('div', 'ext-v-main', v.verdict));
+  for (const l of v.lines) box.appendChild(el('div', 'ext-v-more', l));
+  if (f.keepsBuiltin?.length) box.appendChild(el('div', 'ext-v-more', tx('keepsBuiltin', { list: lista(f.keepsBuiltin) })));
+  if (f.pack?.length) box.appendChild(el('div', 'ext-v-more', tx('pack', { n: f.pack.length })));
+  return box;
+}
+// El botón de instalar dice lo que vas a tener; si no se ve nada, no se ofrece.
+function botonSegunVeredicto(b, v, nombre) {
+  const texto = tx(v.button.key);
+  rotula(b, texto, v.button.key === 'install' ? tx('installNamed', { name: nombre }) : `${texto}: ${nombre}`);
+  b.className = (v.button.style === 'primary' ? 'primary' : 'ghost') + ' ext-install';
+  inerte(b, v.button.disabled);
 }
 
-// Botón de acción: texto visible y nombre accesible con la extensión
-// («Instalar Monokai»). Sin nombre accesible, el lector lee el texto visible
-// (el progreso de la descarga, por ejemplo).
 function rotula(b, texto, accesible = null) {
   b.textContent = texto;
   if (accesible) b.setAttribute('aria-label', accesible); else b.removeAttribute('aria-label');
@@ -330,6 +376,47 @@ function icono(url, nombre) {
   return letra;
 }
 
+// ── análisis previo de cada resultado: su package.json (una petición por fila,
+// cuatro a la vez, en caché) para dar el veredicto ANTES de instalar ──
+const analisis = new Map();
+const colaAnalisis = [];
+let analizando = 0;
+const claveDe = it => `${it.namespace}.${it.name}@${it.version}`;
+function bombea() {
+  while (analizando < 4 && colaAnalisis.length) {
+    const { it, res, rej } = colaAnalisis.shift();
+    analizando++;
+    (async () => {
+      const ovsx = await import('./openvsx.js');
+      const { analyzeManifest } = await import('./vsix.js');
+      return analyzeManifest(await ovsx.manifestOf(it));
+    })().then(res, rej).finally(() => { analizando--; bombea(); });
+  }
+}
+function analiza(it) {
+  const k = claveDe(it);
+  if (!analisis.has(k)) {
+    const p = new Promise((res, rej) => { colaAnalisis.push({ it, res, rej }); bombea(); });
+    analisis.set(k, p);
+    p.catch(() => analisis.delete(k));          // se reintenta la próxima vez
+  }
+  return analisis.get(k);
+}
+function pintaVeredictoFila(row, it, a, instalada) {
+  const f = hechosDeManifiesto(a);
+  const v = describe(f);
+  const sitio = row.querySelector('.ext-verdict-slot');
+  if (!sitio) return v;
+  const bloque = bloqueVeredicto(f, v);
+  sitio.replaceChildren(bloque);
+  const b = row.querySelector('.ext-install');
+  if (b && !instalada && !b.dataset.ocupado) {
+    botonSegunVeredicto(b, v, it.displayName);
+    if (v.button.disabled) { b.setAttribute('aria-describedby', bloque.id); b.title = v.verdict; } else { b.removeAttribute('aria-describedby'); b.removeAttribute('title'); }
+  }
+  return v;
+}
+
 function filaResultado(it, instalada) {
   const row = el('div', 'ext-row');
   row.dataset.id = `${it.namespace}.${it.name}`;
@@ -337,8 +424,6 @@ function filaResultado(it, instalada) {
   const det = el('div', 'ext-detail');
   det.id = 'ext-det-' + (++nDetalle);
   det.hidden = true;
-  // el nombre es el botón que despliega el detalle (qué aplicaría y qué no):
-  // antes de instalar, también con teclado
   const t = el('div', 'ext-title');
   const nombre = el('button', 'ext-name', it.displayName);
   nombre.type = 'button';
@@ -349,6 +434,7 @@ function filaResultado(it, instalada) {
   t.append(nombre, el('span', 'muted', ` ${it.namespace} · v${it.version}`));
   if (it.verified) t.appendChild(el('span', 'ext-badge', '✓'));
   main.append(t, el('div', 'ext-desc', it.description));
+  main.appendChild(el('div', 'ext-verdict-slot'));
   main.appendChild(el('div', 'ext-meta muted', tx('downloads', { n: it.downloadCount.toLocaleString() })));
   main.appendChild(det);
   main.onclick = e => { if (!e.target.closest('button, a, summary')) detalle(it, det, nombre); };
@@ -365,6 +451,7 @@ function filaResultado(it, instalada) {
   b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b); };
   acc.appendChild(b);
   row.append(icono(it.icon, it.displayName), main, acc);
+  analiza(it).then(a => pintaVeredictoFila(row, it, a, instalada)).catch(() => { /* sin veredicto: el botón de siempre */ });
   return row;
 }
 
@@ -375,12 +462,13 @@ async function detalle(it, det, boton) {
   det.replaceChildren(el('div', 'muted', tx('loadingDetails')));
   try {
     const ovsx = await import('./openvsx.js');
-    const { analyzeManifest } = await import('./vsix.js');
     const meta = await ovsx.metadata(it.namespace, it.name, it.version);
-    const a = analyzeManifest(await ovsx.manifest(meta));
-    const r = resumen({ themes: a.applies.themes, grammarLangs: a.grammarLangs, languageList: a.languageList, snippetLangs: a.snippetLangs, ignored: a.ignored, hasCode: a.hasCode, pack: a.pack });
+    const a = await analiza(it);
+    const f = hechosDeManifiesto(a);
+    const v = describe(f);
     det.replaceChildren();
-    for (const l of r.lineas) det.appendChild(el('div', l.cls, l.t));
+    // el veredicto ya va en la fila; aquí, además, todo lo que no funcionaría
+    if (v.missing.length && v.kind !== 'partial') det.appendChild(el('div', 'ext-v-more', tx(v.future === 'next' ? 'vMissingNext' : 'vMissingNever', { list: lista(v.missing) })));
     const lic = el('div', 'ext-meta muted', tx('license', { l: meta.license || tx('noLicense') }) + ' ');
     if (meta.files.license) {
       const a2 = el('a', null, tx('viewLicense'));
@@ -391,32 +479,190 @@ async function detalle(it, det, boton) {
     }
     det.appendChild(lic);
     det.dataset.listo = '1';
-    // nada aplicable: instalarla solo daría un error, mejor decirlo en el botón
-    const inst = det.closest('.ext-row')?.querySelector('.ext-install');
-    if (!r.any && inst && !esInerte(inst)) { inerte(inst, true); inst.title = tx('nothing'); inst.className = 'ghost ext-install'; }
+    const fila = det.closest('.ext-row');
+    if (fila) pintaVeredictoFila(fila, it, a, host.list().find(e => e.id === `${it.namespace}.${it.name}`.toLowerCase()));
   } catch (e) { det.replaceChildren(el('div', 'ext-ignored', textoError(e))); }
 }
 
+// «No se ha instalado», con el porqué en llano.
+function textoNoInstalada(nombre, a) {
+  const v = describe(hechosDeManifiesto(a));
+  return [tx('errCodeOnly', { name: nombre }), v.verdict, ...v.lines].join(' ');
+}
+
 async function instala(src, boton) {
-  const nombre = src instanceof Blob ? src.name : src.displayName;
+  const esFichero = src instanceof Blob;
+  const nombre = esFichero ? src.name : src.displayName;
+  if (!esFichero) {
+    // sin veredicto todavía (red lenta): se pide ahora, y si no se vería nada, no se baja
+    const a = await analiza(src).catch(() => null);
+    if (a) {
+      const fila = boton?.closest('.ext-row');
+      const v = fila ? pintaVeredictoFila(fila, src, a, null) : describe(hechosDeManifiesto(a));
+      if (v.button.disabled) { aviso(textoNoInstalada(nombre, a), true); return; }
+    }
+  }
   const original = boton ? { texto: boton.textContent, accesible: boton.getAttribute('aria-label') } : null;
-  if (boton) { inerte(boton, true); rotula(boton, tx('installing')); }
+  if (boton) { inerte(boton, true); boton.dataset.ocupado = '1'; rotula(boton, tx('installing')); }
   aviso(null);
+  $('ext-done')?.remove();
+  const temaAntes = host.currentTheme();
   try {
-    const rec = await host.install(src instanceof Blob ? src : { namespace: src.namespace, name: src.name, version: src.version }, {
+    const rec = await host.install(esFichero ? src : { namespace: src.namespace, name: src.name, version: src.version }, {
       onProgress: (n, total) => { if (boton && total) boton.textContent = tx('downloading', { pct: Math.round(n / total * 100) }); },
       confirmLarge: async mb => confirm(tx('bigConfirm', { mb })),
     });
-    if (boton) { rotula(boton, tx('installedOk'), tx('installedNamed', { name: rec.displayName || nombre })); boton.className = 'ghost ext-install'; }
+    if (boton) { delete boton.dataset.ocupado; rotula(boton, tx('installedOk'), tx('installedNamed', { name: rec.displayName || nombre })); boton.className = 'ghost ext-install'; }
+    // una extensión que solo trae temas se ve al instante: se aplica el primero
+    // (con «Deshacer» en el aviso)
+    const soloTemas = rec.themes?.length && !rec.grammars?.length && !rec.snippets?.length && !(rec.languages || []).some(l => l.configKey && !host.builtinLanguage?.(l.id));
+    let auto = false;
+    if (soloTemas && !rec.themes.some(t => t.themeId === host.currentTheme()) && rec.enabled !== false && !host.paused) {
+      await host.setTheme(rec.themes[0].themeId);
+      auto = true;
+    }
     const nAvisos = avisosVisibles(rec.warnings).length;
-    aviso(tx('installedMsg', { name: rec.displayName || nombre }) + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
+    const primera = auto ? ' ' + tx('cThemeApplied', { name: rec.themes[0].label }) : '';
+    aviso(tx('installedMsg', { name: rec.displayName || nombre }) + primera + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
+    await pintaTarjeta(rec, { previo: auto ? temaAntes : null });
+    pintaInstaladas();
   } catch (e) {
-    if (boton) { inerte(boton, false); rotula(boton, original.texto, original.accesible); }
-    aviso(textoError(e), true);
+    if (boton) { delete boton.dataset.ocupado; inerte(boton, false); rotula(boton, original.texto, original.accesible); }
+    if (e?.code === 'codeonly') {
+      aviso(textoNoInstalada(e.displayName || nombre, e.analysis), true);
+      if (boton) { const v = describe(hechosDeManifiesto(e.analysis)); botonSegunVeredicto(boton, v, nombre); }
+    } else aviso(textoError(e), true);
   }
 }
 
-// ── instaladas ──
+// ── después de instalar: qué cambió, dónde verlo y un botón para probarlo ──
+const baseName = p => String(p).split('/').pop();
+const cita = x => tx('quoted', { x });
+async function ide() { try { return await import('../ide.js'); } catch { return null; } }
+async function ficherosDelProyecto() { try { return await (await import('../tools/code.js')).fileList(); } catch { return []; } }
+function pestañasCon(ideMod, langs) {
+  const ids = new Set(langs);
+  return (ideMod?.openTabs?.() || []).filter(t => ids.has(t.language) || ids.has(host.languageForPath?.(t.path)));
+}
+async function ficheroCon(ideMod, langs) {
+  const ids = new Set(langs);
+  const abiertas = pestañasCon(ideMod, langs);
+  if (abiertas.length) return { path: (abiertas.find(t => t.active) || abiertas[0]).path, abierta: true };
+  for (const f of await ficherosDelProyecto()) if (ids.has(host.languageForPath?.(f) || ideMod?.languageOfPath?.(f))) return { path: f, abierta: false };
+  return null;
+}
+async function irA(path, { foco = true } = {}) {
+  const m = await ide();
+  cierraPanel();
+  await m?.openFile(path);
+  if (foco) m?.focusEditor();
+}
+async function pruebaSnippets(rec, objetivo) {
+  const prefijos = await host.snippetPrefixes(rec.id).catch(() => []);
+  const pista = tx('statusTrySnippets', { prefixes: listaO(prefijos.map(cita)) });
+  if (!objetivo) { aviso(pista); return; }
+  await irA(objetivo);
+  const sb = document.getElementById('statusbar');
+  if (sb) sb.textContent = pista;
+}
+async function pruebaResaltado(langs) {
+  const m = await ide();
+  const f = await ficheroCon(m, langs);
+  if (f) { await irA(f.path); return; }
+  aviso(tx('cHighlightTry', { exts: lista(langs.flatMap(l => extsDe(l)).slice(0, 4)) }));
+}
+function resumenAjustes(conf) {
+  if (!conf || typeof conf !== 'object') return [];
+  const que = [];
+  const lc = conf.comments?.lineComment, bc = conf.comments?.blockComment;
+  if (typeof lc === 'string') que.push(tx('sComment', { c: lc }));
+  else if (Array.isArray(bc) && bc.length === 2) que.push(tx('sComment', { c: bc.join(' … ') }));
+  const par = p => (Array.isArray(p) ? p[0] + p[1] : p && typeof p.open === 'string' ? p.open + p.close : null);
+  if (Array.isArray(conf.brackets) && conf.brackets.length) que.push(tx('sBrackets', { b: conf.brackets.map(par).filter(Boolean).slice(0, 4).join(' ') }));
+  if (Array.isArray(conf.autoClosingPairs) && conf.autoClosingPairs.length) que.push(tx('sAutoClose', { p: conf.autoClosingPairs.map(par).filter(Boolean).slice(0, 5).join(' ') }));
+  return que;
+}
+
+async function pintaTarjeta(rec, { previo = null } = {}) {
+  const sitio = $('ext-msg');
+  if (!sitio) return;
+  const m = await ide();
+  const f = hechosDeRegistro(rec);
+  const v = describe(f);
+  const box = el('section', 'ext-done');
+  box.id = 'ext-done';
+  box.setAttribute('aria-labelledby', 'ext-done-h');
+  const h = el('div', 'ext-done-h', tx('installedMsg', { name: rec.displayName }));
+  h.id = 'ext-done-h';
+  box.appendChild(h);
+  const parte = () => { const p = el('div', 'ext-done-part'); box.appendChild(p); return p; };
+  const botones = p => { const x = el('div', 'ext-done-acts'); p.appendChild(x); return x; };
+  const boton = (fila, texto, act, fn, accesible = null) => {
+    const b = el('button', 'ghost', texto);
+    b.type = 'button';
+    b.dataset.act = act;
+    if (accesible) b.setAttribute('aria-label', accesible);
+    b.onclick = fn;
+    fila.appendChild(b);
+    return b;
+  };
+
+  if (rec.themes?.length) {
+    const p = parte();
+    const pinta = (enfoca = null) => {
+      p.replaceChildren();
+      const activo = rec.themes.find(t => t.themeId === host.currentTheme());
+      p.appendChild(el('div', null, activo ? tx('cThemeApplied', { name: activo.label })
+        : rec.themes.length === 1 ? tx('cThemeReady', { name: rec.themes[0].label }) : tx('cThemesReady', { n: rec.themes.length, list: lista(rec.themes.map(t => cita(t.label))) })));
+      const fila = botones(p);
+      if (activo && previo && previo !== activo.themeId) boton(fila, tx('bUndo'), 'undo-theme', async () => { await host.setTheme(previo); pinta('apply-theme'); pintaInstaladas(); });
+      if (!activo) boton(fila, tx('bApplyNow'), 'apply-theme', async () => { await host.setTheme(rec.themes[0].themeId); pinta('undo-theme'); pintaInstaladas(); });
+      boton(fila, tx('bPickTheme'), 'pick-theme', () => openThemePicker(host));
+      if (enfoca) (fila.querySelector(`[data-act="${enfoca}"]`) || fila.querySelector('button'))?.focus();
+    };
+    pinta();
+  }
+
+  if (f.highlight.length) {
+    const p = parte();
+    const ids = f.highlight.map(x => x.id);
+    p.appendChild(el('div', null, tx('cHighlight', { list: lista(f.highlight.map(x => x.name + (x.exts.length ? ` (${x.exts.slice(0, 3).join(', ')})` : ''))) })));
+    const abiertas = pestañasCon(m, ids);
+    if (abiertas.length) {
+      p.appendChild(el('div', null, tx('cHighlightOpen', { n: abiertas.length, files: lista(abiertas.slice(0, 3).map(t => baseName(t.path))) })));
+      const destino = abiertas.find(t => t.active) || abiertas[0];
+      boton(botones(p), tx('bGoto', { file: baseName(destino.path) }), 'goto', () => irA(destino.path));
+    } else {
+      const fich = await ficheroCon(m, ids);
+      if (fich) boton(botones(p), tx('bOpenFile', { file: baseName(fich.path) }), 'open-example', () => irA(fich.path));
+      else p.appendChild(el('div', 'muted', tx('cHighlightTry', { exts: lista(f.highlight.flatMap(x => x.exts).slice(0, 4)) })));
+    }
+  }
+
+  for (const l of rec.languages || []) {
+    if (!l.configKey || host.builtinLanguage?.(l.id)) continue;
+    const que = resumenAjustes(await host.languageConfig(rec.id, l.id).catch(() => null));
+    if (que.length) parte().appendChild(el('div', null, tx('cSettings', { lang: nombreLenguaje(l.id, [{ id: l.id, name: l.aliases?.[0] }]), what: lista(que) })));
+  }
+
+  if (f.snippets.length) {
+    const p = parte();
+    const n = f.snippets.reduce((a, s) => a + (s.count || 0), 0);
+    p.appendChild(el('div', null, tx('cSnippets', { n, list: lista(f.snippets.map(s => s.name)) })));
+    const prefijos = await host.snippetPrefixes(rec.id).catch(() => []);
+    if (prefijos.length) p.appendChild(el('div', null, tx('cSnippetsTry', { prefixes: listaO(prefijos.map(cita)) })));
+    const destino = await ficheroCon(m, f.snippets.map(s => s.id));
+    if (destino) boton(botones(p), tx('bTryIn', { file: baseName(destino.path) }), 'try-snippet', () => pruebaSnippets(rec, destino.path));
+  }
+
+  for (const l of v.lines) box.appendChild(el('div', 'ext-done-part ext-v-more', l));
+  if (f.keepsBuiltin.length) box.appendChild(el('div', 'ext-done-part ext-v-more', tx('keepsBuiltin', { list: lista(f.keepsBuiltin) })));
+  $('ext-done')?.remove();
+  sitio.after(box);
+  // la región viva sigue anunciándolo; a la vista basta con la tarjeta
+  if (!sitio.classList.contains('err')) sitio.classList.add('ext-msg-sr');
+}
+
 function claveFoco(x) {
   const k = x?.closest?.('[data-k]')?.dataset.k;
   const id = x?.closest?.('.ext-row')?.dataset.id;
@@ -428,6 +674,46 @@ function recuperaFoco(box, f) {
   const fila = [...box.querySelectorAll('.ext-row')].find(r => r.dataset.id === f.id);
   const x = fila && ([...fila.querySelectorAll('[data-k]')].find(c => c.dataset.k === f.k) || fila.querySelector('[data-k="toggle"]'));
   if (x) x.focus(); else $('ext-installed-h')?.focus();
+}
+
+// Lo que esta extensión está haciendo AHORA, con un botón para verlo.
+function lineasAhora(e, f) {
+  const box = el('div', 'ext-now');
+  const linea = (texto, act = null, accesible = null, fn = null) => {
+    const d = el('div', 'ext-now-line', texto + ' ');
+    if (act) {
+      const b = el('button', 'ext-link', tx('bTry'));
+      b.type = 'button';
+      b.dataset.act = act;
+      b.dataset.k = act;
+      if (accesible) b.setAttribute('aria-label', accesible);
+      b.onclick = fn;
+      d.appendChild(b);
+    }
+    box.appendChild(d);
+  };
+  if (e.themes?.length) {
+    const activo = e.themes.find(t => t.themeId === host.currentTheme());
+    linea(activo ? tx('nThemeActive', { name: activo.label }) : tx('nThemeIdle'));
+  }
+  if (f.highlight.length) {
+    const ids = f.highlight.map(x => x.id);
+    const abiertas = pestañasCon(ideCargado, ids);
+    const nombres = lista(f.highlight.map(x => x.name));
+    linea(abiertas.length ? tx('nHighlighting', { n: abiertas.length, list: nombres })
+      : tx('nHighlightIdle', { list: lista(f.highlight.map(x => x.name + (x.exts.length ? ` (${x.exts.slice(0, 3).join(', ')})` : ''))) }),
+    'try-highlight', tx('tryHighlightNamed', { name: nombres }), () => pruebaResaltado(ids));
+  }
+  if (f.settingsOnly.length) linea(tx('nSettings', { list: lista(f.settingsOnly) }));
+  if (f.snippets.length) {
+    const n = f.snippets.reduce((a, s) => a + (s.count || 0), 0);
+    const langs = lista(f.snippets.map(s => s.name));
+    linea(tx('nSnippets', { n, list: langs }), 'try-snippet', tx('trySnippetsNamed', { name: e.displayName }), async () => {
+      const destino = await ficheroCon(await ide(), f.snippets.map(s => s.id));
+      await pruebaSnippets(e, destino?.path);
+    });
+  }
+  return box.childNodes.length ? box : null;
 }
 
 function pintaInstaladas() {
@@ -452,15 +738,13 @@ function pintaInstaladas() {
     t.append(el('b', null, e.displayName), el('span', 'muted', ` ${e.id} · v${e.version}${e.enabled ? '' : ' · ' + tx('disabled')}`));
     main.append(t);
     if (e.description) main.appendChild(el('div', 'ext-desc', e.description));
-    const r = resumen({
-      themes: e.themes?.length || 0,
-      grammarLangs: (e.grammars || []).map(g => g.language ?? null),
-      languageList: (e.languages || []).map(l => ({ id: l.id, config: !!l.configKey })),
-      snippetLangs: [...new Set((e.snippets || []).map(s => s.language))],
-      ignored: e.ignored || [], hasCode: e.hasCode, pack: e.pack || [],
-    });
-    for (const l of r.lineas) main.appendChild(el('div', l.cls, l.t));
-    // lo que el paquete declaraba y no se pudo usar: plegado, sin esconderlo
+    const f = hechosDeRegistro(e);
+    const v = describe(f);
+    if (e.enabled && !host.paused) {
+      const ahora = lineasAhora(e, f);
+      if (ahora) main.appendChild(ahora);
+    } else main.appendChild(el('div', 'ext-now muted', tx('nOff')));
+    main.appendChild(bloqueVeredicto(f, v, { principal: false }));
     const avisos = avisosVisibles(e.warnings).map(textoAviso).filter(Boolean);
     if (avisos.length) {
       const d = el('details', 'ext-warn');

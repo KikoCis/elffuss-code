@@ -13,6 +13,7 @@ import { normalizeSnippets, replaceStart, registerSnippets } from '../web/js/ext
 import { sanitizeGrammar } from '../web/js/ext/grammars.js';
 import { textoError, textoAviso } from '../web/js/ext/panel.js';
 import { STRINGS } from '../web/js/ext/i18n.js';
+import { describe as veredicto } from '../web/js/ext/verdict.js';
 import tm from '../web/js/ext/vendor/vscode-textmate@9.3.2/main.js';
 import { zip, themeVsix, elfscriptVsix, THEME_DARK, ELFS, EVIL_GRAMMAR, brokenThemeVsix, noPublisherVsix, slowRegexVsix, SLOW } from './ext_fixtures.mjs';
 
@@ -288,6 +289,32 @@ ok('analyzeManifest de un paquete solo con código', (() => { const a = analyzeM
   ok('errores: el detalle útil se conserva (estado HTTP, entrada, ids)', textos[3].includes('503') && textos[6].includes('extension/x.json') && textos[5].includes('a.b') && textos[5].includes('c.d'), textos.slice(3, 7).join(' | '));
   const faltan = l => Object.keys(STRINGS.en).filter(k => !(k in STRINGS[l])).concat(Object.keys(STRINGS[l]).filter(k => !(k in STRINGS.en)));
   ok('textos del panel: ES y EN con las mismas claves', !faltan('es').length, faltan('es').join(' '));
+}
+
+// ── veredicto en llano (verdict.js) y textos sin jerga ──
+{
+  const JERGA = /contributes|customEditors|extension host|host de extensiones|main\/browser|activationEvents|\bMonaco\b/i;
+  const malos = Object.entries(STRINGS).flatMap(([l, t]) => Object.entries(t).filter(([, v]) => JERGA.test(v)).map(([k]) => `${l}.${k}`));
+  ok('textos del panel: ningún término interno (contributes, customEditors, main/browser, host…)', !malos.length, malos.join(' '));
+  // como la extensión real de vista previa: código + editores propios + 2 lenguajes sin colores
+  const prev = veredicto({ hasCode: true, browserEntry: false, categories: ['Visualization', 'Other'], sizes: { languages: 2, commands: 9, customEditors: 8, menus: 3, configuration: 2 },
+    ignored: [{ key: 'commands' }, { key: 'customEditors' }, { key: 'menus' }, { key: 'configuration' }], themes: [], highlight: [], settingsOnly: [], snippets: [] });
+  ok('veredicto: solo código → no se ofrece instalar, y sin prometer «la siguiente versión» (editores propios)', prev.kind === 'code' && prev.button.disabled && prev.future === 'never' && !/next version/i.test(prev.verdict + prev.lines.join(' ')), JSON.stringify(prev));
+  ok('veredicto: dice lo principal en llano («its own previews»)', /its own previews/.test(prev.verdict) && !JERGA.test(prev.verdict + prev.lines.join(' ')), prev.verdict);
+  const fmt = veredicto({ hasCode: true, browserEntry: true, categories: ['Formatters'], sizes: { commands: 2, configuration: 3 }, ignored: [{ key: 'commands' }, { key: 'configuration' }, { key: 'jsonValidation' }], themes: [], highlight: [], settingsOnly: [], snippets: [] });
+  ok('veredicto: formateador con código para el navegador → «llegará con la siguiente versión»', fmt.kind === 'code' && fmt.future === 'next' && /formatting code/.test(fmt.verdict) && /next version/.test(fmt.lines.join(' ')), JSON.stringify(fmt));
+  const toml = veredicto({ hasCode: true, browserEntry: true, categories: ['Programming Languages', 'Linters', 'Formatters'], sizes: { grammars: 3, languages: 1, commands: 5, menus: 1, configuration: 2 },
+    ignored: [{ key: 'commands' }, { key: 'menus' }, { key: 'configuration' }, { key: 'semanticTokenTypes' }], themes: [], highlight: [{ id: 'toml', name: 'TOML', exts: ['.toml'] }], settingsOnly: [], snippets: [] });
+  ok('veredicto: lenguaje + código → funciona en parte, nombra TOML, botón «solo el resaltado»', toml.kind === 'partial' && /TOML/.test(toml.verdict) && toml.button.key === 'installOnlyHighlight' && !toml.button.disabled, JSON.stringify(toml));
+  const tema = veredicto({ hasCode: false, categories: ['Themes'], sizes: { themes: 2 }, ignored: [], themes: ['Dracula', 'Dracula Soft'], highlight: [], settingsOnly: [], snippets: [] });
+  ok('veredicto: solo temas → «Works in Code» con los nombres y botón Instalar', tema.kind === 'full' && /Dracula/.test(tema.verdict) && tema.button.key === 'install', JSON.stringify(tema));
+  const taller = veredicto({ hasCode: true, browserEntry: false, categories: ['Programming Languages', 'Snippets', 'Linters'], sizes: { commands: 46, views: 1, customEditors: 1, grammars: 16 }, webviews: true,
+    ignored: [{ key: 'commands' }, { key: 'views' }, { key: 'customEditors' }], themes: [], highlight: [{ id: 'latex', name: 'LaTeX', exts: ['.tex'] }], settingsOnly: [], snippets: [{ id: 'latex', name: 'LaTeX', count: null }] });
+  ok('veredicto: sobre todo código → primero lo que no funciona, luego «Only … would apply», botón secundario', taller.kind === 'mostlyCode' && /does not work in Code/.test(taller.verdict) && /^Only/.test(taller.lines[0]) && /LaTeX/.test(taller.lines[0]) && taller.button.style === 'ghost', JSON.stringify(taller));
+  const sinTraducir = veredicto({ hasCode: false, categories: ['Themes'], sizes: { themes: 1 }, ignored: [], themes: ['%themeLabel%'], highlight: [], settingsOnly: [], snippets: [] });
+  ok('veredicto: un nombre sin traducir (%clave%) no se enseña: se cuenta', !/%/.test(sinTraducir.verdict) && /a colour theme/.test(sinTraducir.verdict), sinTraducir.verdict);
+  const nombres = veredicto({ hasCode: true, categories: ['Other'], sizes: { foo: 1 }, ignored: [{ key: 'someNewThing' }], themes: [], highlight: [], settingsOnly: [], snippets: [] });
+  ok('veredicto: una contribución desconocida sale como «other features», no con su nombre', !/someNewThing/.test(nombres.verdict + nombres.lines.join(' ')), nombres.verdict);
 }
 
 console.log(fails ? `\n❌ ${fails} FALLO(S)` : '\n✅ EXTENSIONES (Node): vsix, formatos, temas, lenguajes y snippets OK');

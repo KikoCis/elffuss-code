@@ -87,7 +87,7 @@ ok('el panel abre sin pedir nada a Open VSX (solo al buscar)', !pedidas.some(u =
 await instalaFichero('elf-theme.vsix', themeVsix());
 ok('tema instalado desde .vsix', await hasta(async () => (await filaInstalada('elffuss-test.elf-theme').count()) === 1), await p.locator('#ext-msg').textContent());
 const textoFila = await filaInstalada('elffuss-test.elf-theme').innerText();
-ok('la fila dice qué aplica y qué no (commands necesita código, main no se ejecuta)', /2 (temas|themes)/.test(textoFila) && /commands/.test(textoFila) && /(main\/browser)/.test(textoFila), textoFila.replace(/\s+/g, ' ').slice(0, 220));
+ok('la fila dice en llano qué hace ahora y qué no funciona (sus acciones necesitan su código)', /Active theme: “Elf Dark”/.test(textoFila) && /Does not work: .*its own actions/.test(textoFila) && !/commands|main\/browser|extension host/.test(textoFila), textoFila.replace(/\s+/g, ' ').slice(0, 320));
 const chipOscuro = filaInstalada('elffuss-test.elf-theme').locator('.ext-theme-chips .ext-chip').first();
 await chipOscuro.click();
 ok('tema aplicado: fondo del editor', await hasta(async () => (await fondo()) === rgb(THEME_DARK.bg)), await fondo());
@@ -321,10 +321,10 @@ ok('…y se anuncia como alerta (role=alert)', (await p.getAttribute('#ext-msg',
 
 // J3. lo que no se pudo leer se dice, en la fila y al instalar
 const msgMedio = await instalaFichero('half.vsix', brokenThemeVsix());
-ok('instalada, y el mensaje avisa de lo que no se pudo usar', msgMedio === '“Half Broken” installed. 1 part could not be used.', msgMedio);
+ok('instalada, y el mensaje avisa de lo que no se pudo usar', msgMedio === '“Half Broken” installed. Theme “Good One” applied. 1 part could not be used.', msgMedio);
 ok('…anunciado (role=status)', (await p.getAttribute('#ext-msg', 'role')) === 'status');
 const filaMedio = filaInstalada('elffuss-test.half-broken');
-ok('la fila: «Applies: 1 theme» y el aviso plegado', /Applies: 1 theme\b/.test(await filaMedio.innerText()) && (await filaMedio.locator('details.ext-warn summary').innerText()) === '1 part could not be used', (await filaMedio.innerText()).replace(/\s+/g, ' '));
+ok('la fila: «Active theme: “Good One”» y el aviso plegado', /Active theme: “Good One”/.test(await filaMedio.innerText()) && (await filaMedio.locator('details.ext-warn summary').innerText()) === '1 part could not be used', (await filaMedio.innerText()).replace(/\s+/g, ' '));
 await filaMedio.locator('details.ext-warn summary').focus();
 await p.keyboard.press('Enter');
 const desplegado = await filaMedio.locator('details.ext-warn').evaluate(d => ({ open: d.open, li: d.querySelector('li')?.getClientRects().length > 0, texto: d.querySelector('li')?.textContent }));
@@ -335,7 +335,7 @@ ok('si no se puede leer nada: lo dice y por qué (no «no trae nada aplicable»)
 // J4. lo que no se aplica no se cuenta como aplicado
 await instalaFichero('json.vsix', jsonGrammarVsix());
 const textoJson = (await filaInstalada('elffuss-test.json-x').innerText()).replace(/\s+/g, ' ');
-ok('gramática y configuración de JSON: «nada aplicable» y las dos en «Not applied»', textoJson.includes('Nothing in this extension can be applied here.') && textoJson.includes('Not applied: json grammar (Monaco keeps its built-in highlighting) · json settings (Monaco keeps its own)') && !/\b1 (grammar|language)\b/.test(textoJson), textoJson);
+ok('gramática y configuración de JSON: «nada aplicable» y que Code mantiene su resaltado de JSON', textoJson.includes('Nothing in this extension can be applied here.') && textoJson.includes('Code already highlights JSON its own way and keeps it.') && !/Monaco|\b1 (grammar|language)\b/.test(textoJson), textoJson);
 
 // J5. el foco no se pierde al repintar la lista de instaladas
 await filaMedio.locator('.ext-theme-chips .ext-chip').first().focus();
@@ -368,14 +368,15 @@ await p.fill('#ext-q', 'fake');
 await p.press('#ext-q', 'Enter');
 const filaFalsa = p.locator('#ext-results .ext-row[data-id="elffuss-test.fake"]');
 ok('búsqueda: el resultado llega y se anuncia («1 result»)', await hasta(async () => (await filaFalsa.count()) === 1 && (await p.textContent('#ext-status')) === '1 result'), await p.textContent('#ext-status'));
-ok('Install con nombre propio para el lector («Install Fake JSON»)', (await filaFalsa.locator('.ext-install').getAttribute('aria-label')) === 'Install Fake JSON');
+ok('el botón dice que no hay nada que aplicar, con nombre propio para el lector', await hasta(async () => (await filaFalsa.locator('.ext-install').getAttribute('aria-label')) === 'Nothing to apply: Fake JSON'), await filaFalsa.locator('.ext-install').getAttribute('aria-label'));
 await filaFalsa.locator('.ext-install').focus();
 await p.keyboard.press('Shift+Tab');
 const nombreBtn = await activo();
 ok('Shift+Tab desde Install: el nombre, que es un botón de detalle plegado', nombreBtn.cls === 'ext-name' && (await p.evaluate(() => document.activeElement.getAttribute('aria-expanded'))) === 'false', JSON.stringify(nombreBtn));
 await p.keyboard.press('Enter');
-const detalleAbierto = await hasta(() => p.evaluate(() => { const b = document.activeElement, d = document.getElementById(b.getAttribute('aria-controls')); return b.getAttribute('aria-expanded') === 'true' && d && !d.hidden && /Nothing in this extension/.test(d.textContent) && d.textContent; }));
-ok('Enter: el detalle se despliega (aria-expanded) y dice qué aplicaría, también lo de JSON', !!detalleAbierto && /Not applied: json grammar/.test(detalleAbierto), String(detalleAbierto));
+const detalleAbierto = await hasta(() => p.evaluate(() => { const b = document.activeElement, d = document.getElementById(b.getAttribute('aria-controls')); return b.getAttribute('aria-expanded') === 'true' && d && !d.hidden && /Licence/.test(d.textContent) && d.textContent; }));
+const veredictoFalsa = await filaFalsa.locator('.ext-verdict').innerText().catch(() => '');
+ok('Enter: el detalle se despliega (aria-expanded) y la fila dice qué aplicaría, también lo de JSON', !!detalleAbierto && /Nothing in this extension/.test(veredictoFalsa) && /Code already highlights JSON/.test(veredictoFalsa), String(detalleAbierto) + ' | ' + veredictoFalsa);
 // (isDisabled() de Playwright cuenta aria-disabled como deshabilitado: aquí se
 // mira la propiedad del DOM, que es la que le quitaría el foco)
 const inst = await filaFalsa.locator('.ext-install').evaluate(b => { b.focus(); return { aria: b.getAttribute('aria-disabled'), disabled: b.disabled, foco: document.activeElement === b }; });
@@ -492,7 +493,7 @@ if (!red) {
   const fila = p.locator('#ext-results .ext-row[data-id="vscode.theme-monokai"]');
   ok('Open VSX: búsqueda con resultados', await hasta(async () => (await fila.count()) === 1, { tiempo: 20000 }));
   await fila.locator('.ext-main').click();
-  ok('Open VSX: el detalle dice qué aplicaría (sin bajar el .vsix)', await hasta(async () => /1 (tema|theme)/.test(await fila.locator('.ext-detail').innerText()), { tiempo: 20000 }), await fila.locator('.ext-detail').innerText());
+  ok('Open VSX: la fila dice qué aplicaría (sin bajar el .vsix), sin claves %sin traducir%', await hasta(async () => (t => /^Works in Code: adds a colour theme\.$/.test(t) && !/%\w+%/.test(t))(await fila.locator('.ext-verdict').innerText()), { tiempo: 20000 }), await fila.locator('.ext-verdict').innerText().catch(() => ''));
   await fila.locator('.ext-install').click();
   ok('Open VSX: vscode.theme-monokai instalada (SHA-256 comprobada)', await hasta(async () => (await filaInstalada('vscode.theme-monokai').count()) === 1, { tiempo: 30000 }) && /SHA-256/.test(await filaInstalada('vscode.theme-monokai').innerText()));
   await filaInstalada('vscode.theme-monokai').locator('.ext-theme-chips .ext-chip').first().click();

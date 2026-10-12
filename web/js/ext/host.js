@@ -215,6 +215,14 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     if (meta && v.id !== `${meta.namespace}.${meta.name}`.toLowerCase()) {
       throw Object.assign(new Error(`el paquete dice ser ${v.id}, no ${meta.namespace}.${meta.name}`), { code: 'mismatch', got: v.id, want: `${meta.namespace}.${meta.name}` });
     }
+    // lo que el usuario VERÍA: temas, snippets, resaltado de un lenguaje o los
+    // ajustes de uno nuevo. Un lenguaje que solo asocia extensiones de fichero
+    // no cambia nada en pantalla; si además el valor de la extensión es su
+    // código, instalarla sería inútil y se dice en vez de fingir que funciona.
+    const seVe = v.themes.length || v.snippets.length
+      || v.grammars.some(g => g.language && !(builtin.has(g.language) && !canOverride(monaco, g.language)))
+      || v.languages.some(l => l.config && !builtin.has(l.id));
+    if (!seVe && v.analysis.hasCode) throw Object.assign(new Error('codeonly'), { code: 'codeonly', analysis: v.analysis, displayName: v.displayName });
     if (!v.themes.length && !v.grammars.length && !v.snippets.length && !v.languages.length) {
       // declaraba cosas aplicables pero ninguna se pudo leer: no es lo mismo
       // que no traer nada, y el usuario tiene que saber por qué
@@ -231,6 +239,7 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       license: (meta?.license || v.license || '').slice(0, 200), sha256, verified, source, size: bytes.length,
       installedAt: previo?.installedAt || Date.now(), enabled: previo ? previo.enabled : true,
       hasCode: v.analysis.hasCode, ignored: v.analysis.ignored, pack: v.analysis.pack, warnings: v.warnings.slice(0, 20),
+      categories: v.analysis.categories, sizes: v.analysis.sizes, webviews: v.analysis.webviews, browserEntry: v.analysis.browserEntry,
       themes: v.themes.map(t => { const key = k('theme/' + t.index); files.set(key, t.data); return { key, label: t.label, uiTheme: t.uiTheme, themeId: themeIdFor(v.id, t, t.index, usados) }; }),
       grammars: v.grammars.map(g => {
         const key = k(g.path); files.set(key, g.data);
@@ -286,5 +295,31 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     // de serie (Monaco conserva la suya)
     grammarSkippedFor: lang => typeof lang === 'string' && builtin.has(lang) && !canOverride(monaco, lang),
     builtinLanguage: id => builtin.has(id),
+    // para decir en llano lo que hace cada extensión (panel.js)
+    languageName(id) {
+      for (let i = langContribs.length - 1; i >= 0; i--) if (langContribs[i].id === id && langContribs[i].aliases?.[0]) return langContribs[i].aliases[0];
+      return monaco.languages.getLanguages().find(l => l.id === id)?.aliases?.[0] || null;
+    },
+    languageExtensions(id) {
+      const out = new Set();
+      for (const l of langContribs) if (l.id === id) for (const x of l.extensions || []) out.add(x);
+      for (const x of monaco.languages.getLanguages().find(l => l.id === id)?.extensions || []) out.add(x);
+      return [...out];
+    },
+    async snippetPrefixes(id, n = 3) {
+      const e = exts.find(x => x.id === id);
+      const out = [];
+      for (const s of e?.snippets || []) {
+        for (const x of (await store.getFile(s.key).catch(() => null)) || []) {
+          if (x?.prefix && !out.includes(x.prefix)) out.push(x.prefix);
+          if (out.length >= n) return out;
+        }
+      }
+      return out;
+    },
+    async languageConfig(id, lang) {
+      const l = exts.find(x => x.id === id)?.languages?.find(x => x.id === lang);
+      return l?.configKey ? store.getFile(l.configKey).catch(() => null) : null;
+    },
   };
 }

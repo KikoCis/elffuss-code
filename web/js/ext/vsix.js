@@ -39,8 +39,22 @@ export function analyzeManifest(pkg) {
   // para decir qué NO se aplicaría aunque se instale (panel.js): el lenguaje
   // de cada gramática y si cada lenguaje trae configuración
   const grammarLangs = arr('grammars').map(g => (typeof g?.language === 'string' ? g.language : null));
-  const languageList = arr('languages').filter(l => typeof l?.id === 'string' && l.id).map(l => ({ id: l.id, config: typeof l.configuration === 'string' }));
-  return { applies, ignored, hasCode, pack, snippetLangs, languages, grammarLangs, languageList, any: Object.values(applies).some(Boolean) };
+  const languageList = arr('languages').filter(l => typeof l?.id === 'string' && l.id).map(l => ({
+    id: l.id, config: typeof l.configuration === 'string',
+    name: Array.isArray(l.aliases) && typeof l.aliases[0] === 'string' ? l.aliases[0] : undefined,
+    extensions: Array.isArray(l.extensions) ? l.extensions.filter(x => typeof x === 'string') : [],
+  }));
+  // para el veredicto en lenguaje llano (verdict.js): de qué va, qué partes
+  // necesitan su código y si ese código podría correr en un navegador
+  const categories = Array.isArray(pkg?.categories) ? pkg.categories.filter(x => typeof x === 'string') : [];
+  const sizes = {};
+  for (const k of Object.keys(c)) sizes[k] = Array.isArray(c[k]) ? c[k].length : c[k] && typeof c[k] === 'object' ? Object.keys(c[k]).length : 1;
+  const webviews = Object.values(c.views && typeof c.views === 'object' ? c.views : {}).some(v => Array.isArray(v) && v.some(x => x?.type === 'webview'));
+  const themeLabels = arr('themes').map(t => (typeof t?.label === 'string' ? t.label : typeof t?.id === 'string' ? t.id : null)).filter(Boolean);
+  return {
+    applies, ignored, hasCode, pack, snippetLangs, languages, grammarLangs, languageList, any: Object.values(applies).some(Boolean),
+    categories, sizes, webviews, browserEntry: typeof pkg?.browser === 'string', themeLabels,
+  };
 }
 
 // %clave% → texto de package.nls(.<idioma>).json, en todo el manifiesto.
