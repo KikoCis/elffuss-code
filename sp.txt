@@ -1,6 +1,0 @@
-tests/prompt_prefers_edit.mjs
-tests/prompthist.mjs
-web/js/agent.js
-web/js/ext/i18n.js
-web/js/ext/languages.js
-web/js/i18n.js
