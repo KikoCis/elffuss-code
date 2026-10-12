@@ -1,5 +1,6 @@
 // What people who never turn on an extension's code download, compared with
-// the level 1 tip (9e457ee), and what turning it on downloads.
+// Code's main before level 2 (84cc38b, which has level 1), and what turning it
+// on downloads.
 //
 //   node tests/x2_bytes.mjs
 //
@@ -39,7 +40,7 @@ import { themeVsix } from './ext_fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
-const TIP = '9e457ee';
+const TIP = '84cc38b';                 // main before level 2 (level 1 included)
 const BUDGET = { 1: 1024, 2: 5 * 1024, 3: 5 * 1024, 4: 20 * 1024 };
 let fails = 0;
 const ok = (name, c, extra = '') => { console.log((c ? '✅' : '❌') + ' ' + name + (extra ? '  — ' + extra : '')); if (!c) fails++; };

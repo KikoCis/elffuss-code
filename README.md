@@ -149,12 +149,13 @@ connections and 0 UDP packets; accepting one address must produce exactly one vi
 address the dialog showed; and positive controls show the setup does catch leaks.
 
 - **Nothing of level 2 loads until you turn an extension's code on.** `tests/x2_bytes.mjs`
-  compares Code with the level 1 tip request by request, uncompressed: with no extension
-  it asks for exactly the same files and 881 bytes more (short hooks in `main.js` and
-  `ide.js`: the palette list, the preview gate and the list of open tabs); with level 1
-  extensions only, the same files and 4.4 KB more (the hooks in `js/ext/host.js` and
-  `store.js` that decide when to load `js/ext2/host2.js`); with the Extensions panel open
-  and a search done, the same files and 20,430 bytes more, within the suite's 20 KB budget
+  compares Code with its main before level 2 (which has level 1) request by request,
+  uncompressed: with no extension it asks for exactly the same files and 616 bytes more
+  (short hooks in `main.js` and `ide.js`: the palette list, the preview gate and the list
+  of open tabs); with level 1 extensions only, the same files and 4.2 KB more (the hooks in
+  `js/ext/host.js` and `store.js` that decide when to load `js/ext2/host2.js`); with the
+  Extensions panel open and a search done, the same files and 20,165 bytes more, within the
+  suite's 20 KB budget
   (what the panel now tells everyone: what will work, the Works in Code filter, how
   extensions are isolated, the check before Install, which for a result that applies
   without code loads nothing of level 2). In none of these is anything fetched from
@@ -251,7 +252,7 @@ Tests (each starts its own loopback server; nothing goes to production):
 | `x2_headers` | the sandbox documents' exact headers, 404 for anything else, Code never serves `/x2/`, the vendor files' headers and SRI, a missing vendor file not cached (also against a deployment); the generated nginx snippets |
 | `x2_deploy` | the deploy scripts against a folder that plays the server (fake `git`, `ssh` and `rsync`): only the manifest's files go up and nothing else may be there, a stray or corrupt file stops it, main must protect `vendor/x2/` first, the sandbox must be another site |
 | `x2_smoke` | synthetic extensions end to end: commands, formatting, hovers, symbols, diagnostics, decorations, dialogs, the gates, the firewall, tampering, `?noext`/`?noext2`/kill switch |
-| `x2_bytes` | the default path and the level 1 states against the level 1 tip (above) |
+| `x2_bytes` | the default path and the level 1 states against main before level 2 (above) |
 | `x2_canary` | the canary and the drill (above), with positive controls |
 | `x2_manager` | sort-lines and Prettier installed, run, configured and uninstalled through the panel, Open VSX mocked from their pinned packages |
 | `x2_commands` | sort-lines in Code's palette, F1, F9 and the context menu; Cmd+S; reserved chords and conflicts; Code's own shortcuts unchanged; hostile titles stay text |
