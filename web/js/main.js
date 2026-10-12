@@ -964,8 +964,9 @@ const el = (t, cls, txt) => { const e = document.createElement(t); if (cls) e.cl
 // anuncia como tal, el foco entra en él al abrirse y vuelve a quien lo abrió
 // al cerrarse (también con Escape). Antes el foco se quedaba en el engranaje.
 let volverDeAjustes = null;
-function settingsShell(title) {
+function settingsShell(title, kind = 'settings') {
   const box = $('settings-panel');
+  box.dataset.kind = kind;   // qué hay dentro: lo enseña la barra de actividad
   const yaAbierto = !box.hidden && box.contains(document.activeElement);
   if (box.hidden || !volverDeAjustes) volverDeAjustes = document.activeElement;
   box.hidden = false;
@@ -1874,7 +1875,7 @@ async function openView(kind) {
   body.firstChild.textContent = t('viewBuilding');
   overlay.hidden = false;
   tapaVista(true);
-  document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-' + kind));
+  document.querySelectorAll('#act-arch, #act-city').forEach(b => b.classList.toggle('on', b.id === 'act-' + kind));
   // esperar a que el layout dé tamaño real al overlay (si no, canvas 0×0/mal aspect)
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   if (seq !== viewRenderSeq) return; // el usuario cambió de vista mientras tanto
@@ -1965,7 +1966,7 @@ function closeView({ foco = false } = {}) {
   tapaVista(false);
   import('./city.js').then(m => m.disposeCity()).catch(() => {});
   import('./arch.js').then(m => m.disposeArch()).catch(() => {});
-  document.querySelectorAll('#activity button').forEach(b => b.classList.toggle('on', b.id === 'act-files'));
+  document.querySelectorAll('#act-arch, #act-city').forEach(b => b.classList.remove('on'));
   // El foco vuelve a quien la abrió si aún se ve; si no (un menú que ya se
   // cerró), al botón de la vista en la barra de actividad; en el móvil, donde
   // esos botones viven en el cajón cerrado, al ☰.
@@ -2231,12 +2232,39 @@ $('act-search').innerHTML = ACTIVITY.search;
 $('act-settings').innerHTML = ACTIVITY.gear;
 $('act-files').addEventListener('click', () => {
   document.body.classList.toggle('hide-tree');
-  $('act-files').classList.toggle('on');
+  pintaActividad();
 });
 // Lo que promete su título: buscar ficheros (la paleta, como Cmd/Ctrl+P). Antes
 // escribía «busca » en el chat. Buscar DENTRO del código es «#» en la paleta.
 $('act-search').addEventListener('click', (e) => { e.stopPropagation(); openPalette(''); });
 $('act-settings').addEventListener('click', () => $('btn-settings').click());
+
+// La barra de actividad dice qué está abierto. El explorador (☰ del árbol) y el
+// panel grande (Ajustes, Skills o Extensiones) son independientes: con Skills
+// abierto, ocultar o enseñar el árbol funciona y el panel se ajusta al hueco
+// que queda (antes el clic cerraba Skills y, al ocultar el árbol, el editor
+// desaparecía). Pulsar otra vez el icono del panel abierto lo cierra.
+const panelAbierto = () => { const p = $('settings-panel'); return p.hidden ? '' : (p.dataset.kind || 'settings'); };
+function pintaActividad() {
+  const tree = !document.body.classList.contains('hide-tree');
+  $('act-files').classList.toggle('on', tree);
+  $('act-files').setAttribute('aria-pressed', String(tree));
+  const abierto = panelAbierto();
+  for (const k of ['skills', 'ext', 'settings']) {
+    const b = $('act-' + k);
+    b.classList.toggle('on', abierto === k);
+    b.setAttribute('aria-pressed', String(abierto === k));
+  }
+}
+new MutationObserver(pintaActividad).observe($('settings-panel'), { attributes: true, attributeFilter: ['hidden', 'data-kind'] });
+// El panel empieza justo debajo de la cabecera, mida lo que mida (en el móvil
+// la cabecera ocupa dos líneas).
+{
+  const cab = document.querySelector('#ide header');
+  const mide = () => { const y = Math.round(cab.getBoundingClientRect().bottom); if (y > 0) document.documentElement.style.setProperty('--ide-top', y + 'px'); };
+  new ResizeObserver(mide).observe(cab);
+  addEventListener('resize', mide);
+}
 
 $('btn-history').addEventListener('click', () => {
   const panel = $('history-panel');
@@ -2259,8 +2287,9 @@ document.addEventListener('pointerdown', e => {
   cierraHistorial({ foco: false });
 }, true);
 $('btn-settings').addEventListener('click', () => {
-  const p = $('settings-panel');
-  if (!p.hidden) return cierraAjustes();
+  // Con Skills o Extensiones abiertos, el engranaje abre Ajustes (antes los
+  // cerraba y había que pulsar dos veces).
+  if (panelAbierto() === 'settings') return cierraAjustes();
   renderSettings();
 });
 // clic fuera del panel (o ir a Archivo/chat) lo cierra — antes solo la X lo hacía.
@@ -2270,7 +2299,10 @@ $('btn-settings').addEventListener('click', () => {
 document.addEventListener('pointerdown', e => {
   const p = $('settings-panel');
   if (p.hidden) return;
-  if (p.contains(e.target) || e.target.closest('#btn-settings, #act-settings, #model-dot, #ext-themepick')) return;
+  // Los botones que abren o cierran el panel (y el explorador y el cajón del
+  // móvil, que conviven con él) no cuentan como «fuera»: si no, el clic lo
+  // cerraba y su propio manejador lo volvía a abrir.
+  if (p.contains(e.target) || e.target.closest('#btn-settings, #act-settings, #act-skills, #act-ext, #act-files, #btn-drawer, #drawer-scrim, #model-dot, #ext-themepick')) return;
   p.hidden = true;
   volverDeAjustes = null;
 }, true);
@@ -2725,7 +2757,7 @@ send = async (text) => {
 // de persona y con «Reintentar» (antes: «⚠️ FAILED TO FETCH» en mayúsculas, y
 // un alert() del navegador al añadir un repo que no valía o al instalar).
 async function openSkillsPanel() {
-  const box = settingsShell(t('skTitle'));
+  const box = settingsShell(t('skTitle'), 'skills');
   const wrap = document.createElement('div');
   wrap.className = 'skills-panel';
   const intro = document.createElement('p');
@@ -3151,7 +3183,7 @@ $('git-branch').addEventListener('click', () => document.querySelector('#menubar
 
 // icono de skills en la barra de actividad
 $('act-skills').innerHTML = UI.puzzle;
-$('act-skills').addEventListener('click', () => openSkillsPanel());
+$('act-skills').addEventListener('click', () => (panelAbierto() === 'skills' ? cierraAjustes() : openSkillsPanel()));
 
 // Extensiones de VS Code (temas, gramáticas, snippets, lenguajes): js/ext/.
 // Nada de eso se carga hasta que se usa; el panel y el host llegan al pulsar.
@@ -3165,7 +3197,7 @@ async function openExtensions(opts = {}) {
 }
 $('act-ext').innerHTML = ACTIVITY.extensions;
 $('act-ext').title = extTexto('Extensiones (temas, gramáticas, snippets)', 'Extensions (themes, grammars, snippets)');
-$('act-ext').addEventListener('click', () => openExtensions());
+$('act-ext').addEventListener('click', () => (panelAbierto() === 'ext' && panelExt ? panelExt.close() : openExtensions()));
 
 rebuildSelect();
 skills.initSkills();

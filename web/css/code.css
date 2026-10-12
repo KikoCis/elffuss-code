@@ -509,11 +509,21 @@ a.file-link:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1
 .sk-row input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 9px; font-size: .78rem; }
 .sk-row button.primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 6px; padding: 5px 11px; cursor: pointer; font-size: .76rem; }
 .sk-row button.ghost { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: .76rem; }
-#settings-panel { max-height: 55vh; overflow-y: auto; flex-direction: column; }
-
-/* el panel de ajustes/skills se SUPERPONE (no empuja el IDE) */
-#settings-panel { position: fixed; top: 46px; left: 46px; right: 0; z-index: 90; max-height: 78vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
-@media (max-width: 760px) { #settings-panel { left: 0; } }
+/* El panel de Ajustes / Skills / Extensiones se SUPERPONE (no empuja el IDE) y
+   ocupa ENTERO el hueco de trabajo: de la cabecera al pie y del borde del
+   explorador al de la ventana. Antes era una persiana de la altura de su
+   contenido (top fijo a 46 px y max-height 78vh): por debajo asomaban el
+   editor y el chat, y empezaba 5 px por debajo de la cabecera. La barra de
+   actividad y el explorador quedan a la vista y funcionando; al ocultar el
+   árbol, el panel se ensancha hasta la barra. */
+#settings-panel {
+  position: fixed; top: var(--ide-top, 41px); left: 281px; right: 0; bottom: 0; z-index: 90;
+  max-height: none; overflow-y: auto; overscroll-behavior: contain; flex-direction: column;
+  border-left: 1px solid var(--line); border-bottom: none;
+}
+#settings-panel > * { flex-shrink: 0; }
+body.hide-tree #settings-panel, body.chat-full #settings-panel { left: 46px; }
+@media (max-width: 760px) { #settings-panel, body.hide-tree #settings-panel { left: 0; border-left: none; } }
 
 /* ---------- móvil: cajón con el árbol y las herramientas ----------
    En el móvil la barra de actividad, el árbol y la barra de menús están
