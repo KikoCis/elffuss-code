@@ -252,41 +252,74 @@ export function parseToolCall(text) {
 // `param` se intenta leer como JSON —para que un 3 sea el número 3 y no "3"—
 // y si no es JSON válido se queda como texto, que es lo que hay que hacer con
 // una ruta.
-export function parseFunctionTags(text) {
+// Lectura segura de las excepciones del contrato.
+// ─────────────────────────────────────────────────────────────────────────────
+// `PARAM_EXACTO['constructor']` no es undefined: es `Object.prototype.constructor`,
+// o sea una función, así que `(mapa[x] || []).includes(...)` LANZA. Y el nombre de
+// herramienta sale del texto del modelo, que puede decir `constructor`, `toString`
+// o `__proto__`. Como `parseToolCalls` corre fuera del try/catch de `handle`, eso
+// no daba una herramienta desconocida: tumbaba el turno entero.
+const esDe = (mapa, herramienta, param) =>
+  Object.hasOwn(mapa, herramienta) && Array.isArray(mapa[herramienta]) &&
+  mapa[herramienta].includes(param);
+
+// Un <function> completo, con su posición. El cuerpo se saca con un grupo
+// atómico emulado —el `(?=(…))\3`— para que un `</function>` DENTRO de un CDATA
+// no cierre la llamada: sin eso el cuerpo llegaba cortado, el <param> del
+// contenido no casaba, y `code.write` escribía un fichero VACÍO (content vale ''
+// por defecto). Una llamada sin cerrar no casa nada, que es lo que se quiere:
+// mejor no ejecutar que ejecutar a medias.
+const RE_FUNCION = /<function\s+name=["']([\w.\-]+)["']\s*>((?:(?=(<!\[CDATA\[[\s\S]*?\]\]>(?=\s*<\/param\s*>)))\3|[\s\S])*?)<\/function\s*>/g;
+
+function tagsConPosicion(text) {
   const out = [];
-  const re = /<function\s+name=["']([\w.\-]+)["']\s*>([\s\S]*?)<\/function\s*>/g;
+  RE_FUNCION.lastIndex = 0;
   let m;
-  while ((m = re.exec(text))) {
+  while ((m = RE_FUNCION.exec(text))) {
+    const herramienta = m[1];
     const args = {};
-    // Dos cuerpos posibles, y el de CDATA va PRIMERO a propósito: dentro de
-    // `<![CDATA[…]]>` el contenido puede llevar `</param>`, que es justo lo que
-    // rompe el patrón no voraz. Fuera del CDATA se permite espacio, porque ahí
-    // el modelo pone sus saltos de línea de formato.
+    // El `\s*` va DENTRO de la alternativa de CDATA, no antes: puesto fuera se
+    // come la sangría de la primera línea del cuerpo normal.
     const pre = /<param\s+name=["']([\w.\-]+)["']\s*>(?:\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/param\s*>|([\s\S]*?)<\/param\s*>)/g;
     let p;
     while ((p = pre.exec(m[2]))) {
       const nombre = p[1];
-      const crudo = p[2] !== undefined ? p[2] : (p[3] || '');
-      if ((PARAM_EXACTO[m[1]] || []).includes(nombre)) {
-        // TAL CUAL, byte a byte. Ni trim ni JSON.parse: este valor ES el
-        // fichero, o el texto que tiene que casar con él.
-        args[nombre] = crudo;
+      const enCdata = p[2] !== undefined;
+      const crudo = enCdata ? p[2] : (p[3] || '');
+      if (esDe(PARAM_EXACTO, herramienta, nombre)) {
+        // El valor ES el fichero. Dentro de un CDATA, exacto y sin tocar. Fuera,
+        // se quita UN salto de línea inicial y solo uno: el modelo abre el valor
+        // en su propia línea y ese salto es formato suyo, no una primera línea en
+        // blanco del fichero. El salto FINAL se conserva, que es el que un
+        // fichero quiere tener. Quien necesite que el contenido empiece de verdad
+        // con una línea en blanco tiene el CDATA.
+        args[nombre] = enCdata ? crudo : crudo.replace(/^\r?\n/, '');
       } else {
-        const v = crudo.trim();
-        if ((PARAM_NUMERO[m[1]] || []).includes(nombre)) {
+        // Escalar: se recorta y se le quita UN par de comillas que lo envuelva.
+        // Sin esto, un `path` que el modelo entrecomilla crea una carpeta «"src»
+        // y un `around` entrecomillado da «líneas NaN-NaN». Un valor de verdad
+        // no empieza y acaba por comilla; el contenido de un fichero sí puede, y
+        // por eso esto NO se aplica a los exactos.
+        let v = crudo.trim().replace(/^(["'])([\s\S]*)\1$/, '$2');
+        if (esDe(PARAM_NUMERO, herramienta, nombre)) {
           const n = Number(v);
-          // Si no es un número, se deja el texto: que el error salga donde se
-          // usa, con el valor que mandó el modelo, en vez de un NaN callado.
+          // Si no es número se deja el texto: que el error salga donde se usa,
+          // con el valor que mandó el modelo, y no un NaN callado.
           args[nombre] = (v !== '' && Number.isFinite(n)) ? n : v;
         } else {
           args[nombre] = v;
         }
       }
     }
-    out.push({ tool: m[1], args });
+    out.push({ pos: m.index, fin: m.index + m[0].length, tool: herramienta, args });
   }
   return out;
 }
+
+export function parseFunctionTags(text) {
+  return tagsConPosicion(text).map(({ tool, args }) => ({ tool, args }));
+}
+
 
 // Extrae TODAS las tool-calls de un mensaje, en orden. El modelo pequeño a
 // menudo emite varias (p. ej. tres code.write para crear tres ficheros) o las
@@ -294,35 +327,78 @@ export function parseFunctionTags(text) {
 // primera (o ninguna) y los ficheros quedaban VACÍOS. Aquí buscamos cada objeto
 // {"tool":...} por llaves balanceadas, esté donde esté, además del formato nativo.
 export function parseToolCalls(text) {
-  const calls = [];
-  const seen = new Set();
-  const push = c => {
-    if (!c || typeof c.tool !== 'string') return;
-    const k = c.tool + '|' + JSON.stringify(c.args || {});
-    if (!seen.has(k)) { seen.add(k); calls.push(c); }
-  };
+  // Cada hallazgo con su POSICIÓN, y los tramos de texto ya reclamados.
+  //
+  // Dos motivos, los dos con daño silencioso detrás (fuzz de T2T, 2026-10-12):
+  //
+  //  · ORDEN. Antes se metían primero todos los <function> y luego todos los
+  //    bloques JSON, así que una respuesta que mezcla las dos formas ejecutaba
+  //    las llamadas en un orden que no es el del texto. Con ficheros que
+  //    dependen unos de otros, eso pierde líneas.
+  //  · Y sobre todo: la pasada que busca `{"tool":` recorría TODO el texto,
+  //    incluidos los VALORES de los <param>. Un README que documenta una
+  //    llamada hacía que esa llamada SE EJECUTARA. Con un `code.edit` de
+  //    ejemplo dentro, el parche salía con la condición invertida y el test de
+  //    aceptación pasaba igual. Ahora lo que ya reclamó una llamada completa no
+  //    se vuelve a mirar: lo citado se queda en texto.
+  const hallados = [];
+  const reclamado = [];
+  const dentro = (i) => reclamado.some(([a, b]) => i >= a && i < b);
+
   // 1) formato nativo LFM (puede haber varios)
   const nat = /<\|tool_call_start\|>[\s\S]*?<\|tool_call_end\|>/g;
   let mm;
-  while ((mm = nat.exec(text))) push(parseNativeCall(mm[0]));
+  while ((mm = nat.exec(text))) {
+    const c = parseNativeCall(mm[0]);
+    // Se reclama el tramo SOLO si de verdad se ha sacado una llamada. Si no, se
+    // deja abierto a propósito: hay modelos que envuelven JSON en los
+    // delimitadores nativos («<|tool_call_start|>{"tool":…}<|tool_call_end|>»),
+    // que `parseNativeCall` rechaza con razón —espera `tool(arg=valor)`— y que
+    // rescata la pasada de JSON de más abajo. Reclamarlo igual dejaba esas
+    // llamadas sin ejecutar y sin decir nada.
+    if (c) { hallados.push({ pos: mm.index, call: c }); reclamado.push([mm.index, mm.index + mm[0].length]); }
+  }
+
   // 1b) formato <function><param> (MiniCPM5 y afines)
-  for (const c of parseFunctionTags(text)) push(c);
-  // 2) cada objeto JSON que empiece por {"tool": … (con o sin fence)
+  for (const t of tagsConPosicion(text)) {
+    hallados.push({ pos: t.pos, call: { tool: t.tool, args: t.args } });
+    reclamado.push([t.pos, t.fin]);
+  }
+
+  // 2) cada objeto JSON que empiece por {"tool": … (con o sin fence), SALVO si
+  //    cae dentro de algo ya reclamado.
   const re = /\{\s*"tool"\s*:/g;
   let m;
   while ((m = re.exec(text))) {
+    if (dentro(m.index)) { re.lastIndex = m.index + 1; continue; }
     const obj = extractBalanced(text, m.index);
     let call = obj ? tryJson(obj) : null;
     // última capa: si ni el JSON estricto ni el reparado valen (comillas internas
     // sin escapar en el content, etc.), extractor tolerante desde el «{"tool"».
     if (!call) call = looseToolCall(text.slice(m.index));
-    if (call) push(call);
+    if (call) hallados.push({ pos: m.index, call });
     re.lastIndex = m.index + (obj ? obj.length : 1);
   }
+
+  // Orden del TEXTO, y dedup estable.
+  hallados.sort((a, b) => a.pos - b.pos);
+  const calls = [];
+  const seen = new Set();
+  for (const { call: c } of hallados) {
+    if (!c || typeof c.tool !== 'string') continue;
+    const k = c.tool + '|' + JSON.stringify(c.args || {});
+    if (seen.has(k)) continue;
+    seen.add(k); calls.push(c);
+  }
+
   // 3) último recurso: nativo suelto de una línea
-  if (!calls.length) push(parseNativeCall(text));
+  if (!calls.length) {
+    const c = parseNativeCall(text);
+    if (c && typeof c.tool === 'string') calls.push(c);
+  }
   return calls;
 }
+
 
 // Desde el '{' en `start`, devuelve la subcadena hasta la '}' que balancea,
 // respetando cadenas y escapes (para no cortar un content con llaves dentro).

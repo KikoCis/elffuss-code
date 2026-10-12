@@ -22,7 +22,7 @@
 //
 // Sin navegador a propósito: `parseFunctionTags` es puro y `agent.js` importa en
 // Node, así que esta guardia no pelea por la GPU con nadie.
-import { parseFunctionTags } from '../web/js/agent.js';
+import { parseFunctionTags, parseToolCalls } from '../web/js/agent.js';
 import { TOOLS, PARAM_EXACTO, PARAM_NUMERO } from '../web/js/tools/index.js';
 
 let fallos = 0;
@@ -92,6 +92,69 @@ const dos = parseFunctionTags(
   'bla<function name="code.write"><param name="path">b</param><param name="content">2</param></function>');
 ok('10 · varias <function> seguidas, en orden', dos.length === 2 && dos[0].args.path === 'a' && dos[1].args.path === 'b',
    `${dos.length} llamadas`);
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lo que encontró el fuzz de T2T el 2026-10-12. Todo acababa en daño silencioso.
+const call = (t) => (parseToolCalls(t) || []);
+
+// ── 11. Una llamada CITADA dentro de un valor NO se ejecuta.
+// Era el peor: un README que documenta un `code.edit` hacía que ese edit se
+// aplicara, y el patch salía con la condición invertida pasando los tests.
+const DOC = '<function name="code.write"><param name="path">README.md</param><param name="content">Ejemplo:\n'
+  + '{"tool":"code.edit","args":{"path":"src/max.js","search":"a > b","replace":"a < b"}}\n</param></function>';
+let cs = call(DOC);
+ok('11 · una llamada citada dentro de un <param> NO se ejecuta',
+   cs.length === 1 && cs[0].tool === 'code.write', `${cs.length} llamadas: ${cs.map(c => c.tool).join(', ')}`);
+ok('11b · …y el texto citado sigue dentro del fichero',
+   /"tool":"code\.edit"/.test(cs[0]?.args?.content || ''), ver((cs[0]?.args?.content || '').slice(0, 40)));
+
+// ── 12. `</function>` dentro de CDATA no cierra la llamada.
+// Sin esto el cuerpo llegaba cortado, el <param> del contenido no casaba y
+// `code.write` escribía un fichero VACÍO, porque content vale '' por defecto.
+const CD = '<function name="code.write"><param name="path">q.mjs</param><param name="content">'
+  + '<![CDATA[const c = \'<function name="x"></function>\'\n]]></param></function>';
+c = uno(CD);
+ok('12 · un </function> dentro de CDATA no corta la llamada',
+   c.args.content === 'const c = \'<function name="x"></function>\'\n', ver(c.args.content));
+
+// ── 13. El orden es el del TEXTO cuando se mezclan las dos formas.
+const MIX = '<function name="code.write"><param name="path">a</param><param name="content">1</param></function>\n'
+  + '{"tool":"code.write","args":{"path":"b","content":"2"}}\n'
+  + '<function name="code.write"><param name="path">c</param><param name="content">3</param></function>';
+ok('13 · mezclando <function> y JSON, se ejecuta en el orden del texto',
+   call(MIX).map(x => x.args.path).join(',') === 'a,b,c', call(MIX).map(x => x.args.path).join(','));
+
+// ── 14. Un nombre de herramienta que pisa Object.prototype no tumba el turno.
+// `PARAM_EXACTO['constructor']` es una función, así que `(mapa[x]||[]).includes`
+// lanzaba — y `parseToolCalls` corre FUERA del try/catch de handle().
+for (const n of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+  let bien = true, det = '';
+  try { parseFunctionTags(`<function name="${n}"><param name="x">1</param></function>`); }
+  catch (e) { bien = false; det = e.message; }
+  ok(`14 · «${n}» como nombre de herramienta no lanza`, bien, det);
+}
+
+// ── 15. Un escalar entrecomillado no se lleva las comillas puestas.
+c = uno('<function name="code.read"><param name="path">"src/a.js"</param><param name="around">"12"</param></function>');
+ok('15 · un path entrecomillado no crea una carpeta «"src»', c.args.path === 'src/a.js', ver(c.args.path));
+ok('15b · un numérico entrecomillado sigue siendo número (y no NaN-NaN)', c.args.around === 12, ver(c.args.around));
+
+// ── 16. El valor exacto abierto en su propia línea no mete una línea en blanco.
+c = uno('<function name="code.write"><param name="path">a.js</param><param name="content">\nconst a = 1\n</param></function>');
+ok('16 · un content abierto en su línea no empieza el fichero en blanco',
+   c.args.content === 'const a = 1\n', ver(c.args.content));
+// …y quien SÍ quiera esa línea en blanco tiene el CDATA, que es exacto.
+c = uno('<function name="code.write"><param name="path">a.js</param><param name="content"><![CDATA[\nx\n]]></param></function>');
+ok('16b · con CDATA el salto inicial se respeta', c.args.content === '\nx\n', ver(c.args.content));
+
+// ── 17. JSON envuelto en los delimitadores nativos sigue ejecutándose.
+// `parseNativeCall` espera `tool(arg=valor)` y rechaza esto con razón; lo rescata
+// la pasada de JSON. Al reclamar tramos me lo cargué, así que queda fijado.
+cs = call('<|tool_call_start|>{"tool":"code.read","args":{"path":"a.js"}}<|tool_call_end|>');
+ok('17 · JSON envuelto en delimitadores nativos se rescata',
+   cs.length === 1 && cs[0].tool === 'code.read' && cs[0].args.path === 'a.js',
+   `${cs.length} llamadas: ${cs.map(x => x.tool).join(', ')}`);
 
 console.log(fallos ? `\n❌ ${fallos} FALLO(S)` : '\n✅ las etiquetas <function> no estropean lo que escribe el modelo');
 process.exit(fallos ? 1 : 0);
