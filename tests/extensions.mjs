@@ -367,7 +367,10 @@ await ctx.route('https://open-vsx.org/api/**', route => {
 await p.fill('#ext-q', 'fake');
 await p.press('#ext-q', 'Enter');
 const filaFalsa = p.locator('#ext-results .ext-row[data-id="elffuss-test.fake"]');
-ok('búsqueda: el resultado llega y se anuncia («1 result»)', await hasta(async () => (await filaFalsa.count()) === 1 && (await p.textContent('#ext-status')) === '1 result'), await p.textContent('#ext-status'));
+// con «Solo las que funcionan en Code» (encendido de serie) no se ve: no aplica nada
+ok('búsqueda con el filtro: la que no hace nada queda oculta y se dice («1 hidden»)', await hasta(async () => (await filaFalsa.count()) === 1 && !(await filaFalsa.isVisible()) && (await p.textContent('#ext-status')) === '1 result · 1 hidden because it does not work in Code'), await p.textContent('#ext-status'));
+await p.uncheck('#ext-only-works');
+ok('búsqueda: el resultado llega y se anuncia («1 result»)', await hasta(async () => (await filaFalsa.isVisible()) && (await p.textContent('#ext-status')) === '1 result'), await p.textContent('#ext-status'));
 ok('el botón dice que no hay nada que aplicar, con nombre propio para el lector', await hasta(async () => (await filaFalsa.locator('.ext-install').getAttribute('aria-label')) === 'Nothing to apply: Fake JSON'), await filaFalsa.locator('.ext-install').getAttribute('aria-label'));
 await filaFalsa.locator('.ext-install').focus();
 await p.keyboard.press('Shift+Tab');

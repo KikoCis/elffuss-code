@@ -8,7 +8,8 @@
 // <summary>), los resultados y avisos se anuncian (role=status/alert), el
 // foco no se pierde al repintar ni al cerrar, y Escape cierra el panel.
 import { tx } from './i18n.js';
-import { describe, lista, listaO, esTexto } from './verdict.js';
+import { uiLang } from '../i18n.js';
+import { describe, lista, listaO, works, languageName, languageExts, factsFromManifest, factsFromRecord } from './verdict.js';
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
@@ -16,7 +17,15 @@ const CATS = [['', 'catAll'], ['Themes', 'catThemes'], ['Snippets', 'catSnippets
 
 let host = null;
 let cssPuesto = false;
-const estado = { q: '', cat: null, items: [], total: 0, cargando: false, msg: null, ctl: null };
+const estado = { q: '', cat: null, items: [], total: 0, cargando: false, msg: null, ctl: null, solo: leeSolo(), objetivo: 0, auto: 0 };
+// «Solo las que funcionan en Code»: encendido salvo que quien usa el panel lo
+// apagara (se recuerda en este navegador, si se puede)
+const CLAVE_SOLO = 'elffusscode.ext.onlyWorks';
+function leeSolo() { try { return localStorage.getItem(CLAVE_SOLO) !== '0'; } catch { return true; } }
+function guardaSolo(v) { try { localStorage.setItem(CLAVE_SOLO, v ? '1' : '0'); } catch { /* sin almacenamiento: solo esta sesión */ } }
+const POR_PAGINA = 20;                  // filas que se quieren ver por tanda
+const MAX_AUTO = 3;                     // páginas que se piden solas para llenarla
+
 let temporizador = null;
 let desuscribe = null;
 let abridor = null;                     // quién tenía el foco al abrir el panel
@@ -131,57 +140,10 @@ function anunciaBusqueda(texto) {
 // verdad se aplicaría aquí: la gramática de un lenguaje de serie sin Monarch
 // (JSON) y la configuración de un lenguaje de serie no se aplican, y no cuentan.
 // ── qué hace cada extensión, en llano (verdict.js) ──
-const BONITOS = {
-  javascript: 'JavaScript', typescript: 'TypeScript', javascriptreact: 'JavaScript React', typescriptreact: 'TypeScript React',
-  html: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less', json: 'JSON', jsonc: 'JSON', vue: 'Vue', python: 'Python', markdown: 'Markdown',
-  shellscript: 'Shell', go: 'Go', rust: 'Rust', java: 'Java', php: 'PHP', ruby: 'Ruby', csharp: 'C#', cpp: 'C++', c: 'C', yaml: 'YAML',
-};
-function nombreLenguaje(id, langs = []) {
-  return langs.find(l => l.id === id && esTexto(l.name))?.name || host?.languageName?.(id) || BONITOS[id] || id;
-}
-function extsDe(id, langs = []) {
-  const propias = langs.filter(l => l.id === id).flatMap(l => l.extensions || []);
-  return [...new Set(propias.length ? propias : host?.languageExtensions?.(id) || [])];
-}
-// Hechos comunes a un package.json (antes de instalar) y a un registro instalado.
-function hechos(base, { themes = [], grammarLangs = [], langs = [], snippets = [] }) {
-  const salta = l => !!host.grammarSkippedFor?.(l);
-  const deSerie = id => !!host.builtinLanguage?.(id);
-  const conGram = [...new Set(grammarLangs.filter(l => l && !salta(l)))];
-  // snippets de un lenguaje que Code no tiene (javascriptreact, vue…) no
-  // saldrían nunca: ni se cuentan ni se prometen. Y un mismo fichero que sirve
-  // a varios lenguajes se cuenta una vez.
-  const existe = id => langs.some(l => l.id === id) || !!host.languageName?.(id) || !!host.builtinLanguage?.(id);
-  const porLang = new Map();
-  const vistos = new Set();
-  for (const s of snippets.filter(x => existe(x.language))) {
-    const n = !Number.isFinite(s.count) ? NaN : s.key && vistos.has(s.key) ? 0 : s.count;
-    if (s.key) vistos.add(s.key);
-    porLang.set(s.language, (porLang.has(s.language) ? porLang.get(s.language) : 0) + n);
-  }
-  return {
-    ...base, themes,
-    highlight: conGram.map(id => ({ id, name: nombreLenguaje(id, langs), exts: extsDe(id, langs) })),
-    settingsOnly: langs.filter(l => l.config && !deSerie(l.id) && !conGram.includes(l.id)).map(l => nombreLenguaje(l.id, langs)),
-    keepsBuiltin: [...new Set(grammarLangs.filter(l => l && salta(l)))].map(id => nombreLenguaje(id, langs)),
-    snippets: [...porLang].map(([id, n]) => ({ id, name: nombreLenguaje(id, langs), count: Number.isFinite(n) ? n : null })),
-  };
-}
-function hechosDeManifiesto(a) {
-  return hechos({ hasCode: a.hasCode, browserEntry: a.browserEntry, categories: a.categories || [], sizes: a.sizes || {}, webviews: a.webviews, ignored: a.ignored || [], pack: a.pack || [] }, {
-    themes: a.themeLabels || [], grammarLangs: a.grammarLangs || [], langs: a.languageList || [],
-    snippets: (a.snippetLangs || []).map(language => ({ language, count: null })),
-  });
-}
-function hechosDeRegistro(e) {
-  // registros de antes de guardar categorías: se asume que lo que se aplica es lo principal
-  const categories = e.categories || ['Programming Languages'];
-  return hechos({ hasCode: e.hasCode, browserEntry: !!e.browserEntry, categories, sizes: e.sizes || {}, webviews: e.webviews, ignored: e.ignored || [], pack: e.pack || [] }, {
-    themes: (e.themes || []).map(t => t.label), grammarLangs: (e.grammars || []).map(g => g.language ?? null),
-    langs: (e.languages || []).map(l => ({ id: l.id, name: l.aliases?.[0], extensions: l.extensions || [], config: !!l.configKey })),
-    snippets: (e.snippets || []).map(s => ({ language: s.language, key: s.key, count: Number.isFinite(s.count) ? s.count : null })),
-  });
-}
+const nombreLenguaje = (id, langs = []) => languageName(host, id, langs);
+const extsDe = (id, langs = []) => languageExts(host, id, langs);
+const hechosDeManifiesto = a => factsFromManifest(host, a);
+const hechosDeRegistro = e => factsFromRecord(host, e);
 // El bloque del veredicto: primero la frase que decide, luego el detalle.
 function bloqueVeredicto(f, v, { principal = true } = {}) {
   const box = el('div', 'ext-verdict ext-v-' + v.kind);
@@ -279,6 +241,14 @@ function pinta() {
   }
   busca.append(inp, chips);
   wrap.appendChild(busca);
+  const filtro = el('label', 'ext-filter');
+  const solo = el('input');
+  solo.type = 'checkbox';
+  solo.id = 'ext-only-works';
+  solo.checked = estado.solo;
+  solo.onchange = () => ponSolo(solo.checked);
+  filtro.append(solo, el('span', null, tx('onlyWorks')));
+  wrap.appendChild(filtro);
 
   const msg = el('div', 'ext-msg');
   msg.id = 'ext-msg';
@@ -308,35 +278,160 @@ async function busca_({ mas = false } = {}) {
   estado.ctl?.abort();
   const ctl = new AbortController();
   estado.ctl = ctl;
-  const ovsx = await import('./openvsx.js');
-  if (!estado.q && estado.cat == null) { estado.items = []; estado.total = 0; pintaResultados(); return; }
-  estado.cargando = true;
-  if (!mas) { estado.items = []; estado.total = 0; }
-  aviso(null);
-  pintaResultados();
   // solo las categorías: las fichas de tema de «Instaladas» también son .ext-chip
   for (const c of document.querySelectorAll('#ext-panel .ext-search .ext-chip')) {
     const on = c.dataset.cat === (estado.cat || '') && estado.cat != null;
     c.classList.toggle('on', on);
     c.setAttribute('aria-pressed', String(on));
   }
+  if (!mas) { estado.objetivo = POR_PAGINA; estado.auto = 0; }
+  // sin buscar nada: la lista de populares que funcionan, ya calculada
+  if (mostrandoPopulares()) { estado.items = []; estado.total = 0; estado.cargando = false; pintaResultados(); return; }
+  const ovsx = await import('./openvsx.js');
+  if (estado.ctl !== ctl) return;
+  estado.cargando = true;
+  if (!mas) { estado.items = []; estado.total = 0; }
+  aviso(null);
+  if (mas) pintaPie(); else pintaResultados();
+  let nuevos = null;
   try {
-    const r = await ovsx.search(estado.q, { category: estado.cat || '', offset: mas ? estado.items.length : 0, size: 20, signal: ctl.signal });
+    const r = await ovsx.search(estado.q, { category: estado.cat || '', offset: mas ? estado.items.length : 0, size: POR_PAGINA, signal: ctl.signal });
     if (estado.ctl !== ctl) return;
-    estado.items = mas ? estado.items.concat(r.items) : r.items;
-    estado.total = r.total;
+    // (una extensión puede repetirse entre páginas si cambia el orden)
+    const ya = new Set(estado.items.map(claveDe));
+    nuevos = mas ? r.items.filter(it => !ya.has(claveDe(it))) : r.items;
+    estado.items = mas ? estado.items.concat(nuevos) : r.items;
+    estado.total = mas && !r.items.length ? estado.items.length : r.total;
   } catch (e) {
     if (e.name === 'AbortError') return;
     aviso(textoError(e), true);
   } finally {
-    if (estado.ctl === ctl) { estado.cargando = false; pintaResultados(); }
+    if (estado.ctl === ctl) {
+      estado.cargando = false;
+      if (mas && $('ext-list')) { if (nuevos) añadeFilas(nuevos); pintaPie(); } else pintaResultados();
+    }
   }
+}
+const mostrandoPopulares = () => !estado.q && !estado.cat;
+
+// ── «Solo las que funcionan en Code» ──
+// Lo que se sabe de cada resultado: true (funciona), false (no hace nada aquí),
+// null (no se pudo leer su package.json: se enseña, sin veredicto). Sin
+// entrada: todavía se está mirando.
+const veredictos = new Map();
+function ponSolo(v) {
+  estado.solo = v;
+  guardaSolo(v);
+  const cb = $('ext-only-works');
+  if (cb) cb.checked = v;
+  for (const row of document.querySelectorAll('#ext-list .ext-row')) filtraFila(row);
+  pintaPie();
+}
+function filtraFila(row) {
+  const w = veredictos.get(row.dataset.key);
+  row.hidden = estado.solo && !row.dataset.popular && (w === undefined || w === false);
+}
+function cuentas() {
+  let pendientes = 0, ocultas = 0, visibles = 0;
+  for (const it of estado.items) {
+    const w = veredictos.get(claveDe(it));
+    if (w === undefined) pendientes++;
+    else if (w === false) ocultas++;
+    else visibles++;
+  }
+  return { pendientes, ocultas, visibles: estado.solo ? visibles : estado.items.length };
+}
+let piePendiente = false;
+function programaPie() {
+  if (piePendiente) return;
+  piePendiente = true;
+  queueMicrotask(() => { piePendiente = false; pintaPie(); });
+}
+// Debajo de la lista: cuántas se ocultaron (con «mostrar»), «comprobando…»,
+// «más resultados»; y si faltan filas para llenar la tanda, pide otra página.
+function pintaPie() {
+  const pie = $('ext-foot'), ocultasBox = $('ext-hidden');
+  if (!pie || !ocultasBox || mostrandoPopulares()) return;
+  const teniaFoco = pie.contains(document.activeElement) || ocultasBox.contains(document.activeElement);
+  const { pendientes, ocultas, visibles } = cuentas();
+  const quedan = estado.items.length < estado.total;
+  ocultasBox.replaceChildren();
+  ocultasBox.hidden = !(estado.solo && ocultas);
+  if (estado.solo && ocultas) {
+    ocultasBox.append(tx('hiddenN', { n: ocultas }) + ' · ');
+    const b = el('button', 'ext-link', tx('showHidden'));
+    b.type = 'button';
+    b.id = 'ext-show-hidden';
+    b.setAttribute('aria-label', tx('showHiddenNamed', { n: ocultas }));
+    b.onclick = () => { ponSolo(false); $('ext-only-works')?.focus(); };
+    ocultasBox.appendChild(b);
+  }
+  // ¿llenar la tanda? solo con el filtro, cuando ya se sabe todo lo pedido
+  const llenando = estado.solo && !pendientes && visibles < estado.objetivo && quedan && !estado.cargando && estado.auto < MAX_AUTO;
+  pie.replaceChildren();
+  if (estado.cargando || (estado.solo && pendientes) || llenando) pie.appendChild(el('div', 'muted ext-hint', tx(estado.solo ? 'checking' : 'searching')));
+  else if (estado.solo && !visibles && estado.items.length) pie.appendChild(el('div', 'muted ext-hint', tx(quedan ? 'noneWorkYet' : 'noneWork', { n: estado.items.length })));
+  if (!estado.cargando && !llenando && quedan) {
+    const mas = el('button', 'ghost ext-more', tx('more'));
+    mas.type = 'button';
+    mas.id = 'ext-more';
+    mas.onclick = () => { estado.objetivo = cuentas().visibles + POR_PAGINA; estado.auto = 0; busca_({ mas: true }); };
+    pie.appendChild(mas);
+    if (teniaFoco) mas.focus();
+  } else if (teniaFoco && !ocultasBox.contains(document.activeElement)) {
+    // el botón que tenía el foco ya no está: a la primera fila que se ve
+    ([...document.querySelectorAll('#ext-list .ext-row:not([hidden]) .ext-name')].pop() || $('ext-only-works'))?.focus();
+  }
+  if (!pendientes && !estado.cargando) {
+    anunciaBusqueda(tx('results', { n: estado.total }) + (estado.solo && ocultas ? ' · ' + tx('hiddenN', { n: ocultas }) : ''));
+  }
+  if (llenando) { estado.auto++; busca_({ mas: true }); }
+}
+
+// ── populares: una lista corta, ya comprobada (popular.json, generada por
+// tests/ext_popular_build.mjs), que se pinta al instante y sin pedir nada a
+// Open VSX: el veredicto de cada una va dentro ──
+let populares = null, cargaPop = null;
+function cargaPopulares() {
+  cargaPop ||= fetch(new URL('./popular.json', import.meta.url)).then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+    .then(j => { populares = (j.items || []).map(p => ({ ...p, it: itemPopular(p) })); for (const p of populares) analisis.set(claveDe(p.it), Promise.resolve(p.analysis)); })
+    .catch(e => { cargaPop = null; throw e; });
+  return cargaPop;
+}
+function itemPopular(p) {
+  return {
+    namespace: p.namespace, name: p.name, version: p.version, displayName: p.displayName,
+    description: p.description?.[uiLang()] || p.description?.en || '', downloadCount: p.downloads || 0, verified: !!p.verified, icon: null,
+  };
+}
+function pintaPopulares(res) {
+  if (!populares) {
+    res.appendChild(el('div', 'muted ext-hint', tx('searching')));
+    cargaPopulares().then(() => { if (mostrandoPopulares()) pintaResultados(); })
+      .catch(() => { if (mostrandoPopulares()) { res.replaceChildren(el('div', 'muted ext-hint', tx('popularFailed'))); } });
+    return;
+  }
+  const h = el('div', 'sk-h', tx('popularH'));
+  h.id = 'ext-popular-h';
+  res.append(h, el('p', 'muted ext-pop-note', tx('popularNote')));
+  const lista = el('div', 'ext-list ext-popular');
+  lista.id = 'ext-list';
+  lista.setAttribute('aria-labelledby', 'ext-popular-h');
+  const instaladas = new Map(host.list().map(e => [e.id, e]));
+  for (const p of populares) {
+    const row = filaResultado(p.it, instaladas.get(p.id.toLowerCase()), { kind: p.kind });
+    row.dataset.popular = '1';
+    lista.appendChild(row);
+  }
+  res.appendChild(lista);
+  anunciaBusqueda(tx('popularCount', { n: populares.length }));
 }
 
 function pintaResultados() {
   const res = $('ext-results');
   if (!res) return;
   res.replaceChildren();
+  if (mostrandoPopulares()) { pintaPopulares(res); return; }
   if (estado.cargando && !estado.items.length) {
     res.appendChild(el('div', 'muted ext-hint', tx('searching')));
     anunciaBusqueda(tx('searching'));
@@ -351,13 +446,25 @@ function pintaResultados() {
     return;
   }
   res.appendChild(el('div', 'sk-h', estado.q ? tx('results', { n: estado.total }) : tx('popular')));
-  anunciaBusqueda(tx('results', { n: estado.total }));
+  const lista = el('div', 'ext-list');
+  lista.id = 'ext-list';
+  const ocultas = el('div', 'muted ext-hidden');
+  ocultas.id = 'ext-hidden';
+  ocultas.hidden = true;
+  const pie = el('div', 'ext-foot');
+  pie.id = 'ext-foot';
+  res.append(ocultas, lista, pie);
+  añadeFilas(estado.items);
+  pintaPie();
+}
+function añadeFilas(items) {
+  const lista = $('ext-list');
+  if (!lista) return;
   const instaladas = new Map(host.list().map(e => [e.id, e]));
-  for (const it of estado.items) res.appendChild(filaResultado(it, instaladas.get(`${it.namespace}.${it.name}`.toLowerCase())));
-  if (estado.items.length < estado.total) {
-    const mas = el('button', 'ghost ext-more', tx('more'));
-    mas.onclick = () => busca_({ mas: true });
-    res.appendChild(mas);
+  for (const it of items) {
+    const row = filaResultado(it, instaladas.get(`${it.namespace}.${it.name}`.toLowerCase()));
+    filtraFila(row);
+    lista.appendChild(row);
   }
 }
 
@@ -417,9 +524,10 @@ function pintaVeredictoFila(row, it, a, instalada) {
   return v;
 }
 
-function filaResultado(it, instalada) {
+function filaResultado(it, instalada, { kind = null } = {}) {
   const row = el('div', 'ext-row');
   row.dataset.id = `${it.namespace}.${it.name}`;
+  row.dataset.key = claveDe(it);
   const main = el('div', 'ext-main');
   const det = el('div', 'ext-detail');
   det.id = 'ext-det-' + (++nDetalle);
@@ -433,6 +541,7 @@ function filaResultado(it, instalada) {
   nombre.onclick = e => { e.stopPropagation(); detalle(it, det, nombre); };
   t.append(nombre, el('span', 'muted', ` ${it.namespace} · v${it.version}`));
   if (it.verified) t.appendChild(el('span', 'ext-badge', '✓'));
+  if (kind) { row.dataset.kind = kind; t.appendChild(el('span', 'ext-kind ext-kind-' + kind, tx('kind_' + kind))); }
   main.append(t, el('div', 'ext-desc', it.description));
   main.appendChild(el('div', 'ext-verdict-slot'));
   main.appendChild(el('div', 'ext-meta muted', tx('downloads', { n: it.downloadCount.toLocaleString() })));
@@ -451,7 +560,10 @@ function filaResultado(it, instalada) {
   b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b); };
   acc.appendChild(b);
   row.append(icono(it.icon, it.displayName), main, acc);
-  analiza(it).then(a => pintaVeredictoFila(row, it, a, instalada)).catch(() => { /* sin veredicto: el botón de siempre */ });
+  const k = claveDe(it);
+  analiza(it).then(a => { veredictos.set(k, works(pintaVeredictoFila(row, it, a, instalada))); })
+    .catch(() => { if (!veredictos.has(k)) veredictos.set(k, null); })      // sin veredicto: el botón de siempre
+    .finally(() => { filtraFila(row); programaPie(); });
   return row;
 }
 
