@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Sube el bundle del nivel 2 de extensiones (web/vendor/x2/<buildId>/) a
-# code.elffuss.com. Va ANTES de deploy.sh, que es quien publica el manifiesto
-# que nombra ese buildId (y se niega a publicarlo si el servidor no tiene ya
-# ese bundle, byte a byte).
+# code.elffuss.com, la carpeta de Code (el recinto, x2.utopiaia.com, no recibe
+# el bundle: se lo pasa Code). Va ANTES de deploy.sh, que es quien publica el
+# manifiesto que nombra ese buildId (y se niega a publicarlo si el servidor no
+# tiene ya ese bundle, byte a byte), y después de deploy-sandbox.sh.
 #
 #   cd vendor/vscode-ext2 && npm ci --ignore-scripts && node build.mjs
+#   ./deploy-sandbox.sh
 #   ./deploy-vendor.sh
 #   ./deploy.sh
 #
