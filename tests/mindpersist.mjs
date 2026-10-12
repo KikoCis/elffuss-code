@@ -24,8 +24,11 @@ ok('el historial se ve ANTES de recargar', /debe sobrevivir/.test(before), befor
 
 // RECARGA REAL de la página (no solo cerrar/abrir la Mente en la misma sesión)
 await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' }); await p.waitForTimeout(1500);
-await p.locator('#activity img').click(); await p.waitForTimeout(1200);
-const after = await p.evaluate(() => document.getElementById('mind-log-body')?.innerText || '');
+await p.locator('#activity img').click();
+// espera a que la Mente pinte su historial (con un tope), no un tiempo fijo:
+// con extensiones de código arrancando a la vez la página tarda más en pintarlo
+let after = '';
+for (let i = 0; i < 50 && !/debe sobrevivir/.test(after); i++) { await p.waitForTimeout(200); after = await p.evaluate(() => document.getElementById('mind-log-body')?.innerText || ''); }
 ok('el historial SOBREVIVE a una recarga real de la página', /debe sobrevivir/.test(after), after.slice(0, 80));
 ok('también se conserva el ciclo/evento del CEO', /Ciclo de prueba/.test(after));
 

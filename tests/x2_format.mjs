@@ -71,7 +71,7 @@ const open = p => page.evaluate(async p => { await (await import('/js/ide.js')).
 const value = () => page.evaluate(() => window.monaco.editor.getEditors()[0].getModel().getValue());
 const setValue = v => page.evaluate(v => window.monaco.editor.getEditors()[0].getModel().setValue(v), v);
 const readOpfs = name => page.evaluate(async n => { const o = await navigator.storage.getDirectory(); return (await (await o.getFileHandle(n)).getFile()).text(); }, name);
-const dirty = () => page.evaluate(() => document.querySelector('#tabs-bar .tab.active b')?.classList.contains('dirty') || false);
+const dirty = () => page.evaluate(() => document.querySelector('#tabs-bar .tab.active .tab-x')?.classList.contains('dirty') || false);
 const focusEditor = async () => { await page.evaluate(() => window.monaco.editor.getEditors()[0].focus()); await sleep(100); };
 const formatDoc = () => page.evaluate(async () => { const ed = window.monaco.editor.getEditors()[0]; ed.focus(); await ed.getAction('editor.action.formatDocument').run(); });
 const host = fn => page.evaluate(fn);

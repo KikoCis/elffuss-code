@@ -108,7 +108,7 @@ const value = page => page.evaluate(() => window.monaco.editor.getEditors()[0].g
 const setValue = (page, v) => page.evaluate(v => window.monaco.editor.getEditors()[0].getModel().setValue(v), v);
 const select = (page, a, b, c, d) => page.evaluate(([a, b, c, d]) => { const ed = window.monaco.editor.getEditors()[0]; ed.setSelection({ startLineNumber: a, startColumn: b, endLineNumber: c, endColumn: d }); ed.focus(); }, [a, b, c, d]);
 const readOpfs = (page, name) => page.evaluate(async n => { const o = await navigator.storage.getDirectory(); return (await (await o.getFileHandle(n)).getFile()).text(); }, name);
-const dirty = page => page.evaluate(() => document.querySelector('#tabs-bar .tab.active b')?.classList.contains('dirty') || false);
+const dirty = page => page.evaluate(() => document.querySelector('#tabs-bar .tab.active .tab-x')?.classList.contains('dirty') || false);
 const bridgeState = page => page.evaluate(async () => (await import('/js/ext2/bridge.js')).state());
 const focusEditor = async page => { await page.evaluate(() => window.monaco.editor.getEditors()[0].focus()); await sleep(100); };
 async function installFile(page, name, bytes) {

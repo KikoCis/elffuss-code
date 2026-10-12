@@ -64,7 +64,7 @@ await ctx.addInitScript(() => {
   const look = n => {
     if (!(n instanceof Element)) return;
     for (const e of [n, ...n.querySelectorAll('*')]) {
-      for (const a of ['src', 'href', 'srcset', 'poster', 'data', 'action']) { const v = e.getAttribute(a); if (v && outside(v.split(/\s+/)[0])) w.push(e.tagName + '[' + a + ']=' + v.slice(0, 120)); }
+      for (const a of ['src', 'href', 'srcset', 'poster', 'data', 'action']) { const v = e.getAttribute(a); if (v && outside(v.split(/\s+/)[0]) && !(e.tagName === 'IFRAME' && a === 'src' && v === 'https://models.elffuss.com/' && e.getAttribute('aria-hidden') === 'true')) w.push(e.tagName + '[' + a + ']=' + v.slice(0, 120)); }
       const st = e.getAttribute('style');
       if (st && /url\(\s*['"]?(https?:)?\/\//i.test(st)) w.push(e.tagName + '[style]=' + st.slice(0, 120));
       if (e.tagName === 'STYLE' && /url\(\s*['"]?(https?:)?\/\//i.test(e.textContent)) w.push('STYLE=' + e.textContent.match(/url\([^)]*\)/i)[0].slice(0, 120));
@@ -83,11 +83,16 @@ page.on('pageerror', e => { if (e.message !== 'Canceled') errors.push(String(e.m
 // Playwright también ve los intentos que la CSP para antes de salir (y la baliza
 // no recibe): esos no cuentan. Cuenta lo que terminó, o falló por otra cosa.
 const otherRequests = [];
+const CODE_BROKER = 'https://models.elffuss.com/';
 const outsider = r => {
   const u = new URL(r.url());
   const fine = (u.origin === srv.codeOrigin) || u.host === 'cdn.jsdelivr.net' || u.protocol === 'data:' || u.protocol === 'blob:'
     || (u.origin === srv.sandboxOrigin && ['/x2/v1/sandbox.html', '/x2/v1/exthost-iframe.html'].includes(u.pathname));
-  return !fine;
+  // el iframe oculto del almacén de modelos de Code (js/runtime/model-broker.js):
+  // lo abre la página de Code, no una extensión, y su dirección exacta no lleva
+  // datos. Aquí no resuelve (las reglas del resolvedor), así que tampoco sale.
+  const codeBroker = r.url() === CODE_BROKER && r.resourceType() === 'document' && r.frame()?.parentFrame()?.url().startsWith(srv.codeOrigin);
+  return !fine && !codeBroker;
 };
 const cspBlocked = [];
 ctx.on('requestfinished', r => { if (outsider(r)) otherRequests.push('finished ' + r.url().slice(0, 150)); });
@@ -203,7 +208,8 @@ await open('page.html');
 await page.evaluate(async () => (await import('/js/ext2/bridge.js')).runCommand('canary.edit'));
 await until(async () => /preview\.beacon\.test/.test(await ed(() => window.monaco.editor.getEditors()[0].getModel().getValue())));
 await page.click('#tabs-bar .tab.active', { button: 'right' });
-await page.click('#tab-menu .tm-item:has-text("Vista previa")');
+// (el menú sigue el idioma del navegador desde 7d5e790: «Vista previa» o «Preview»)
+await page.locator('#tab-menu .tm-item').filter({ hasText: /^(Vista previa|Preview)$/ }).click();
 const gate = await until(() => page.evaluate(() => !!document.querySelector('#x2-preview [role="dialog"]')));
 ok('P la vista previa de un HTML que tocó la extensión pregunta antes', !!gate);
 await page.keyboard.press('Escape');

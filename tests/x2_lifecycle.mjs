@@ -83,8 +83,9 @@ ctx.on('request', r => {
   try { u = new URL(r.url()); } catch { return; }
   if (!/^https?:$/.test(u.protocol) || u.hostname === '127.0.0.1' || u.hostname === 'localhost' || u.hostname === 'cdn.jsdelivr.net') return;
   let frame = '';
-  try { frame = r.frame()?.url() || ''; } catch { frame = '(worker)'; }
-  outside.push({ url: u.origin + u.pathname, frame, method: r.method() });
+  let parent = '';
+  try { frame = r.frame()?.url() || ''; parent = r.frame()?.parentFrame()?.url() || ''; } catch { frame = '(worker)'; }
+  outside.push({ url: u.origin + u.pathname, frame, parent, method: r.method() });
 });
 
 await page.goto(srv.codeOrigin + '/', { waitUntil: 'domcontentloaded' });
@@ -278,7 +279,10 @@ ok('L10 Prettier uninstalled: no files, no sandbox, nothing in kv', (await idbKe
 const vsx = outside.filter(o => o.url.startsWith(API) || /openvsx|eclipsecontent/.test(o.url));
 const notPage = vsx.filter(o => !o.frame.startsWith(srv.codeOrigin));
 ok('L11 only Code’s page talked to Open VSX (no request from the sandbox)', vsx.length > 0 && notPage.length === 0, JSON.stringify(notPage.slice(0, 3)));
-const strangers = outside.filter(o => !vsx.includes(o));
+// Code's own model store: the hidden iframe of the shared broker
+// (js/runtime/model-broker.js) that Code's page opens, not level 2
+const broker = o => o.url === 'https://models.elffuss.com/' && o.frame === '' && o.parent.startsWith(srv.codeOrigin) && o.method === 'GET';
+const strangers = outside.filter(o => !vsx.includes(o) && !broker(o));
 ok('L11 and nobody talked to anything else', strangers.length === 0, JSON.stringify(strangers.slice(0, 3)));
 const sbx = [...new Set(srv.requests.filter(r => r.host.startsWith('localhost:')).map(r => r.url.split('?')[0]))];
 ok('L11 the sandbox site was asked only for its two documents', sbx.length > 0 && sbx.every(u => u === '/x2/v1/sandbox.html' || u === '/x2/v1/exthost-iframe.html'), sbx.join(' '));
