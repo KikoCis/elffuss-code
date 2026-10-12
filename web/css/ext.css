@@ -20,7 +20,7 @@
 /* vacío sigue en la página (región viva), pero sin ocupar sitio */
 .ext-msg:empty { margin: 0; padding: 0; border: 0; }
 /* solo para lectores de pantalla */
-.ext-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+.ext-msg.ext-msg-sr, .ext-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .ext-hint { font-size: .78rem; margin: 10px 0 2px; }
 .ext-results, .ext-installed { margin-top: 4px; }
 .ext-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; background: var(--bg3); border: 1px solid var(--line); border-radius: 9px; margin-bottom: 6px; font-size: .8rem; }
@@ -42,8 +42,24 @@
 .ext-meta a { color: var(--accent2); }
 .ext-detail { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .ext-detail[hidden] { display: none; }
-.ext-applies { font-size: .74rem; color: #7ee787; margin-top: 3px; }
-.ext-nothing, .ext-ignored { font-size: .72rem; color: #e5a53a; margin-top: 3px; }
+.ext-ignored { font-size: .72rem; color: #e5a53a; margin-top: 3px; }
+/* veredicto: primero la frase que decide (verde si funciona, ámbar si no) */
+.ext-verdict { margin-top: 4px; font-size: .74rem; line-height: 1.4; overflow-wrap: anywhere; }
+.ext-v-main { font-weight: 600; color: #7ee787; }
+.ext-v-partial .ext-v-main { color: #b9e08a; }
+.ext-v-mostlyCode .ext-v-main, .ext-v-code .ext-v-main, .ext-v-nothing .ext-v-main { color: #e5a53a; }
+.ext-v-more { color: var(--muted); margin-top: 2px; font-size: .72rem; overflow-wrap: anywhere; }
+/* lo que hace ahora cada instalada */
+.ext-now { margin-top: 4px; font-size: .74rem; color: #7ee787; }
+.ext-now.muted { color: var(--muted); }
+.ext-now-line { overflow-wrap: anywhere; }
+/* aviso tras instalar: qué cambió y dónde verlo */
+.ext-done { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; font-size: .78rem; background: var(--bg3); border: 1px solid rgba(63,185,112,.35); overflow-wrap: anywhere; }
+.ext-done-h { font-weight: 700; margin-bottom: 4px; }
+.ext-done-part { margin-top: 6px; }
+.ext-done-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.ext-done-acts button { font-size: .74rem; padding: 4px 10px; border-radius: 6px; cursor: pointer; background: none; border: 1px solid var(--line); color: var(--fg); max-width: 100%; white-space: normal; text-align: left; }
+.ext-done-acts button:hover { border-color: var(--accent2); }
 .ext-theme-chips { margin-top: 6px; }
 .ext-license { margin: 6px 0 0; max-height: 180px; overflow: auto; white-space: pre-wrap; font-size: .68rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
 .ext-license[hidden] { display: none; }
@@ -51,7 +67,8 @@
 .ext-warn summary { cursor: pointer; }
 .ext-warn ul { margin: 4px 0 0 18px; padding: 0; color: var(--muted); overflow-wrap: anywhere; }
 .ext-actions { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
-.ext-actions button { font-size: .74rem; padding: 5px 11px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.ext-actions { max-width: 40%; }
+.ext-actions button { font-size: .74rem; padding: 5px 11px; border-radius: 6px; cursor: pointer; white-space: normal; text-align: center; }
 .ext-actions .primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; }
 .ext-actions .ghost { background: none; border: 1px solid var(--line); color: var(--muted); }
 .ext-actions .ghost:hover:not(:disabled):not([aria-disabled="true"]) { color: var(--fg); border-color: var(--accent2); }
@@ -59,7 +76,7 @@
 .ext-more { display: block; margin: 4px auto 10px; font-size: .76rem; }
 @media (max-width: 560px) {
   .ext-row { flex-wrap: wrap; }
-  .ext-actions { flex-direction: row; width: 100%; justify-content: flex-end; }
+  .ext-actions { flex-direction: row; width: 100%; max-width: none; justify-content: flex-end; }
 }
 
 /* selector de tema: como la paleta de comandos */

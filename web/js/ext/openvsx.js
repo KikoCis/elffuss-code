@@ -62,6 +62,12 @@ export async function manifest(meta, { signal } = {}) {
   return getJson(meta.files.manifest, signal);
 }
 
+// El package.json de un resultado de búsqueda, sin pedir antes sus metadatos:
+// una sola petición por fila para decir qué haría antes de instalarla.
+export function manifestOf({ namespace, name, version }, { signal } = {}) {
+  return getJson(`${BASE}/api/${seg(namespace)}/${seg(name)}/${seg(version)}/file/package.json`, signal);
+}
+
 export async function text(url, { signal, max = 200_000 } = {}) {
   const u = deOpenVsx(url);
   if (!u) throw new OpenVsxError('URL fuera de Open VSX', 'http');

@@ -86,6 +86,12 @@ export function focusEditor() { try { editor?.focus(); } catch { /* sin editor *
 // La ruta del fichero activo (o null): el menú la usa para no lanzar acciones
 // del editor que no hacen nada sin un fichero abierto.
 export function activeFile() { return active; }
+// Las pestañas abiertas y su lenguaje, y el lenguaje que tendría una ruta: el
+// panel de extensiones los usa para decir qué ficheros ya se ven distintos.
+export function openTabs() {
+  return tabs.filter(t => !t.model.isDisposed()).map(t => ({ path: t.path, language: t.model.getLanguageId(), active: t.path === active }));
+}
+export const languageOfPath = p => langOf(p);
 
 export async function openFile(path) {
   let tab = tabs.find(t => t.path === path);
