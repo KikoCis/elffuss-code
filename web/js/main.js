@@ -2753,123 +2753,197 @@ send = async (text) => {
 };
 
 // ---------- panel de skills (transparente: repo + lista + SKILL.md) ----------
-// Mismo diálogo que Ajustes. Los fallos se dicen DENTRO del panel, en palabras
-// de persona y con «Reintentar» (antes: «⚠️ FAILED TO FETCH» en mayúsculas, y
-// un alert() del navegador al añadir un repo que no valía o al instalar).
-async function openSkillsPanel() {
-  const box = settingsShell(t('skTitle'), 'skills');
-  const wrap = document.createElement('div');
-  wrap.className = 'skills-panel';
-  const intro = document.createElement('p');
-  intro.className = 'muted';
-  intro.textContent = t('skIntro');
-  wrap.appendChild(intro);
-  box.appendChild(wrap);
+// Mismo sitio que Ajustes. Dos partes que no se mezclan: «Instaladas» arriba y
+// «Explorar catálogos» debajo. Cada fila tiene UNA acción (Quitar, Explorar,
+// Instalar); la lista de un catálogo se abre DENTRO de su tarjeta (antes se
+// añadía al final del panel, debajo de «Añadir repo», lejos del botón que la
+// abrió). Instalar ya no cierra el panel: el botón pasa a «Instalada ✓», la
+// skill aparece arriba y el «cómo usarla» queda en el chat. El foco no se va a
+// <body>: tras instalar sigue en el botón y tras quitar va a la fila siguiente.
+// Los fallos se dicen DENTRO del panel, en palabras de persona y con
+// «Reintentar».
+const skNombreFuente = s => { const k = 'skSrc_' + s.repo; const v = t(k); return v === k ? s.label : v; };
+const skError = e => { const k = e?.code ? 'skErr_' + e.code : ''; const v = k ? t(k) : ''; return v && v !== k ? v : (e?.message || String(e)); };
+// Ocupado o hecho, pero SIN disabled: un botón deshabilitado pierde el foco.
+const skInerte = (b, si) => { if (si) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled'); };
+const skUso = entry => skills.usageMessage(entry, { installed: t('skUsageInstalled'), follow: t('skUsageFollow'), about: t('skUsageAbout') });
 
-  // instaladas
-  const inst = skills.installed();
-  const instBox = document.createElement('div');
-  instBox.append(el('div', 'sk-h', t('skInstalled', { n: inst.length })));
-  for (const s of inst) {
-    const row = document.createElement('div');
-    row.className = 'sk-row';
-    row.append(el('b', null, s.name), el('span', 'muted', s.repo || 'local'));
-    const rm = document.createElement('button');
-    rm.className = 'ghost'; rm.textContent = t("skRemove");
-    rm.setAttribute('aria-label', t('skRemoveNamed', { name: s.name }));
-    rm.onclick = async () => { await skills.remove(s.name); openSkillsPanel(); };
-    row.appendChild(rm);
-    instBox.appendChild(row);
-  }
-  if (!inst.length) instBox.append(el('p', 'muted', t('skNone')));
-  box.appendChild(instBox);
-
-  // fuentes + añadir repo
-  const srcs = await skills.sources();
-  const srcBox = document.createElement('div');
-  srcBox.append(el('div', 'sk-h', t('skCatalogs')));
-  for (const s of srcs) {
-    const row = document.createElement('div');
-    row.className = 'sk-row';
-    const a = document.createElement('a');
-    a.href = `https://github.com/${s.repo}`; a.target = '_blank'; a.rel = 'noopener noreferrer';
-    a.textContent = s.repo + ' ↗';
-    row.append(el('b', null, s.label), a);
-    const browse = document.createElement('button');
-    browse.className = 'primary'; browse.textContent = t("skBrowse");
-    browse.onclick = () => browseRepo(s.repo, box);
-    row.appendChild(browse);
-    if (!s.official) {
-      const rm = document.createElement('button');
-      rm.className = 'ghost'; rm.textContent = '🗑';
-      rm.setAttribute('aria-label', t('skRemoveRepo', { repo: s.repo }));
-      rm.onclick = async () => { await skills.removeSource(s.repo); openSkillsPanel(); };
-      row.appendChild(rm);
-    }
-    srcBox.appendChild(row);
-  }
-  const addRow = document.createElement('div');
-  addRow.className = 'sk-row';
-  const inp = document.createElement('input');
-  inp.placeholder = t("skAddRepoPh");
-  inp.setAttribute('aria-label', t('skAddRepo'));
-  const add = document.createElement('button');
-  add.className = 'primary'; add.textContent = t("skAddRepo");
-  const addMsg2 = el('div', 'muted sk-msg'); addMsg2.setAttribute('role', 'status');
-  add.onclick = async () => {
-    addMsg2.textContent = '';
-    try { await skills.addSource(inp.value); openSkillsPanel(); }
-    catch (e) { addMsg2.textContent = '⚠️ ' + (e?.message || e); addMsg2.classList.add('err'); inp.focus(); }
-  };
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') add.click(); });
-  addRow.append(inp, add);
-  srcBox.append(addRow, addMsg2);
-  box.appendChild(srcBox);
+function skFila(nombre, meta, boton) {
+  const row = el('li', 'sk-row');
+  const info = el('div', 'sk-info');
+  info.append(el('b', null, nombre));
+  if (meta) info.append(meta);
+  row.append(info);
+  if (boton) row.append(boton);
+  return row;
+}
+function skAviso(box, texto, err = false) {
+  const m = box.querySelector('.skills-panel > .sk-msg');
+  if (!m) return;
+  m.textContent = texto;
+  m.classList.toggle('err', err);
+}
+function skPintaBotonInstalar(b, instalada, nombre) {
+  b.className = (instalada ? 'ghost' : 'primary') + ' sk-install';
+  b.textContent = instalada ? t('skInstalledOne') : t('skInstall');
+  b.setAttribute('aria-label', (instalada ? t('skInstalledOne') : t('skInstall')) + ': ' + nombre);
+  skInerte(b, instalada);
 }
 
-async function browseRepo(repo, box) {
-  box.querySelector(`.sk-browse[data-repo="${CSS.escape(repo)}"]`)?.remove();
-  const list = document.createElement('div');
-  list.className = 'sk-browse';
-  list.dataset.repo = repo;
-  list.setAttribute('aria-live', 'polite');
-  list.append(el('div', 'sk-h', t('skLoading', { repo })));
-  box.appendChild(list);
+function skPintaInstaladas(box, { enfocar = -1 } = {}) {
+  const sec = box.querySelector('.sk-instaladas');
+  const inst = skills.installed();
+  const h = el('h4', 'sk-h', t('skInstalled', { n: inst.length }));
+  h.id = 'sk-inst-h'; h.tabIndex = -1;
+  sec.replaceChildren(h);
+  if (!inst.length) { sec.append(el('p', 'muted sk-vacio', t('skNone'))); }
+  else {
+    const ul = el('ul', 'sk-list');
+    for (const s of inst) {
+      const rm = el('button', 'ghost sk-remove', t('skRemove'));
+      rm.type = 'button';
+      rm.setAttribute('aria-label', t('skRemoveNamed', { name: s.name }));
+      rm.onclick = async () => {
+        const i = skills.installed().findIndex(x => x.name === s.name);
+        await skills.remove(s.name);
+        for (const b of box.querySelectorAll('.sk-browse button.sk-install'))
+          if (b.dataset.repo === s.repo && b.dataset.path === s.path) skPintaBotonInstalar(b, false, b.dataset.nombre);
+        skPintaInstaladas(box, { enfocar: i });
+        skAviso(box, t('skRemovedMsg', { name: s.name }));
+      };
+      ul.append(skFila(s.name, el('span', 'muted', s.repo || 'local'), rm));
+    }
+    sec.append(ul);
+  }
+  if (enfocar >= 0) {
+    const quitar = [...sec.querySelectorAll('.sk-remove')];
+    (quitar[Math.min(enfocar, quitar.length - 1)] || h).focus();
+  }
+}
+
+async function openSkillsPanel() {
+  const box = settingsShell(t('skTitle'), 'skills');
+  const wrap = el('div', 'skills-panel');
+  wrap.append(el('p', 'muted sk-intro', t('skIntro')));
+  const msg = el('p', 'muted sk-msg'); msg.setAttribute('role', 'status');
+  wrap.append(msg);
+  const instSec = el('section', 'sk-instaladas'); instSec.setAttribute('aria-labelledby', 'sk-inst-h');
+  const catSec = el('section', 'sk-catalogos'); catSec.setAttribute('aria-labelledby', 'sk-cat-h');
+  wrap.append(instSec, catSec);
+  box.appendChild(wrap);
+  skPintaInstaladas(box);
+
+  const hc = el('h4', 'sk-h', t('skCatalogs')); hc.id = 'sk-cat-h'; hc.tabIndex = -1;
+  catSec.append(hc, el('p', 'muted sk-nota', t('skCatalogsHint')));
+  const lista = el('ul', 'sk-list');
+  catSec.append(lista);
+  for (const s of await skills.sources()) {
+    const enlace = el('a', null, s.repo + ' ↗');
+    enlace.href = `https://github.com/${s.repo}`; enlace.target = '_blank'; enlace.rel = 'noopener noreferrer';
+    const ver = el('button', 'primary sk-explore', t('skBrowse'));
+    ver.type = 'button';
+    ver.setAttribute('aria-expanded', 'false');
+    ver.setAttribute('aria-label', t('skBrowseNamed', { repo: s.repo }));
+    const fila = skFila(skNombreFuente(s), enlace, ver);
+    fila.classList.add('sk-cat');
+    fila.dataset.repo = s.repo;
+    const cuerpo = el('div', 'sk-browse');
+    cuerpo.dataset.repo = s.repo;
+    cuerpo.id = 'sk-browse-' + s.repo.replace(/[^\w-]/g, '_');
+    cuerpo.hidden = true;
+    ver.setAttribute('aria-controls', cuerpo.id);
+    fila.append(cuerpo);
+    ver.onclick = () => {
+      if (ver.getAttribute('aria-busy') === 'true') return;
+      const abrir = cuerpo.hidden;
+      cuerpo.hidden = !abrir;
+      ver.setAttribute('aria-expanded', String(abrir));
+      ver.textContent = abrir ? t('skHide') : t('skBrowse');
+      ver.className = (abrir ? 'ghost' : 'primary') + ' sk-explore';
+      if (abrir && !cuerpo.dataset.cargado) browseRepo(s, cuerpo, ver, box);
+    };
+    lista.append(fila);
+  }
+
+  // añadir un catálogo: es un formulario (Enter envía)
+  const form = el('form', 'sk-add');
+  const inp = el('input');
+  inp.placeholder = t('skAddRepoPh');
+  inp.setAttribute('aria-label', t('skAddRepo'));
+  inp.autocomplete = 'off'; inp.spellcheck = false;
+  const add = el('button', 'primary', t('skAddRepo'));
+  add.type = 'submit';
+  const addMsg2 = el('div', 'muted sk-msg'); addMsg2.setAttribute('role', 'status');
+  form.onsubmit = async ev => {
+    ev.preventDefault();
+    addMsg2.textContent = ''; addMsg2.classList.remove('err');
+    try {
+      const repo = await skills.addSource(inp.value);
+      await openSkillsPanel();
+      const nueva = $('settings-panel').querySelector(`.sk-cat[data-repo="${CSS.escape(repo)}"] .sk-explore`);
+      nueva?.focus();
+      skAviso($('settings-panel'), t('skRepoAdded', { repo }));
+    } catch (e) { addMsg2.textContent = '⚠️ ' + skError(e); addMsg2.classList.add('err'); inp.focus(); }
+  };
+  form.append(inp, add);
+  catSec.append(form, addMsg2);
+}
+
+async function browseRepo(src, cuerpo, ver, box) {
+  const repo = src.repo;
+  ver.setAttribute('aria-busy', 'true');
+  cuerpo.replaceChildren(el('p', 'muted sk-nota', t('skLoading', { repo })));
   try {
     const found = await skills.listFromRepo(repo);
-    list.replaceChildren(el('div', 'sk-h', t('skFound', { repo, n: found.length })));
+    cuerpo.dataset.cargado = '1';
+    cuerpo.replaceChildren(el('p', 'muted sk-nota', t('skFound', { repo, n: found.length })));
+    const ul = el('ul', 'sk-list');
     for (const sk of found.slice(0, 120)) {
-      const row = document.createElement('div');
-      row.className = 'sk-row';
-      row.append(el('b', null, sk.name), el('span', 'muted', sk.dir));
-      const btn = document.createElement('button');
-      const on = skills.isInstalled(sk.repo, sk.path);
-      btn.className = on ? 'ghost' : 'primary';
-      btn.textContent = on ? t('skInstalledOne') : t('skInstall');
-      btn.setAttribute('aria-label', (on ? t('skInstalledOne') : t('skInstall')) + ': ' + sk.name);
+      const btn = el('button');
+      btn.type = 'button';
+      Object.assign(btn.dataset, { repo: sk.repo, path: sk.path, nombre: sk.name });
+      skPintaBotonInstalar(btn, skills.isInstalled(sk.repo, sk.path), sk.name);
+      const fila = skFila(sk.name, el('span', 'muted', sk.dir), btn);
       btn.onclick = async () => {
-        btn.textContent = '…'; btn.disabled = true;
+        if (btn.getAttribute('aria-disabled') === 'true') return;
+        btn.textContent = '…'; btn.setAttribute('aria-busy', 'true'); skInerte(btn, true);
+        fila.querySelector('.sk-msg')?.remove();
         try {
           const entry = await skills.installFromRepo(sk);
-          btn.textContent = t('skInstalledOne'); btn.className = 'ghost';
-          cierraAjustes();                                  // cierra el panel
-          addMsg('assistant', skills.usageMessage(entry));  // «cómo usarla» en el chat
+          btn.removeAttribute('aria-busy');
+          skPintaBotonInstalar(btn, true, sk.name);
+          skPintaInstaladas(box);
+          addMsg('assistant', skUso(entry));                // «cómo usarla» en el chat
+          skAviso(box, t('skInstalledMsg', { name: entry.name }));
         } catch (e) {
-          btn.textContent = t('skInstall'); btn.disabled = false;
-          row.append(el('span', 'muted sk-msg err', '⚠️ ' + (e?.message || e)));
+          btn.removeAttribute('aria-busy');
+          skPintaBotonInstalar(btn, false, sk.name);
+          fila.querySelector('.sk-info').append(el('span', 'sk-msg err', '⚠️ ' + skError(e)));
         }
       };
-      row.appendChild(btn);
-      list.appendChild(row);
+      ul.append(fila);
     }
+    cuerpo.append(ul);
+    if (found.length > 120) cuerpo.append(el('p', 'muted sk-nota', t('skMore', { n: found.length - 120 })));
   } catch (e) {
-    const msg = /Failed to fetch|NetworkError|network/i.test(String(e?.message)) ? t('skNoNet', { repo }) : t('skLoadFailed', { repo, e: e?.message || e });
-    const retry = document.createElement('button');
-    retry.className = 'primary'; retry.textContent = t('retry');
-    retry.onclick = () => browseRepo(repo, box);
+    const offline = /Failed to fetch|NetworkError|network/i.test(String(e?.message));
+    const texto = offline ? t('skNoNet', { repo }) : t('skLoadFailed', { repo, e: skError(e) });
+    const retry = el('button', 'primary', t('retry'));
+    retry.type = 'button';
+    retry.onclick = () => browseRepo(src, cuerpo, ver, box);
     const fila = el('div', 'sk-row');
-    fila.append(el('span', 'sk-msg err', '⚠️ ' + msg), retry);
-    list.replaceChildren(el('div', 'sk-h', repo), fila);
+    fila.append(el('span', 'sk-msg err', '⚠️ ' + texto), retry);
+    cuerpo.replaceChildren(fila);
+  } finally {
+    ver.removeAttribute('aria-busy');
+  }
+  // Un catálogo añadido por ti se quita desde dentro (así cada fila tiene una
+  // sola acción): al final de su lista.
+  if (!src.official) {
+    const rm = el('button', 'ghost sk-remove-repo', t('skRemoveRepo', { repo }));
+    rm.type = 'button';
+    rm.onclick = async () => { await skills.removeSource(repo); await openSkillsPanel(); $('settings-panel').querySelector('#sk-cat-h')?.focus(); };
+    cuerpo.append(rm);
   }
 }
 
