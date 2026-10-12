@@ -133,21 +133,40 @@ async function dirOf(path, { create = false } = {}) {
 
 // Buscar archivos por nombre (para sugerir cuando el modelo inventa rutas, o
 // para resolver un enlace del chat que solo mencionaba el nombre del fichero).
-export async function findByName(basename, limit = 5) {
+// Busca por NOMBRE de fichero en todo el proyecto.
+//
+// El tope era `visited > 500`, y ESE era el bug: se pidió «obj_1_Zusammenbau.stl»,
+// el fichero EXISTÍA en una subcarpeta, y el recorrido se rendía antes de llegar.
+// El error decía «no existe en este proyecto» —una afirmación falsa— y encima
+// sugería otro fichero cualquiera, el primero que hubiera cabido en el presupuesto.
+//
+// Sube a 20.000 entradas, que es un proyecto grande de verdad, y cuando se agota
+// se DICE: «no está» y «me he rendido» no son lo mismo. Con lo primero el modelo
+// deja de intentarlo.
+export const FIND_MAX_VISITED = 20000;
+// `tope` es inyectable SOLO para que el banco pueda forzar el caso «me he
+// rendido»: el orden de recorrido de OPFS es arbitrario, así que sembrar muchos
+// ficheros no garantiza agotar nada y el control negativo saldría por suerte.
+export async function findByName(basename, limit = 5, tope = FIND_MAX_VISITED) {
   const hits = [];
   let visited = 0;
+  let agotado = false;
+  const diana = basename.toLowerCase();
   async function walk(dir, prefix) {
-    if (hits.length >= limit || visited > 500) return;
+    if (hits.length >= limit) return;
+    if (visited > tope) { agotado = true; return; }
     for await (const e of dir.values()) {
       if (IGNORE.has(e.name)) continue;
       visited++;
       const p = prefix ? prefix + '/' + e.name : e.name;
       if (e.kind === 'directory') await walk(e, p);
-      else if (e.name.toLowerCase() === basename.toLowerCase()) hits.push(p);
-      if (hits.length >= limit || visited > 500) return;
+      else if (e.name.toLowerCase() === diana) hits.push(p);
+      if (hits.length >= limit) return;
+      if (visited > tope) { agotado = true; return; }
     }
   }
   await walk(projectHandle, '');
+  hits.agotado = agotado;
   return hits;
 }
 
@@ -191,22 +210,40 @@ const PAGE_SIZE = 100, PAGE_MAX = 500;
 // dependa de leerlo entero, p.ej. code.edit).
 export async function read({ path, offset, limit, around } = {}) {
   if (!path) throw new Error('Falta path');
-  let file;
+  let file, leido = path;
   try {
     const { dir, name } = await dirOf(path);
     file = await (await dir.getFileHandle(name)).getFile();
   } catch {
-    // error que ENSEÑA: el modelo puede auto-corregirse en el siguiente paso
+    // No está en la ruta pedida. Antes aquí se lanzaba SIEMPRE, aunque la
+    // búsqueda hubiera encontrado el fichero: te decía «¿quizá X?» y te hacía
+    // gastar otro turno en pedir X. Si hay UNA sola coincidencia exacta de
+    // nombre, se lee y se dice por qué ruta; si hay varias, se eligen a mano
+    // porque adivinar la equivocada es peor que preguntar.
     const base = normalize(path).pop() || path;
     const hits = await findByName(base).catch(() => []);
-    throw new Error(`no existe «${path}» en este proyecto.` +
-      (hits.length ? ` ¿Quizá: ${hits.join(' · ')}?` : '') +
+    if (hits.length === 1) {
+      try {
+        const { dir, name } = await dirOf(hits[0]);
+        file = await (await dir.getFileHandle(name)).getFile();
+        leido = hits[0];
+      } catch { /* se cayó también: abajo se informa */ }
+    }
+    if (!file) throw new Error(
+      (hits.agotado && !hits.length
+        ? `no he podido recorrer el proyecto entero buscando «${base}» (demasiadas entradas), así que NO sé si existe.`
+        : `no existe «${path}» en este proyecto.`) +
+      (hits.length > 1 ? ` Hay ${hits.length} con ese nombre: ${hits.join(' · ')} — repite con la ruta completa.` : '') +
+      (hits.agotado && hits.length ? ' (búsqueda incompleta: puede haber más)' : '') +
       ' Consulta el árbol (code.tree) o busca (code.search) antes de leer.');
   }
   const full = await file.text();
+  // Si se resolvió por nombre, el modelo tiene que ENTERARSE de la ruta real:
+  // su siguiente code.edit usa la que él escribió y fallaría.
+  const aviso = leido === path ? '' : `(«${path}» no existe tal cual; leo ${leido})\n`;
 
   if (offset == null && limit == null && around == null) {
-    return full.length > MAX_READ ? full.slice(0, MAX_READ) + `\n… (recortado, ${file.size} bytes)` : full;
+    return aviso + (full.length > MAX_READ ? full.slice(0, MAX_READ) + `\n… (recortado, ${file.size} bytes)` : full);
   }
 
   const lines = full.split('\n');
@@ -219,12 +256,12 @@ export async function read({ path, offset, limit, around } = {}) {
   // Pedir más allá del final devolvía un rango imposible («líneas 999-998 de 6»)
   // y CERO contenido: el modelo se quedaba sin nada que hacer. Mejor decírselo.
   if (startIdx >= total)
-    return `${path}: solo tiene ${total} líneas y pediste desde la ${start} — usa offset entre 1 y ${total}.`;
+    return `${leido}: solo tiene ${total} líneas y pediste desde la ${start} — usa offset entre 1 y ${total}.`;
   const slice = lines.slice(startIdx, startIdx + size);
   const endLine = startIdx + slice.length;
   const numbered = slice.map((l, i) => `${start + i}→${l}`).join('\n');
   const more = endLine < total ? `\n… quedan líneas ${endLine + 1}-${total} — pide code.read con offset:${endLine + 1} para seguir` : '';
-  return `${path}: líneas ${start}-${endLine} de ${total}\n${numbered}${more}`;
+  return `${leido}: líneas ${start}-${endLine} de ${total}\n${numbered}${more}`;
 }
 
 // Aprobación de escritura: si «Auto» está apagado, el IDE pide confirmación
@@ -530,6 +567,7 @@ export async function search({ query, ext = '' } = {}) {
   if (!query) throw new Error('Falta query');
   if (!projectHandle) throw new Error('No hay proyecto abierto');
   const results = [];
+  const porNombre = [];                     // coincidencias en el NOMBRE del fichero
   const skipped = [];                       // ficheros de texto NO buscados por tamaño
   let checked = 0, capped = false;
   const q = query.toLowerCase();
@@ -540,6 +578,13 @@ export async function search({ query, ext = '' } = {}) {
       const p = prefix ? prefix + '/' + e.name : e.name;
       if (e.kind === 'directory') { await walk(e, p); if (capped) return; continue; }
       if (ext && !e.name.endsWith(ext)) continue;
+      // El NOMBRE cuenta como resultado, y se mira ANTES de descartar binarios.
+      // Antes no: buscar un «.stl» por su nombre devolvía «Sin resultados»
+      // aunque el fichero estuviera ahí, porque solo se grepeaba el contenido y
+      // de un binario ni se abría. «Sin resultados» leído por el modelo es «eso
+      // no existe», y a partir de ahí deja de buscar.
+      if (e.name.toLowerCase().includes(q) && porNombre.length < SEARCH_MAX_HITS)
+        porNombre.push(p);
       if (BINARY_EXT.test(e.name)) continue;
       const f = await e.getFile();
       // Un fichero grande es justo donde el modelo NO puede leerlo entero, así
@@ -565,9 +610,13 @@ export async function search({ query, ext = '' } = {}) {
   if (capped) notes.push(`búsqueda cortada (${results.length} resultados, ${checked} ficheros revisados) — puede haber más: afina con ext o un término más concreto`);
   if (skipped.length) notes.push(`${skipped.length} fichero(s) NO buscados por tamaño (>${SEARCH_MAX_BYTES / 1e6} MB): ${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''} — mira dentro con code.read`);
   const tail = notes.length ? '\n… ' + notes.join('. ') + '.' : '';
+  const cabecera = porNombre.length
+    ? `${porNombre.length} fichero(s) cuyo NOMBRE contiene «${query}»:\n` + porNombre.map(x => '  ' + x).join('\n') + '\n'
+    : '';
   if (!results.length)
-    return `Sin resultados para «${query}»` + (tail || '');
-  return results.join('\n') + tail;
+    return (cabecera || `Sin resultados para «${query}»`) +
+      (cabecera && !results.length ? '(ninguna coincidencia dentro del contenido)' : '') + (tail || '');
+  return cabecera + (cabecera ? `Coincidencias en el contenido:\n` : '') + results.join('\n') + tail;
 }
 
 // ── code.run: ejecutar el código y ver qué hace de verdad ───────────────────

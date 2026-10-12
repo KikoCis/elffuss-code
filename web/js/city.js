@@ -15,6 +15,7 @@ import * as code from './tools/code.js';
 import { buildModel } from './vcc/model.js';
 import { buildCity } from './vcc/builder.js';
 import { THEME } from './vcc/theme.js';
+import { escuchar } from './actividad.js';
 
 const IGNORE = new Set(['node_modules', '.git', 'dist', 'build', 'target', '__pycache__', '.next', 'venv', '.venv', '.DS_Store']);
 const MAX_FILES = 8000; // tope de seguridad para no colgar el navegador en monorepos
@@ -57,7 +58,10 @@ export async function renderCity(container, onOpenFile) {
     '<canvas id="city-canvas"></canvas>' +
     '<div class="view-head">Ciudad 3D · ' + model.files.length + (budget.n >= MAX_FILES ? '+' : '') +
     ' ficheros en ' + model.districts.length + ' distritos' +
-    '<span class="view-hint">arrastra para orbitar · rueda para zoom · clic en un edificio → abrir</span></div>';
+    '<span class="view-hint">arrastra para orbitar · rueda para zoom · clic en un edificio → abrir</span></div>' +
+    // Pila de actividad: lo que la elfa hace AHORA, línea a línea, como un terminal.
+    '<pre class="city-log" aria-live="off" style="position:absolute;left:0;right:0;bottom:0;max-height:32%;overflow:auto;margin:0;padding:6px 10px;font:12px/1.4 ui-monospace,monospace;background:rgba(0,0,0,.55);color:#cfe;pointer-events:none;white-space:pre-wrap"></pre>';
+  const registro = container.querySelector('.city-log');
   const canvas = container.querySelector('#city-canvas');
   const W = container.clientWidth || 800, H = container.clientHeight || 600;
 
@@ -144,6 +148,45 @@ export async function renderCity(container, onOpenFile) {
   // Lo mismo que el lienzo, como lista (la monta main.js al lado): con teclado
   // o lector de pantalla una ciudad 3D no se puede recorrer. `locate` centra la
   // cámara en el edificio del fichero y lo resalta un momento.
+  // ── actividad en directo ───────────────────────────────────────────────
+  // Cada fichero que la elfa lee o escribe se enciende en la ciudad (escribir
+  // más fuerte que leer) y se apaga solo, para que se vea la ruta del trabajo.
+  // El registro muestra cada llamada al empezar y su resultado al acabar.
+  const idPorRuta = new Map(model.files.map(f => [f.rel, f.id]));
+  const apagados = new Map();
+  const LINEAS_MAX = 80;
+  const ENCENDIDO = { lee: 0.5, escribe: 1 };
+  const apagaTodo = () => { for (const t of apagados.values()) clearTimeout(t); apagados.clear(); };
+
+  const pinta = (ruta, modo) => {
+    const id = idPorRuta.get(ruta);
+    if (id == null) return;                     // fichero nuevo o fuera del escaneo
+    try {
+      city.paintFile?.(id, ENCENDIDO[modo] ?? 0.5);
+      clearTimeout(apagados.get(id));
+      apagados.set(id, setTimeout(() => {
+        try { city.paintFile?.(id, 0); } catch { /* ya no está */ }
+        apagados.delete(id);
+      }, 3000));
+    } catch { /* el resaltado es decorativo: no debe romper la vista */ }
+  };
+  const escribeLinea = txt => {
+    if (!registro) return;
+    registro.textContent += txt + '\n';
+    const lineas = registro.textContent.split('\n');
+    if (lineas.length > LINEAS_MAX) registro.textContent = lineas.slice(-LINEAS_MAX).join('\n');
+    registro.scrollTop = registro.scrollHeight;
+  };
+  const quitarActividad = escuchar(ev => {
+    if (ev.fase === 'inicio') {
+      const donde = ev.ruta ? '  ' + ev.ruta : (ev.args?.query ? '  «' + ev.args.query + '»' : (ev.args?.command ? '  $ ' + ev.args.command : ''));
+      escribeLinea('› ' + ev.herramienta + donde);
+      if (ev.ruta) pinta(ev.ruta, ev.modo);
+    } else {
+      escribeLinea((ev.ok ? '  ✓ ' : '  ✗ ') + (ev.resumen || ''));
+    }
+  });
+
   let resaltado = null, apaga = null;
   const vista = {
     items: model.files.map(f => ({ path: f.rel, bytes: f.size ?? f.bytes ?? null })),
@@ -161,6 +204,8 @@ export async function renderCity(container, onOpenFile) {
   };
 
   disposer = () => {
+    quitarActividad();
+    apagaTodo();
     clearTimeout(apaga);
     if (raf) cancelAnimationFrame(raf);
     window.removeEventListener('resize', onResize);

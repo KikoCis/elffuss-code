@@ -2,6 +2,7 @@
 import * as code from './code.js';
 import * as shell from '../shell.js';
 import * as web from './web.js';
+import { anunciar, tocaFichero } from '../actividad.js';
 
 export { code };
 
@@ -59,8 +60,27 @@ export function toolHelp() {
 export async function runTool(name, args, ctx = {}) {
   const tool = TOOLS[name];
   if (!tool) throw new Error(`Herramienta desconocida: ${name}`);
-  return tool.run(args || {}, ctx || {});
+  // Se anuncia para que la vista de ciudad y su pila lo vean en directo. Si la
+  // herramienta falla, se anuncia el fallo y el error sigue su camino normal.
+  const quien = tocaFichero(name, args);
+  anunciar({ fase: 'inicio', herramienta: name, args: args || {}, ...(quien || {}) });
+  try {
+    const v = await tool.run(args || {}, ctx || {});
+    anunciar({ fase: 'fin', herramienta: name, ok: true, resumen: resumenDe(v), ...(quien || {}) });
+    return v;
+  } catch (e) {
+    anunciar({ fase: 'fin', herramienta: name, ok: false, resumen: String(e?.message || e).slice(0, 160), ...(quien || {}) });
+    throw e;
+  }
 }
+
+// Una línea para el registro. El resultado completo va al modelo; aquí solo
+// se enseña para que se vea qué pasó.
+const resumenDe = v => {
+  const t = typeof v === 'string' ? v : JSON.stringify(v ?? '');
+  const linea = (t || '').split('\n').find(l => l.trim()) || '';
+  return linea.slice(0, 160);
+};
 
 // La hora, TRUNCADA A LA HORA EN PUNTO, y el motivo no es estético.
 // ─────────────────────────────────────────────────────────────────────────────

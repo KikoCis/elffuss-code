@@ -39,7 +39,10 @@ ok('prohíbe contestar «mis herramientas son solo código, texto y shell»',
    /PROHIBIDO contestar «mis herramientas son solo c[óo]digo, texto y comandos de shell»/.test(sp));
 ok('prohíbe poner una librería de terceros como REQUISITO', /librer[íi]a de terceros como REQUISITO/.test(sp));
 ok('nombra el caso exacto que falló (numpy-stl)', /numpy-stl/.test(sp));
-ok('prohíbe preguntar si algo está instalado, y manda PROBARLO', /PRU[ÉE]BALO con terminal\.run y lee el error/.test(sp));
+// La regla vieja «PRUÉBALO con terminal.run» es la que hizo que el modelo se
+// fuera a pip: ahora NO debe estar, y el prompt tiene que prohibir instalar.
+ok('NO manda probar con terminal.run (esa regla causó el pip)', !/PRU[ÉE]BALO con terminal\.run/.test(sp));
+ok('prohíbe instalar nada, ni «para ver si está»', /NUNCA instales nada/.test(sp) && /ni siquiera «para ver si est/.test(sp));
 ok('prohíbe ofrecerse y esperar', /Ofrecerse y quedarse esperando/.test(sp));
 ok('da la salida concreta: escalar un STL es multiplicar números', /escalar un STL es multiplicar n[úu]meros/.test(sp));
 

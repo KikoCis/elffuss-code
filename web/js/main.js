@@ -1166,7 +1166,14 @@ function renderSettings() {
     card.className = 'model-card' + (activeModel === m.id ? ' active' : '') + (m.disabled ? ' disabled' : '') + (cargando ? ' loading' : '');
     card.setAttribute('aria-pressed', activeModel === m.id ? 'true' : 'false');
     if (cargando) card.setAttribute('aria-busy', 'true'); else card.removeAttribute('aria-busy');
-    card.innerHTML = `<b>${m.name}</b><span>${cargando ? escapeHtml(t('setModelLoadingCard')) : m.sub}</span>`;
+    // Como las filas de menú: texto, no HTML. `m.name` sale de las etiquetas de
+    // `modelOptionsLocales()` —nuestras— pero también de `enabledExternals()`,
+    // cuyo `label` vive en la configuración guardada del proveedor. Aunque sea
+    // self-XSS, cerrarlo cuesta una línea y quita la pregunta.
+    card.replaceChildren(
+      el('b', null, m.name),
+      el('span', null, cargando ? t('setModelLoadingCard') : m.sub),
+    );
   };
   const tarjetas = [];
   for (const m of LOCAL) {
@@ -3278,7 +3285,16 @@ document.addEventListener('click', e => {
 async function refreshGit() {
   const g = await codeTools.gitInfo().catch(() => ({ isRepo: false }));
   const chip = $('git-branch');
-  if (g.isRepo) { chip.hidden = false; chip.innerHTML = UI.code + ' ' + g.branch; }
+  if (g.isRepo) {
+    chip.hidden = false;
+    // El icono es marcado NUESTRO; el nombre de rama es dato de FUERA y va como
+    // texto. Git rechaza «<» en un nombre de rama, así que por la vía normal no
+    // era explotable — pero `g.branch` se lee parseando ficheros del repo, y un
+    // repo hostil puede poner ahí lo que quiera. Un vector latente cuesta lo
+    // mismo de cerrar que uno vivo.
+    chip.innerHTML = UI.code;
+    chip.append(' ' + g.branch);
+  }
   else chip.hidden = true;
 }
 $('git-branch').addEventListener('click', () => document.querySelector('#menubar button[data-menu="git"]').click());
