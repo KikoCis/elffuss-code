@@ -89,6 +89,13 @@ button.dot:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2p
 main { flex: 1; display: grid; grid-template-columns: 46px 235px minmax(0, 1fr) minmax(440px, 34%); grid-template-rows: minmax(0, 1fr); min-height: 0; overflow: hidden; }
 body.hide-tree main { grid-template-columns: 46px 0 minmax(0, 1fr) minmax(440px, 34%); }
 body.hide-tree #sidebar { display: none; }
+/* Cada pieza en SU columna. Sin esto, al ocultar el explorador (display:none)
+   el resto se corría una columna a la izquierda: el editor caía en la de 0 px y
+   desaparecía, el chat ocupaba su sitio y la columna del chat quedaba vacía. */
+#activity { grid-column: 1; }
+#sidebar { grid-column: 2; }
+#editor-wrap { grid-column: 3; }
+#chat { grid-column: 4; }
 
 /* barra de actividad estilo VS Code */
 #activity {
@@ -415,6 +422,7 @@ a.file-link:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1
 /* ---------- móvil: cabecera fija + chat/editor conmutables ---------- */
 @media (max-width: 760px) {
   main { grid-template-columns: 1fr; }
+  #activity, #sidebar, #editor-wrap, #chat { grid-column: 1; }
   #activity, #sidebar { display: none; }
   #code-flip { display: block; }
   #editor-wrap { display: none; }
