@@ -11,6 +11,9 @@ import { tx } from './i18n.js';
 import { uiLang } from '../i18n.js';
 import { describe, lista, listaO, works, languageName, languageExts, factsFromManifest, factsFromRecord } from './verdict.js';
 
+// Las bases de Monaco que son oscuras. El resto del IDE no tiene modo claro.
+const esOscuro = t => t?.uiTheme === 'vs-dark' || t?.uiTheme === 'hc-black';
+
 const $ = id => document.getElementById(id);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 const CATS = [['', 'catAll'], ['Themes', 'catThemes'], ['Snippets', 'catSnippets'], ['Programming Languages', 'catLangs']];
@@ -628,13 +631,19 @@ async function instala(src, boton) {
     // una extensión que solo trae temas se ve al instante: se aplica el primero
     // (con «Deshacer» en el aviso)
     const soloTemas = rec.themes?.length && !rec.grammars?.length && !rec.snippets?.length && !(rec.languages || []).some(l => l.configKey && !host.builtinLanguage?.(l.id));
+    // Solo se aplica sola una variante OSCURA. El IDE es oscuro y un tema claro
+    // solo repinta el editor: quedaba un rectángulo blanco en medio de todo lo
+    // demás, y bastaba con que el paquete listara primero su variante clara
+    // (GitHub Theme y compañía). Si no trae ninguna oscura, no se aplica nada y
+    // queda el botón «Aplicar ahora».
+    const oscuro = rec.themes?.find(esOscuro);
     let auto = false;
-    if (soloTemas && !rec.themes.some(t => t.themeId === host.currentTheme()) && rec.enabled !== false && !host.paused) {
-      await host.setTheme(rec.themes[0].themeId);
+    if (soloTemas && oscuro && !rec.themes.some(t => t.themeId === host.currentTheme()) && rec.enabled !== false && !host.paused) {
+      await host.setTheme(oscuro.themeId);
       auto = true;
     }
     const nAvisos = avisosVisibles(rec.warnings).length;
-    const primera = auto ? ' ' + tx('cThemeApplied', { name: rec.themes[0].label }) : '';
+    const primera = auto ? ' ' + tx('cThemeApplied', { name: oscuro.label }) : '';
     aviso(tx('installedMsg', { name: rec.displayName || nombre }) + primera + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
     await pintaTarjeta(rec, { previo: auto ? temaAntes : null });
     pintaInstaladas();
@@ -728,7 +737,7 @@ async function pintaTarjeta(rec, { previo = null } = {}) {
         : rec.themes.length === 1 ? tx('cThemeReady', { name: rec.themes[0].label }) : tx('cThemesReady', { n: rec.themes.length, list: lista(rec.themes.map(t => cita(t.label))) })));
       const fila = botones(p);
       if (activo && previo && previo !== activo.themeId) boton(fila, tx('bUndo'), 'undo-theme', async () => { await host.setTheme(previo); pinta('apply-theme'); pintaInstaladas(); });
-      if (!activo) boton(fila, tx('bApplyNow'), 'apply-theme', async () => { await host.setTheme(rec.themes[0].themeId); pinta('undo-theme'); pintaInstaladas(); });
+      if (!activo) boton(fila, tx('bApplyNow'), 'apply-theme', async () => { await host.setTheme((rec.themes.find(esOscuro) || rec.themes[0]).themeId); pinta('undo-theme'); pintaInstaladas(); });
       boton(fila, tx('bPickTheme'), 'pick-theme', () => openThemePicker(host));
       if (enfoca) (fila.querySelector(`[data-act="${enfoca}"]`) || fila.querySelector('button'))?.focus();
     };

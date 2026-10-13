@@ -160,7 +160,7 @@ body.hide-tree #sidebar { display: none; }
 #dirty-dialog button.dd-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border: none; }
 #dirty-dialog button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
 #editor { flex: 1; min-height: 0; }
-#editor-empty { position: absolute; inset: 34px 0 22px 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--bg); color: var(--muted); z-index: 2; text-align: center; }
+#editor-empty { position: absolute; inset: 34px 0 calc(22px + var(--term-h, 0px)) 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--bg); color: var(--muted); z-index: 2; text-align: center; }
 #editor-empty img { width: 84px; opacity: .5; }
 #editor-empty p { font-size: .9rem; line-height: 1.5; }
 
@@ -257,7 +257,7 @@ body.hide-tree #sidebar { display: none; }
 .tm-sep { height: 1px; background: var(--line); margin: 4px 2px; }
 
 /* vista previa de markdown (pestaña en modo Vista previa, en vez del código fuente) */
-#md-preview-pane { position: absolute; inset: 34px 0 22px 0; overflow-y: auto; background: var(--bg); padding: 18px 26px; z-index: 2; }
+#md-preview-pane { position: absolute; inset: 34px 0 calc(22px + var(--term-h, 0px)) 0; overflow-y: auto; background: var(--bg); padding: 18px 26px; z-index: 2; }
 #md-preview-pane h1, #md-preview-pane h2, #md-preview-pane h3 { color: #fff; margin: 18px 0 8px; }
 #md-preview-pane code { background: var(--bg3); padding: 1px 5px; border-radius: 4px; font-size: .88em; }
 #md-preview-pane pre { background: var(--bg3); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; }
@@ -266,6 +266,9 @@ body.hide-tree #sidebar { display: none; }
 #md-preview-pane.html-preview iframe { display: block; width: 100%; height: 100%; border: none; background: #fff; }
 
 /* panel del terminal (abajo del editor, estilo VS Code) */
+/* Las capas del editor (aviso vacío, vista previa) terminan encima de la consola:
+   --term-h la pone main.js con su altura real, 0 si está cerrada. Antes se
+   estiraban hasta la barra de estado y tapaban la consola entera. */
 #terminal-panel { display: flex; flex-direction: column; height: 260px; flex: 0 0 auto; background: #0b0d12; border-top: 1px solid var(--line); position: relative; }
 #terminal-panel[hidden] { display: none; }
 #term-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: ns-resize; z-index: 3; }

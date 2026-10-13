@@ -2192,6 +2192,14 @@ async function toggleTerminal(force) {
 // desde que se abre (antes aria-valuenow no existía hasta el primer arrastre, y
 // aria-valuemax nunca). Lo pone en marcha el bloque del separador, más abajo.
 let pintaSeparadorTerminal = () => {};
+// Altura real de la consola como variable CSS, para que el aviso vacío y la
+// vista previa de Markdown acaben encima de ella y no la tapen. Un
+// ResizeObserver la sigue al abrir, cerrar (display:none → 0) y arrastrar.
+{
+  const panel = $('terminal-panel'), wrap = $('editor-wrap');
+  if (panel && wrap && 'ResizeObserver' in window)
+    new ResizeObserver(() => wrap.style.setProperty('--term-h', panel.offsetHeight + 'px')).observe(panel);
+}
 // La etiqueta del terminal sigue al bridge: antes solo se pintaba al abrir el
 // panel y se quedaba vieja si el bridge conectaba o caía con él abierto.
 function pintaCapacidades() {
