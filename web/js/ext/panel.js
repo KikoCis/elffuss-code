@@ -7,6 +7,13 @@
 // Teclado y lector de pantalla: todo lo que se pulsa es un botón (o un
 // <summary>), los resultados y avisos se anuncian (role=status/alert), el
 // foco no se pierde al repintar ni al cerrar, y Escape cierra el panel.
+//
+// Extensiones con código (nivel 2): lo que funcionará de cada una, el filtro
+// «Funciona en Code», el consentimiento y los mandos de las instaladas viven en
+// ../ext2/manage.js, que solo se carga cuando hace falta (al desplegar un
+// detalle, con el filtro, al pedir ejecutar código o si ya hay alguna). El
+// filtro de siempre («solo las que funcionan») cuenta como que funciona lo que
+// el nivel 2 puede ejecutar, en cuanto lo sabe.
 import { tx } from './i18n.js';
 import { uiLang } from '../i18n.js';
 import { describe, lista, listaO, works, languageName, languageExts, factsFromManifest, factsFromRecord } from './verdict.js';
@@ -17,15 +24,19 @@ const esOscuro = t => t?.uiTheme === 'vs-dark' || t?.uiTheme === 'hc-black';
 const $ = id => document.getElementById(id);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 const CATS = [['', 'catAll'], ['Themes', 'catThemes'], ['Snippets', 'catSnippets'], ['Programming Languages', 'catLangs']];
+const gestor = () => import('../ext2/manage.js');
 
 let host = null;
 let cssPuesto = false;
-const estado = { q: '', cat: null, items: [], total: 0, cargando: false, msg: null, ctl: null, solo: leeSolo(), objetivo: 0, auto: 0 };
 // «Solo las que funcionan en Code»: encendido salvo que quien usa el panel lo
-// apagara (se recuerda en este navegador, si se puede)
+// apagara (se recuerda en este navegador, si se puede). Va ANTES de `estado`:
+// estaba después, y `leeSolo()` leía la constante antes de existir; el catch
+// se tragaba el error y devolvía true, así que apagarlo no se recordaba nunca.
 const CLAVE_SOLO = 'elffusscode.ext.onlyWorks';
 function leeSolo() { try { return localStorage.getItem(CLAVE_SOLO) !== '0'; } catch { return true; } }
 function guardaSolo(v) { try { localStorage.setItem(CLAVE_SOLO, v ? '1' : '0'); } catch { /* sin almacenamiento: solo esta sesión */ } }
+const estado = { q: '', cat: null, items: [], total: 0, cargando: false, msg: null, ctl: null, solo: leeSolo(), objetivo: 0, auto: 0, works: false, checked: 0, cls: new Map() };
+let bajas = [];                         // suscripciones de los mandos de código (se sueltan al repintar)
 const POR_PAGINA = 20;                  // filas que se quieren ver por tanda
 const MAX_AUTO = 3;                     // páginas que se piden solas para llenarla
 
@@ -61,7 +72,7 @@ const enfocaEditor = () => {
   return true;
 };
 
-export function open(h, { themes = false } = {}) {
+export async function open(h, { themes = false } = {}) {
   host = h;
   ponCss();
   desuscribe?.();
@@ -70,6 +81,8 @@ export function open(h, { themes = false } = {}) {
   const box = $('settings-panel');
   if (!$('ext-panel')?.isConnected || box.hidden) abridor = document.activeElement;
   estado.msg = null;                    // un aviso viejo no se repite al volver a abrir
+  // con alguna extensión con código instalada, sus mandos se pintan ya
+  if (!m2 && h.list().some(e => e.code || e.browser)) { try { m2 = await gestor(); } catch { /* sin mandos de código */ } }
   pinta();
   if (!ideCargado) ide().then(m => { ideCargado = m; if ($('ext-panel')?.isConnected) pintaInstaladas(); });
 }
@@ -86,6 +99,8 @@ export function close() { if ($('ext-panel')?.isConnected && !$('settings-panel'
 const ERRORES = {
   rate: 'errRate', sha: 'errSha', nothing: 'errNothing', notvsix: 'errNotVsix', notfound: 'errNotFound',
   big: 'errBig', noname: 'errNoName', blocked: 'errBlocked', codeonly: 'notHere',
+  nosha: 'errNosha', nocode: 'errNocode', noentry: 'errNoentry',
+  'x2-site': 'x2Unavail_site', 'x2-browser': 'x2Unavail_browser', 'x2-off': 'x2Unavail_off', 'x2-url': 'x2Unavail_url',
 };
 export function textoError(e) {
   const code = e?.code;
@@ -100,6 +115,7 @@ export function textoError(e) {
     case 'badmanifest': return tx('errBadManifest', { e: e.message });
     case 'unreadable': return tx('errUnreadable', { w: e.warning ? textoAviso(e.warning) : '' }).trim();
   }
+  if (m2?.isRuntimeError(e)) return m2.runtimeErrorText(e);
   return tx('err', { e: e?.message || String(e) });
 }
 // Una parte del paquete que no se pudo usar (vsix.js: { kind, name, code, detail }).
@@ -200,7 +216,17 @@ function pinta() {
   const h3 = el('h3', null, tx('title') + ' ');
   h3.id = 'ext-title';
   h3.appendChild(el('span', 'muted', '· ' + tx('sub')));
-  wrap.append(h3, el('p', 'muted ext-intro', tx('intro')));
+  // con alguna extensión con código instalada, la explicación cambia
+  const conCodigo = host.list().some(e => e.code);
+  wrap.append(h3, el('p', 'muted ext-intro', tx(conCodigo ? 'introCode' : 'intro')));
+  const iso = el('details', 'ext-iso');
+  const isoS = el('summary', null, tx('isoTitle'));
+  isoS.dataset.k = 'iso';
+  iso.appendChild(isoS);
+  const isoUl = el('ul');
+  for (const k of ['iso1', 'iso2', 'iso3', 'iso4', 'iso5', 'iso6']) isoUl.appendChild(el('li', null, tx(k)));
+  iso.appendChild(isoUl);
+  wrap.appendChild(iso);
   if (host.paused) wrap.appendChild(el('p', 'ext-paused', tx('paused')));
 
   const barra = el('div', 'ext-toolbar');
@@ -242,8 +268,26 @@ function pinta() {
     c.onclick = () => { estado.cat = estado.cat === cat && cat ? '' : cat; busca_(); };
     chips.appendChild(c);
   }
+  // «Funciona en Code»: comprueba también el CÓDIGO de cada resultado (nivel 2)
+  // y esconde lo que no funcionaría aquí. Open VSX ve esas consultas: se dice.
+  const works = el('button', 'ext-chip ext-works' + (estado.works ? ' on' : ''), tx('chipWorks'));
+  works.type = 'button';
+  works.id = 'ext-works';
+  works.setAttribute('aria-pressed', String(estado.works));
+  works.onclick = () => {
+    estado.works = !estado.works;
+    works.classList.toggle('on', estado.works);
+    works.setAttribute('aria-pressed', String(estado.works));
+    $('ext-works-note').hidden = !estado.works;
+    busca_();
+  };
+  chips.appendChild(works);
   busca.append(inp, chips);
   wrap.appendChild(busca);
+  const nota = el('p', 'muted ext-works-note', tx('worksPrivacy'));
+  nota.id = 'ext-works-note';
+  nota.hidden = !estado.works;
+  wrap.appendChild(nota);
   const filtro = el('label', 'ext-filter');
   const solo = el('input');
   solo.type = 'checkbox';
@@ -282,12 +326,12 @@ async function busca_({ mas = false } = {}) {
   const ctl = new AbortController();
   estado.ctl = ctl;
   // solo las categorías: las fichas de tema de «Instaladas» también son .ext-chip
-  for (const c of document.querySelectorAll('#ext-panel .ext-search .ext-chip')) {
+  for (const c of document.querySelectorAll('#ext-panel .ext-search .ext-chip[data-cat]')) {
     const on = c.dataset.cat === (estado.cat || '') && estado.cat != null;
     c.classList.toggle('on', on);
     c.setAttribute('aria-pressed', String(on));
   }
-  if (!mas) { estado.objetivo = POR_PAGINA; estado.auto = 0; }
+  if (!mas) { estado.objetivo = POR_PAGINA; estado.auto = 0; estado.checked = 0; }
   // sin buscar nada: la lista de populares que funcionan, ya calculada
   if (mostrandoPopulares()) { estado.items = []; estado.total = 0; estado.cargando = false; pintaResultados(); return; }
   const ovsx = await import('./openvsx.js');
@@ -305,6 +349,7 @@ async function busca_({ mas = false } = {}) {
     nuevos = mas ? r.items.filter(it => !ya.has(claveDe(it))) : r.items;
     estado.items = mas ? estado.items.concat(nuevos) : r.items;
     estado.total = mas && !r.items.length ? estado.items.length : r.total;
+    if (estado.works && nuevos.length) clasificaNivel2(nuevos, ctl);
   } catch (e) {
     if (e.name === 'AbortError') return;
     aviso(textoError(e), true);
@@ -330,19 +375,32 @@ function ponSolo(v) {
   for (const row of document.querySelectorAll('#ext-list .ext-row')) filtraFila(row);
   pintaPie();
 }
+// Lo que se sabe de un resultado, con los dos filtros. El nivel 2 (estado.cls,
+// por id@versión en minúsculas) manda cuando ya ha mirado: lo que su código
+// puede ejecutar aquí FUNCIONA, aunque lo declarativo no aporte nada.
+//   pendiente: falta algún dato que el filtro encendido necesita
+//   visible:   pasa los filtros encendidos
+function situacion(key, popular = false) {
+  const c = estado.cls.get(key.toLowerCase());
+  let w = veredictos.get(key);
+  if (c?.works) w = true;
+  const pendiente = (estado.solo && !popular && w === undefined) || (estado.works && c === undefined);
+  const pasaSolo = !estado.solo || popular || (w !== undefined && w !== false);
+  const pasaCodigo = !estado.works || c === null || !!c?.works;
+  return { pendiente, visible: !pendiente && pasaSolo && pasaCodigo };
+}
 function filtraFila(row) {
-  const w = veredictos.get(row.dataset.key);
-  row.hidden = estado.solo && !row.dataset.popular && (w === undefined || w === false);
+  row.hidden = !situacion(row.dataset.key, !!row.dataset.popular).visible;
 }
 function cuentas() {
   let pendientes = 0, ocultas = 0, visibles = 0;
   for (const it of estado.items) {
-    const w = veredictos.get(claveDe(it));
-    if (w === undefined) pendientes++;
-    else if (w === false) ocultas++;
-    else visibles++;
+    const s = situacion(claveDe(it));
+    if (s.pendiente) pendientes++;
+    else if (s.visible) visibles++;
+    else ocultas++;
   }
-  return { pendientes, ocultas, visibles: estado.solo ? visibles : estado.items.length };
+  return { pendientes, ocultas, visibles: estado.solo || estado.works ? visibles : estado.items.length };
 }
 let piePendiente = false;
 function programaPie() {
@@ -359,21 +417,26 @@ function pintaPie() {
   const { pendientes, ocultas, visibles } = cuentas();
   const quedan = estado.items.length < estado.total;
   ocultasBox.replaceChildren();
-  ocultasBox.hidden = !(estado.solo && ocultas);
-  if (estado.solo && ocultas) {
+  ocultasBox.hidden = !((estado.solo || estado.works) && ocultas);
+  if ((estado.solo || estado.works) && ocultas) {
     ocultasBox.append(tx('hiddenN', { n: ocultas }) + ' · ');
     const b = el('button', 'ext-link', tx('showHidden'));
     b.type = 'button';
     b.id = 'ext-show-hidden';
     b.setAttribute('aria-label', tx('showHiddenNamed', { n: ocultas }));
-    b.onclick = () => { ponSolo(false); $('ext-only-works')?.focus(); };
+    b.onclick = () => {
+      if (estado.works) $('ext-works')?.click();
+      ponSolo(false);
+      $('ext-only-works')?.focus();
+    };
     ocultasBox.appendChild(b);
   }
   // ¿llenar la tanda? solo con el filtro, cuando ya se sabe todo lo pedido
-  const llenando = estado.solo && !pendientes && visibles < estado.objetivo && quedan && !estado.cargando && estado.auto < MAX_AUTO;
+  const filtrando = estado.solo || estado.works;
+  const llenando = filtrando && !pendientes && visibles < estado.objetivo && quedan && !estado.cargando && estado.auto < MAX_AUTO;
   pie.replaceChildren();
-  if (estado.cargando || (estado.solo && pendientes) || llenando) pie.appendChild(el('div', 'muted ext-hint', tx(estado.solo ? 'checking' : 'searching')));
-  else if (estado.solo && !visibles && estado.items.length) pie.appendChild(el('div', 'muted ext-hint', tx(quedan ? 'noneWorkYet' : 'noneWork', { n: estado.items.length })));
+  if (estado.cargando || (filtrando && pendientes) || llenando) pie.appendChild(el('div', 'muted ext-hint', tx(filtrando ? 'checking' : 'searching')));
+  else if (filtrando && !visibles && estado.items.length) pie.appendChild(el('div', 'muted ext-hint', tx(quedan ? 'noneWorkYet' : 'noneWork', { n: estado.items.length })));
   if (!estado.cargando && !llenando && quedan) {
     const mas = el('button', 'ghost ext-more', tx('more'));
     mas.type = 'button';
@@ -385,8 +448,10 @@ function pintaPie() {
     // el botón que tenía el foco ya no está: a la primera fila que se ve
     ([...document.querySelectorAll('#ext-list .ext-row:not([hidden]) .ext-name')].pop() || $('ext-only-works'))?.focus();
   }
+  const cab = $('ext-results-h');
+  if (cab) cab.textContent = estado.works ? tx('worksChecked', { k: visibles, n: estado.checked, total: estado.total }) : estado.q ? tx('results', { n: estado.total }) : tx('popular');
   if (!pendientes && !estado.cargando) {
-    anunciaBusqueda(tx('results', { n: estado.total }) + (estado.solo && ocultas ? ' · ' + tx('hiddenN', { n: ocultas }) : ''));
+    anunciaBusqueda(estado.works ? cab?.textContent || '' : tx('results', { n: estado.total }) + (estado.solo && ocultas ? ' · ' + tx('hiddenN', { n: ocultas }) : ''));
   }
   if (llenando) { estado.auto++; busca_({ mas: true }); }
 }
@@ -448,7 +513,9 @@ function pintaResultados() {
     } else anunciaBusqueda('');
     return;
   }
-  res.appendChild(el('div', 'sk-h', estado.q ? tx('results', { n: estado.total }) : tx('popular')));
+  const cabRes = el('div', 'sk-h', estado.q ? tx('results', { n: estado.total }) : tx('popular'));
+  cabRes.id = 'ext-results-h';
+  res.appendChild(cabRes);
   const lista = el('div', 'ext-list');
   lista.id = 'ext-list';
   const ocultas = el('div', 'muted ext-hidden');
@@ -515,8 +582,26 @@ function analiza(it) {
 function pintaVeredictoFila(row, it, a, instalada) {
   const f = hechosDeManifiesto(a);
   const v = describe(f);
+  row.dataset.vkind = v.kind;
   const sitio = row.querySelector('.ext-verdict-slot');
   if (!sitio) return v;
+  // «no funciona aquí» lo desmiente el nivel 2 si su código sí corre: hablan sus líneas
+  if (v.kind === 'code' && estado.cls.get(claveDe(it).toLowerCase())?.works) { sitio.replaceChildren(); return v; }
+  // Trae código para el navegador y el nivel 2 aún no ha mirado: no se afirma
+  // que no funcione, y «Instalar» sigue activo (lleva a su botón de código sin
+  // bajar nada). Mirarlo aquí cargaría el nivel 2 con solo buscar.
+  if (v.kind === 'code' && a.browserEntry) {
+    sitio.replaceChildren(el('div', 'ext-verdict ext-v-code', tx('vBrowserCode')));
+    const b = row.querySelector('.ext-install');
+    if (b && !instalada && !b.dataset.ocupado) {
+      rotula(b, tx('install'), tx('installNamed', { name: it.displayName }));
+      b.className = 'primary ext-install';
+      inerte(b, false);
+      b.removeAttribute('aria-describedby');
+      b.removeAttribute('title');
+    }
+    return v;
+  }
   const bloque = bloqueVeredicto(f, v);
   sitio.replaceChildren(bloque);
   const b = row.querySelector('.ext-install');
@@ -560,14 +645,81 @@ function filaResultado(it, instalada, { kind = null } = {}) {
     inerte(b, true);
   } else if (instalada) rotula(b, tx('update', { v: it.version }), tx('updateNamed', { name: it.displayName, v: it.version }));
   else rotula(b, tx('install'), tx('installNamed', { name: it.displayName }));
-  b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b); };
+  // actualizar una que corre su código la trae con su código (y su suma)
+  b.onclick = e => { e.stopPropagation(); if (!esInerte(b)) instala(it, b, { withCode: !!instalada?.code }); };
   acc.appendChild(b);
   row.append(icono(it.icon, it.displayName), main, acc);
   const k = claveDe(it);
-  analiza(it).then(a => { veredictos.set(k, works(pintaVeredictoFila(row, it, a, instalada))); })
+  // nivel 2: si ya se sabe qué funcionará (filtro o detalle), se dice en la fila
+  const c = estado.cls.get(k.toLowerCase());
+  if (c && m2) ponNivel2(row, it, c, instalada);
+  // con código para el navegador, sin veredicto (null): puede funcionar con el nivel 2
+  analiza(it).then(a => { const v = pintaVeredictoFila(row, it, a, instalada); veredictos.set(k, works(v) ? true : v.kind === 'code' && a.browserEntry ? null : false); })
     .catch(() => { if (!veredictos.has(k)) veredictos.set(k, null); })      // sin veredicto: el botón de siempre
     .finally(() => { filtraFila(row); programaPie(); });
   return row;
+}
+
+// ── nivel 2: qué funcionará de su código, y su botón ──
+let m2 = null;                          // ../ext2/manage.js, una vez cargado
+let conCodigo = null;
+const codigo = () => (conCodigo ??= m2.codeInstall({ host: () => host, aviso, instala, rotula, inerte, esInerte }));
+const ponBotonCodigo = (...a) => { if (m2) codigo().button(...a); };
+const instalaFicheroConCodigo = async (file, opts) => { m2 ??= await gestor(); return codigo().file(file, opts); };
+const instaladaDe = it => host.list().find(e => e.id === `${it.namespace}.${it.name}`.toLowerCase());
+const filaDe = it => [...document.querySelectorAll('#ext-list .ext-row')].find(r => r.dataset.key === claveDe(it));
+// Las líneas del nivel 2 en la fila (lo que funcionará) y su botón de código.
+function ponNivel2(row, it, c, instalada = instaladaDe(it)) {
+  if (!m2 || !c) return;
+  const main = row.querySelector('.ext-main'), det = row.querySelector('.ext-detail');
+  row.querySelector('.ext-x2-lines')?.remove();
+  const lineas = el('div', 'ext-x2-lines');
+  for (const l of m2.linesFor(c)) lineas.appendChild(el('div', l.cls, l.t));
+  main.insertBefore(lineas, det);
+  if (c.works && row.dataset.vkind === 'code') row.querySelector('.ext-verdict-slot')?.replaceChildren();
+  const acc = row.querySelector('.ext-actions');
+  if (acc) ponBotonCodigo(acc, it, c, instalada);
+}
+// El chip: clasifica una tanda de resultados (su manifiesto, 4 a la vez).
+async function clasificaNivel2(items, ctl) {
+  try {
+    const m = m2 ??= await gestor();
+    const [ovsx, store] = await Promise.all([import('./openvsx.js'), import('./store.js')]);
+    await m.classifyResults(items, {
+      ovsx, store, host, signal: ctl.signal, installedIds: new Set(host.list().map(e => e.id)),
+      onEach: (it, c) => {
+        if (estado.ctl !== ctl) return;
+        estado.cls.set(claveDe(it).toLowerCase(), c);
+        estado.checked++;
+        const row = filaDe(it);
+        if (row) { if (c) ponNivel2(row, it, c); filtraFila(row); }
+        programaPie();
+      },
+    });
+  } catch (e) {
+    if (e?.name === 'AbortError' || estado.ctl !== ctl) return;
+    // sin el nivel 2 no se puede comprobar: se enseñan sin filtrar
+    for (const it of items) { const k = claveDe(it).toLowerCase(); if (!estado.cls.has(k)) { estado.cls.set(k, null); estado.checked++; } }
+    for (const it of items) { const row = filaDe(it); if (row) filtraFila(row); }
+    programaPie();
+  }
+}
+// «Instalar» de una que solo trae código: no se baja; se dice y se lleva el
+// foco a su botón de código (con el motivo si no puede correr aquí).
+async function ofreceCodigo(it, fila) {
+  try {
+    m2 ??= await gestor();
+    const k = claveDe(it).toLowerCase();
+    if (!estado.cls.get(k)) {
+      const ovsx = await import('./openvsx.js');
+      const man = await ovsx.manifest(await ovsx.metadata(it.namespace, it.name, it.version));
+      estado.cls.set(k, (await m2.describe(man, { installedIds: new Set(host.list().map(e => e.id)), host })).cls);
+    }
+    if (fila) ponNivel2(fila, it, estado.cls.get(k));
+  } catch { /* sin el nivel 2: solo el aviso */ }
+  const cod = fila?.querySelector('.ext-install-code');
+  aviso(!cod ? tx('nothing') : esInerte(cod) ? cod.title : tx('errCodeonly'), true);
+  (cod || fila?.querySelector('.ext-name'))?.focus();
 }
 
 async function detalle(it, det, boton) {
@@ -581,7 +733,11 @@ async function detalle(it, det, boton) {
     const a = await analiza(it);
     const f = hechosDeManifiesto(a);
     const v = describe(f);
-    det.replaceChildren();
+    // nivel 2: qué funcionará de su código (se carga al desplegar un detalle)
+    m2 ??= await gestor();
+    const d2 = await m2.describe(await ovsx.manifest(meta), { installedIds: new Set(host.list().map(e => e.id)), host });
+    estado.cls.set(claveDe(it).toLowerCase(), d2.cls);
+    det.replaceChildren(...d2.lines.map(l => el('div', l.cls, l.t)));
     // el veredicto ya va en la fila; aquí, además, todo lo que no funcionaría
     if (v.missing.length && v.kind !== 'partial') det.appendChild(el('div', 'ext-v-more', tx(v.future === 'next' ? 'vMissingNext' : 'vMissingNever', { list: lista(v.missing) })));
     const lic = el('div', 'ext-meta muted', tx('license', { l: meta.license || tx('noLicense') }) + ' ');
@@ -595,7 +751,13 @@ async function detalle(it, det, boton) {
     det.appendChild(lic);
     det.dataset.listo = '1';
     const fila = det.closest('.ext-row');
-    if (fila) pintaVeredictoFila(fila, it, a, host.list().find(e => e.id === `${it.namespace}.${it.name}`.toLowerCase()));
+    const instalada = instaladaDe(it);
+    if (fila) pintaVeredictoFila(fila, it, a, instalada);
+    // nada aplicable ni código que corra: instalarla solo daría un error
+    const inst = fila?.querySelector('.ext-install');
+    if (!d2.cls.hasDeclarative && !d2.cls.eligible && inst && !instalada) { inerte(inst, true); inst.title = tx('nothing'); inst.className = 'ghost ext-install'; }
+    const acc = fila?.querySelector('.ext-actions');
+    if (acc) ponBotonCodigo(acc, it, d2.cls, instalada);
   } catch (e) { det.replaceChildren(el('div', 'ext-ignored', textoError(e))); }
 }
 
@@ -605,15 +767,17 @@ function textoNoInstalada(nombre, a) {
   return [tx('errCodeOnly', { name: nombre }), v.verdict, ...v.lines].join(' ');
 }
 
-async function instala(src, boton) {
+async function instala(src, boton, { withCode = false } = {}) {
   const esFichero = src instanceof Blob;
   const nombre = esFichero ? src.name : src.displayName;
-  if (!esFichero) {
+  if (!esFichero && !withCode) {
     // sin veredicto todavía (red lenta): se pide ahora, y si no se vería nada, no se baja
     const a = await analiza(src).catch(() => null);
     if (a) {
       const fila = boton?.closest('.ext-row');
       const v = fila ? pintaVeredictoFila(fila, src, a, null) : describe(hechosDeManifiesto(a));
+      // si solo trae código para el navegador, se ofrece ejecutarlo (nivel 2)
+      if (v.button.disabled && a.browserEntry) { await ofreceCodigo(src, fila); return; }
       if (v.button.disabled) { aviso(textoNoInstalada(nombre, a), true); return; }
     }
   }
@@ -626,8 +790,9 @@ async function instala(src, boton) {
     const rec = await host.install(esFichero ? src : { namespace: src.namespace, name: src.name, version: src.version }, {
       onProgress: (n, total) => { if (boton && total) boton.textContent = tx('downloading', { pct: Math.round(n / total * 100) }); },
       confirmLarge: async mb => confirm(tx('bigConfirm', { mb })),
+      withCode,
     });
-    if (boton) { delete boton.dataset.ocupado; rotula(boton, tx('installedOk'), tx('installedNamed', { name: rec.displayName || nombre })); boton.className = 'ghost ext-install'; }
+    if (boton) { delete boton.dataset.ocupado; rotula(boton, tx('installedOk'), tx('installedNamed', { name: rec.displayName || nombre })); boton.className = 'ghost ' + (withCode ? 'ext-install-code' : 'ext-install'); }
     // una extensión que solo trae temas se ve al instante: se aplica el primero
     // (con «Deshacer» en el aviso)
     const soloTemas = rec.themes?.length && !rec.grammars?.length && !rec.snippets?.length && !(rec.languages || []).some(l => l.configKey && !host.builtinLanguage?.(l.id));
@@ -644,11 +809,18 @@ async function instala(src, boton) {
     }
     const nAvisos = avisosVisibles(rec.warnings).length;
     const primera = auto ? ' ' + tx('cThemeApplied', { name: oscuro.label }) : '';
-    aviso(tx('installedMsg', { name: rec.displayName || nombre }) + primera + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
+    aviso(tx(withCode ? 'installedCodeMsg' : 'installedMsg', { name: rec.displayName || nombre }) + primera + (nAvisos ? ' ' + tx('warnSummary', { n: nAvisos }) + '.' : ''));
     await pintaTarjeta(rec, { previo: auto ? temaAntes : null });
     pintaInstaladas();
+    // un .vsix con temas o snippets Y código para el navegador: se ofrece
+    // también su código (desde un fichero no hay otra forma de traerlo luego)
+    if (esFichero && !withCode && rec.browser && !rec.code) return instalaFicheroConCodigo(src, { yaInstalada: true });
   } catch (e) {
     if (boton) { delete boton.dataset.ocupado; inerte(boton, false); rotula(boton, original.texto, original.accesible); }
+    // un .vsix con solo código: se ofrece ejecutarlo (con su consentimiento)
+    // (solo si trae código para el NAVEGADOR: el de Node no puede correr aquí)
+    if (e?.code === 'codeonly' && esFichero && e.analysis?.browserEntry) return instalaFicheroConCodigo(src);
+    if (e?.code === 'codeonly' && e.analysis?.browserEntry) { await ofreceCodigo(src, boton?.closest('.ext-row')); return; }
     if (e?.code === 'codeonly') {
       aviso(textoNoInstalada(e.displayName || nombre, e.analysis), true);
       if (boton) { const v = describe(hechosDeManifiesto(e.analysis)); botonSegunVeredicto(boton, v, nombre); }
@@ -785,6 +957,7 @@ async function pintaTarjeta(rec, { previo = null } = {}) {
 }
 
 function claveFoco(x) {
+  if (x?.id === 'ext-installed-h') return { heading: true };
   const k = x?.closest?.('[data-k]')?.dataset.k;
   const id = x?.closest?.('.ext-row')?.dataset.id;
   return k && id ? { id, k } : null;
@@ -845,12 +1018,29 @@ function pintaInstaladas() {
   focoPendiente = null;
   // …y los avisos que estaban desplegados siguen desplegados
   const desplegados = new Set([...box.querySelectorAll('details.ext-warn[open]')].map(d => d.closest('.ext-row')?.dataset.id));
+  // (y los plegables de los mandos de código, con lo que se estaba escribiendo)
+  const abiertos = new Set([...box.querySelectorAll('.ext-x2 details[open]')].map(d => d.closest('.ext-row')?.dataset.id + '|' + d.className));
+  const borradores = new Map([...box.querySelectorAll('.ext-x2-json')].map(t => [t.closest('.ext-row')?.dataset.id, t.value]));
+  for (const b of bajas) { try { b(); } catch { /* — */ } }
+  bajas = [];
   const lista = host.list();
+  // la explicación del panel cambia con la primera extensión con código (y vuelve sin ninguna)
+  const intro = document.querySelector('#ext-panel .ext-intro');
+  if (intro) intro.textContent = tx(lista.some(e => e.code) ? 'introCode' : 'intro');
   const cab = el('div', 'sk-h', tx('installedH', { n: lista.length }));
   cab.id = 'ext-installed-h';
   cab.tabIndex = -1;
   box.replaceChildren(cab);
   if (!lista.length) { box.appendChild(el('p', 'muted ext-hint', tx('none'))); recuperaFoco(box, foco && { heading: true }); return; }
+  // con código en marcha: una línea con su estado y un botón para apagarlo todo
+  if (lista.some(e => e.runs && e.enabled) && m2) {
+    box.appendChild(m2.runtimeLine(host, { register: f => bajas.push(f), onUnblock: () => { aviso(tx('x2Unblocked')); $('ext-installed-h')?.focus(); } }));
+    const todo = el('button', 'ghost ext-x2-alloff', tx('allCodeOff'));
+    todo.type = 'button';
+    todo.onclick = async () => { focoPendiente = { heading: true }; for (const e of host.list()) if (e.runs) await host.setRuns(e.id, false); aviso(tx('allCodeOffDone')); };
+    box.appendChild(todo);
+  }
+  if (lista.some(e => e.code || e.browser) && !m2) gestor().then(m => { m2 = m; pintaInstaladas(); }).catch(() => {});
   for (const e of lista.slice().reverse()) {
     const row = el('div', 'ext-row installed' + (e.enabled ? '' : ' off'));
     row.dataset.id = e.id;
@@ -865,7 +1055,23 @@ function pintaInstaladas() {
       const ahora = lineasAhora(e, f);
       if (ahora) main.appendChild(ahora);
     } else main.appendChild(el('div', 'ext-now muted', tx('nOff')));
-    main.appendChild(bloqueVeredicto(f, v, { principal: false }));
+    // con código para el navegador, lo que hace lo cuentan sus mandos (abajo):
+    // el «no funciona aquí» de lo declarativo sería falso
+    const conMandos = (e.code || e.browser) && m2;
+    if (!(conMandos && v.kind === 'code')) main.appendChild(bloqueVeredicto(f, v, { principal: false }));
+    // mandos del código (nivel 2): ejecutar o no, estado, comandos, ajustes…
+    if (conMandos) {
+      const b = m2.codeBlock(e, {
+        host,
+        onGetCode: rec => codigo().installed(rec),
+        onMessage: (t, error) => aviso(typeof t === 'string' ? t : textoError(t), error),
+        register: f2 => bajas.push(f2),
+      });
+      for (const d of b.querySelectorAll('details')) if (abiertos.has(e.id + '|' + d.className)) d.open = true;
+      const ta = b.querySelector('.ext-x2-json');
+      if (ta && borradores.has(e.id)) ta.value = borradores.get(e.id);
+      main.appendChild(b);
+    }
     const avisos = avisosVisibles(e.warnings).map(textoAviso).filter(Boolean);
     if (avisos.length) {
       const d = el('details', 'ext-warn');

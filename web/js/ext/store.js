@@ -6,10 +6,12 @@
 //
 //   ext    id → registro (versión, sha256, licencia, activa, contribuciones…)
 //   files  "id@versión/ruta" → contenido ya parseado (tema, gramática…)
+//          "id@versión/code/ruta" → bytes del código (nivel 2, js/ext2/host2.js)
 //   meta   marcas internas
 //
-// La lista [{id, version, enabled}] se refleja en kv «extensions» de la base
-// principal, que es lo que ven el inventario y la copia del espacio de trabajo.
+// La lista [{id, version, enabled, runs}] se refleja en kv «extensions» de la
+// base principal, que es lo que ven el inventario y la copia del espacio de
+// trabajo.
 import * as maindb from '../db.js';
 
 const NAME = 'elffuss-code-ext', VERSION = 1;
@@ -36,6 +38,7 @@ const done = req => new Promise((res, rej) => { req.onsuccess = () => res(req.re
 const txDone = tx => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error('transacción abortada')); });
 
 export const fileKey = (id, version, path) => `${id}@${version}/${path}`;
+export const codeKey = (id, version, path) => `${id}@${version}/code/${path}`;
 
 export async function list() {
   const db = await open();
@@ -69,21 +72,38 @@ export async function remove(id) {
   await writeMirror();
 }
 
-export async function setEnabled(id, enabled) {
+export async function getFiles(keys) {
+  const st = (await open()).transaction('files').objectStore('files');
+  return Promise.all(keys.map(k => done(st.get(k))));
+}
+
+// Caché de cosas pequeñas de Open VSX (p. ej. lo que se sabe de un manifiesto
+// por id@versión, para el filtro «Funciona en Code»).
+export async function getMeta(key) { return done((await open()).transaction('meta').objectStore('meta').get('cache:' + key)); }
+export async function setMeta(key, value) {
+  const db = await open();
+  const tx = db.transaction('meta', 'readwrite');
+  tx.objectStore('meta').put(value, 'cache:' + key);
+  await txDone(tx);
+}
+
+// Cambia un registro en una transacción (`cambia(rec)` lo modifica).
+export async function update(id, cambia, { mirror = true } = {}) {
   const db = await open();
   const tx = db.transaction('ext', 'readwrite');
   const rec = await done(tx.objectStore('ext').get(id));
   if (!rec) throw new Error('no instalada: ' + id);
-  rec.enabled = !!enabled;
+  cambia(rec);
   tx.objectStore('ext').put(rec, id);
   await txDone(tx);
-  await writeMirror();
+  if (mirror) await writeMirror();
   return rec;
 }
+export const setEnabled = (id, enabled) => update(id, r => { r.enabled = !!enabled; });
 
 async function writeMirror() {
   const recs = await list();
-  await maindb.set('kv', MIRROR, recs.map(r => ({ id: r.id, version: r.version, enabled: !!r.enabled })));
+  await maindb.set('kv', MIRROR, recs.map(r => ({ id: r.id, version: r.version, enabled: !!r.enabled, runs: !!r.runs })));
   const db = await open();
   const tx = db.transaction('meta', 'readwrite');
   tx.objectStore('meta').put(true, 'mirrored');

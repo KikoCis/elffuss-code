@@ -54,7 +54,15 @@ const instalaFichero = async (p, nombre, bytes) => {
   await abrePanel(p);
   await p.evaluate(() => { const m = document.getElementById('ext-msg'); if (m) { m.hidden = true; m.textContent = ''; } document.getElementById('ext-done')?.remove(); });
   await p.setInputFiles('#ext-file', { name: nombre, mimeType: 'application/octet-stream', buffer: Buffer.from(bytes) });
-  return hasta(() => p.evaluate(() => { const m = document.getElementById('ext-msg'); return m && !m.hidden && m.textContent; }), { tiempo: 15000 });
+  const msg = await hasta(() => p.evaluate(() => { const m = document.getElementById('ext-msg'); return m && !m.hidden && m.textContent; }), { tiempo: 15000 });
+  // Un .vsix que además trae código para el navegador abre el consentimiento
+  // del nivel 2 («¿ejecutar también su código?»). Aquí solo se quería lo
+  // declarativo: se rechaza, como haría quien lo instala por su resaltado.
+  if (await hasta(() => p.evaluate(() => !!document.querySelector('#x2-consent')), { tiempo: 1500 })) {
+    await p.keyboard.press('Escape');
+    await hasta(() => p.evaluate(() => !document.querySelector('#x2-consent')), { tiempo: 5000 });
+  }
+  return msg;
 };
 const tarjeta = p => p.evaluate(() => document.getElementById('ext-done')?.innerText.replace(/\s+/g, ' ') || '');
 const fila = (p, id) => p.locator(`#ext-installed .ext-row[data-id="${id}"]`);
@@ -219,9 +227,12 @@ const fila = (p, id) => p.locator(`#ext-installed .ext-row[data-id="${id}"]`);
     await p.press('#ext-q', 'Enter');
     const row = p.locator('#ext-results .ext-row[data-id="esbenp.prettier-vscode"]');
     await row.waitFor({ state: 'attached', timeout: 20000 }).catch(() => {});
-    const dis = await hasta(async () => (await row.locator('.ext-install').getAttribute('aria-disabled')) === 'true', { tiempo: 20000 });
-    ok('live: Prettier is not offered as a plain Install', !!dis, await row.innerText().catch(() => ''));
-    ok('live: …and with «Only ones that work in Code» (on by default) it is hidden', await hasta(async () => !(await row.isVisible()) && /hidden because/.test(await p.locator('#ext-hidden').innerText().catch(() => ''))), await p.locator('#ext-hidden').innerText().catch(() => ''));
+    // Con el nivel 2, el código para el navegador de Prettier puede correr en el
+    // recinto: ya no se esconde ni se da por «no funciona». La fila lo dice, y
+    // «Instalar» lleva a su botón de código en vez de ser un botón muerto.
+    const visto = await hasta(async () => (await row.isVisible()) && /Code’s sandbox/.test(await row.innerText()), { tiempo: 20000 });
+    ok('live: Prettier (browser code) shows even with «Only ones that work in Code» on, and says it can run in Code’s sandbox', !!visto, await row.innerText().catch(() => ''));
+    ok('live: …and its Install is not a dead button', (await row.locator('.ext-install').getAttribute('aria-disabled')) !== 'true', await row.innerText().catch(() => ''));
     await p.fill('#ext-q', 'dracula');
     await p.press('#ext-q', 'Enter');
     const d = p.locator('#ext-results .ext-row[data-id="dracula-theme.theme-dracula"]');

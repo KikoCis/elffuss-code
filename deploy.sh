@@ -56,7 +56,27 @@ for a in "$@"; do
   fi
 done
 
-rsync -az --delete --filter='P blog/***' --filter='P __e4b.litertlm' --exclude='__e4b.litertlm' "${MOTOR[@]}" -e "ssh -i $KEY" web/ "$HOST:$DEST/"
+# El bundle del nivel 2 de extensiones (vendor/x2/<buildId>/) tampoco viaja
+# aquí: lo sube y lo verifica deploy-vendor.sh, ANTES de este script, y el
+# --delete no puede borrar las compilaciones que ya están en el servidor.
+VENDOR=(--filter='P vendor/x2/***' --exclude='vendor/x2/')
+
+# …y el manifiesto que nombra ese bundle no se publica si el servidor no lo
+# tiene ya, byte a byte: un navegador que pidiera un fichero que aún no está
+# se quedaría con el fallo (solo cuando algún navegador lo pediría de verdad:
+# el manifiesto encendido y config.js con un recinto para Code).
+if node vendor/vscode-ext2/check-output.mjs --live web; then
+  BUILD=$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('web/js/ext2/vendor-manifest.json','utf8')).buildId)")
+  case "$BUILD" in (*[!0-9a-f]*|'') echo "buildId no válido: $BUILD" >&2; exit 1;; esac
+  EXPECTED=$(node vendor/vscode-ext2/check-output.mjs --manifest-sums web | LC_ALL=C sort -k2)
+  REMOTE=$(ssh -i "$KEY" "$HOST" "cd '$DEST/vendor/x2/$BUILD' 2>/dev/null && find . -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | while read -r f; do sha256sum -- \"\$f\"; done" | LC_ALL=C sort -k2 || true)
+  if [ "$REMOTE" != "$EXPECTED" ]; then
+    echo "✗ el servidor no tiene el bundle $BUILD que nombra web/js/ext2/vendor-manifest.json: ./deploy-vendor.sh primero" >&2
+    exit 1
+  fi
+fi
+
+rsync -az --delete --filter='P blog/***' --filter='P __e4b.litertlm' --exclude='__e4b.litertlm' "${MOTOR[@]}" "${VENDOR[@]}" -e "ssh -i $KEY" web/ "$HOST:$DEST/"
 
 # anti-caché: versionar assets del index con el commit y sellar el build
 V=$(git rev-parse --short HEAD 2>/dev/null || date +%s)

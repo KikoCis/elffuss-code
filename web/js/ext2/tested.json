@@ -1,0 +1,1621 @@
+{
+ "schema": 1,
+ "date": "2026-10-11",
+ "vscode": "1.138.0",
+ "library": "@codingame/monaco-vscode-api@37.3.11",
+ "buildId": "ad4bdda82184c442",
+ "method": "Runtime census: the top 500 Open VSX extensions by downloads (list of 2026-10-11) that have a browser entry, each installed from its verified .vsix and started alone in the real sandbox; once the sandbox ran, one sample document per language was opened; activation events fired: those documents' languages, onStartupFinished, * and onCommand for each contributed command (no command was executed).",
+ "counts": {
+  "topN": 500,
+  "listDate": "2026-10-11",
+  "browserEntry": 89,
+  "installed": 81,
+  "active": 50,
+  "activeAndUseful": 34,
+  "activeNothingRegistered": 16,
+  "error": 23,
+  "notActivated": 7,
+  "unsupported": 1,
+  "installFailed": 8,
+  "sandboxOrCensusError": 0,
+  "withWorkbenchContributions": 52,
+  "withFormatter": 5,
+  "beaconHits": 0
+ },
+ "results": {
+  "ms-python.python@2026.4.0": {
+   "rank": 3,
+   "downloads": 60416390,
+   "declarative": {
+    "grammars": 1,
+    "languages": 6
+   },
+   "workbench": [
+    "problemMatchers",
+    "walkthroughs",
+    "breakpoints",
+    "debuggers",
+    "viewsWelcome",
+    "languageModelTools"
+   ],
+   "apiProposals": 9,
+   "bytes": 16767917,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 23,
+   "providers": {},
+   "diagnostics": false
+  },
+  "eamodio.gitlens@2026.10.90519": {
+   "rank": 19,
+   "downloads": 17572572,
+   "declarative": {},
+   "workbench": [
+    "mcpServerDefinitionProviders",
+    "customEditors",
+    "resourceLabelFormatters",
+    "viewsContainers",
+    "viewsWelcome",
+    "views",
+    "walkthroughs"
+   ],
+   "bytes": 19305322,
+   "state": "error",
+   "error": "Activating extension 'eamodio.gitlens' failed: Unsupported: Wz.setExtensionState is not supported. You are using a feature without registering the corresponding service override..",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 1171,
+   "providers": {},
+   "diagnostics": false,
+   "unsupportedCalls": [
+    "Wz.setKeysForSync"
+   ],
+   "sandboxErrors": 1
+  },
+  "ms-toolsai.jupyter@2025.9.1": {
+   "rank": 24,
+   "downloads": 10724083,
+   "declarative": {
+    "languages": 2
+   },
+   "workbench": [
+    "walkthroughs",
+    "notebookRenderer",
+    "viewsContainers",
+    "views",
+    "debuggers",
+    "languageModelTools"
+   ],
+   "apiProposals": 13,
+   "bytes": 9807283,
+   "state": "active",
+   "commands": 78,
+   "contributedCommands": 83,
+   "providers": {
+    "codeAction": 1,
+    "hover": 1
+   },
+   "later": {
+    "codeLensProvider": 1,
+    "foldingRangeProvider": 1
+   },
+   "diagnostics": false,
+   "sandboxErrors": 2
+  },
+  "vue.volar@3.3.13": {
+   "rank": 25,
+   "downloads": 10624772,
+   "declarative": {
+    "grammars": 7,
+    "languages": 4
+   },
+   "workbench": [
+    "breakpoints"
+   ],
+   "bytes": 4267867,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 2,
+   "providers": {},
+   "diagnostics": false,
+   "askedUser": {
+    "toasts": 1
+   }
+  },
+  "ms-toolsai.jupyter-renderers@1.3.0": {
+   "rank": 26,
+   "downloads": 10157266,
+   "declarative": {},
+   "workbench": [
+    "notebookRenderer"
+   ],
+   "apiProposals": 1,
+   "bytes": 17333605,
+   "state": "installed",
+   "activation": "no activation event fired",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "esbenp.prettier-vscode@12.4.0": {
+   "rank": 27,
+   "downloads": 9439254,
+   "declarative": {
+    "languages": 5
+   },
+   "workbench": [],
+   "bytes": 5875354,
+   "state": "active",
+   "commands": 3,
+   "contributedCommands": 2,
+   "providers": {
+    "formatRange": 1,
+    "format": 1,
+    "codeAction": 1
+   },
+   "diagnostics": false
+  },
+  "ms-toolsai.vscode-jupyter-cell-tags@0.1.9": {
+   "rank": 29,
+   "downloads": 8465256,
+   "declarative": {},
+   "workbench": [
+    "views",
+    "viewsWelcome"
+   ],
+   "bytes": 279692,
+   "state": "active",
+   "commands": 4,
+   "contributedCommands": 4,
+   "providers": {},
+   "diagnostics": false,
+   "sandboxErrors": 1,
+   "askedUser": {
+    "toasts": 1
+   }
+  },
+  "ms-toolsai.vscode-jupyter-slideshow@0.1.6": {
+   "rank": 30,
+   "downloads": 8418085,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 267968,
+   "state": "active",
+   "commands": 2,
+   "contributedCommands": 2,
+   "providers": {},
+   "diagnostics": false,
+   "sandboxErrors": 1
+  },
+  "redhat.vscode-yaml@1.25.2026101008": {
+   "rank": 31,
+   "downloads": 8165783,
+   "declarative": {
+    "grammars": 1,
+    "languages": 1
+   },
+   "workbench": [],
+   "bytes": 4076535,
+   "state": "active",
+   "commands": 2,
+   "contributedCommands": 0,
+   "providers": {
+    "completion": 1,
+    "hover": 1,
+    "definition": 1,
+    "symbols": 1,
+    "codeAction": 1,
+    "formatOnType": 1,
+    "rename": 1,
+    "format": 1
+   },
+   "later": {
+    "codeLensProvider": 1,
+    "linkProvider": 1,
+    "foldingRangeProvider": 1,
+    "selectionRangeProvider": 1
+   },
+   "diagnostics": true,
+   "askedUser": {
+    "toasts": 1
+   }
+  },
+  "github.vscode-pull-request-github@0.168.0": {
+   "rank": 36,
+   "downloads": 6601546,
+   "declarative": {},
+   "workbench": [
+    "viewsContainers",
+    "views",
+    "viewsWelcome",
+    "resourceLabelFormatters",
+    "languageModelTools"
+   ],
+   "apiProposals": 33,
+   "bytes": 6164632,
+   "state": "error",
+   "error": "Activating extension 'GitHub.vscode-pull-request-github' failed: Elffuss Code does not let extensions call MainThreadAuthentication.$ensureProvider.",
+   "activation": "failed",
+   "commands": 1,
+   "contributedCommands": 174,
+   "providers": {},
+   "diagnostics": false
+  },
+  "pkief.material-icon-theme@5.39.0": {
+   "rank": 37,
+   "downloads": 6416680,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 1901023,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 11,
+   "providers": {},
+   "diagnostics": false
+  },
+  "quarto.quarto@1.138.0": {
+   "rank": 42,
+   "downloads": 4525173,
+   "declarative": {
+    "grammars": 4,
+    "snippets": 5,
+    "languages": 4
+   },
+   "workbench": [
+    "views",
+    "customEditors",
+    "walkthroughs",
+    "notebookRenderer"
+   ],
+   "bytes": 42364183,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 48,
+   "providers": {},
+   "diagnostics": false
+  },
+  "github.vscode-github-actions@0.32.3": {
+   "rank": 43,
+   "downloads": 4475906,
+   "declarative": {
+    "grammars": 2,
+    "languages": 1
+   },
+   "workbench": [
+    "debuggers",
+    "views",
+    "viewsWelcome",
+    "viewsContainers"
+   ],
+   "bytes": 10510767,
+   "state": "error",
+   "error": "Activating extension 'github.vscode-github-actions' failed: process is not defined.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 24,
+   "providers": {},
+   "diagnostics": false
+  },
+  "amazonwebservices.aws-toolkit-vscode@4.17.0": {
+   "rank": 47,
+   "downloads": 3698127,
+   "declarative": {
+    "grammars": 5,
+    "languages": 5
+   },
+   "workbench": [
+    "debuggers",
+    "viewsContainers",
+    "viewsWelcome",
+    "views",
+    "resourceLabelFormatters",
+    "walkthroughs",
+    "notebooks",
+    "customEditors"
+   ],
+   "state": "install-failed",
+   "error": "a file over the 32 MiB limit"
+  },
+  "mechatroner.rainbow-csv@3.24.1": {
+   "rank": 51,
+   "downloads": 3276823,
+   "declarative": {
+    "grammars": 6,
+    "languages": 6
+   },
+   "workbench": [],
+   "bytes": 1316235,
+   "state": "active",
+   "commands": 25,
+   "contributedCommands": 24,
+   "providers": {
+    "symbols": 1,
+    "hover": 6
+   },
+   "later": {
+    "documentRangeSemanticTokensProvider": 1
+   },
+   "diagnostics": false
+  },
+  "shd101wyy.markdown-preview-enhanced@0.8.40": {
+   "rank": 62,
+   "downloads": 2400502,
+   "declarative": {},
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 66009523,
+   "state": "error",
+   "error": "Activating extension 'shd101wyy.markdown-preview-enhanced' failed: global is not defined.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 36,
+   "providers": {},
+   "diagnostics": false
+  },
+  "hashicorp.terraform@2.40.0": {
+   "rank": 63,
+   "downloads": 2340047,
+   "declarative": {
+    "grammars": 9,
+    "languages": 11
+   },
+   "workbench": [
+    "mcpServerDefinitionProviders",
+    "views",
+    "viewsContainers",
+    "viewsWelcome"
+   ],
+   "variant": "web",
+   "bytes": 1859078,
+   "state": "error",
+   "error": "Activating extension 'hashicorp.terraform' failed: Cannot read properties of undefined (reading 'length').",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 24,
+   "providers": {},
+   "diagnostics": false
+  },
+  "amazonwebservices.amazon-q-vscode@2.8.0": {
+   "rank": 69,
+   "downloads": 2180955,
+   "declarative": {},
+   "workbench": [
+    "viewsContainers",
+    "views",
+    "viewsWelcome",
+    "walkthroughs"
+   ],
+   "state": "install-failed",
+   "error": "over the 64 MiB limit for one extension"
+  },
+  "cweijan.vscode-office@4.2.0": {
+   "rank": 73,
+   "downloads": 2106328,
+   "declarative": {
+    "themes": 2,
+    "grammars": 6,
+    "snippets": 1,
+    "languages": 6
+   },
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 35320522,
+   "state": "error",
+   "error": "Activating extension 'cweijan.vscode-office' failed: Cannot load module 'pdf-lib'.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 10,
+   "providers": {},
+   "diagnostics": false
+  },
+  "ms-vscode.vscode-js-profile-table@1.0.11": {
+   "rank": 76,
+   "downloads": 2072027,
+   "declarative": {},
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 2321001,
+   "state": "active",
+   "commands": 1,
+   "contributedCommands": 1,
+   "providers": {},
+   "later": {
+    "codeLensProvider": 1
+   },
+   "diagnostics": false,
+   "sandboxErrors": 3
+  },
+  "vscodevim.vim@1.32.4": {
+   "rank": 82,
+   "downloads": 1949173,
+   "declarative": {
+    "grammars": 1,
+    "languages": 1
+   },
+   "workbench": [],
+   "bytes": 4026898,
+   "state": "unsupported",
+   "unsupported": "replaces typing",
+   "error": "replaces typing (the \"type\" command), which Elffuss Code does not support",
+   "contributedCommands": 3
+  },
+  "davidanson.vscode-markdownlint@0.62.1": {
+   "rank": 85,
+   "downloads": 1805249,
+   "declarative": {
+    "snippets": 1
+   },
+   "workbench": [
+    "taskDefinitions",
+    "problemMatchers"
+   ],
+   "bytes": 1272771,
+   "state": "active",
+   "commands": 5,
+   "contributedCommands": 4,
+   "providers": {
+    "codeAction": 1,
+    "formatRange": 1
+   },
+   "diagnostics": true,
+   "sandboxErrors": 1
+  },
+  "vscode-icons-team.vscode-icons@13.0.0": {
+   "rank": 91,
+   "downloads": 1554750,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 7164621,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 13,
+   "providers": {},
+   "diagnostics": false
+  },
+  "usernamehw.errorlens@3.29.0": {
+   "rank": 99,
+   "downloads": 1224325,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 194753,
+   "state": "active",
+   "commands": 18,
+   "contributedCommands": 15,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.npm@1.95.3": {
+   "rank": 108,
+   "downloads": 994737,
+   "declarative": {
+    "languages": 2
+   },
+   "workbench": [
+    "views",
+    "taskDefinitions"
+   ],
+   "apiProposals": 1,
+   "bytes": 495980,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 8,
+   "providers": {
+    "completion": 2,
+    "hover": 2
+   },
+   "diagnostics": false
+  },
+  "qwtel.sqlite-viewer@26.9.1": {
+   "rank": 109,
+   "downloads": 985440,
+   "declarative": {
+    "languages": 1
+   },
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 9300426,
+   "state": "active",
+   "commands": 5,
+   "contributedCommands": 5,
+   "providers": {},
+   "diagnostics": false,
+   "unsupportedCalls": [
+    "Wz.setKeysForSync"
+   ],
+   "sandboxErrors": 3
+  },
+  "zhuangtongfa.material-theme@3.20.3": {
+   "rank": 115,
+   "downloads": 915557,
+   "declarative": {
+    "themes": 5
+   },
+   "workbench": [],
+   "bytes": 1098286,
+   "state": "active",
+   "commands": 7,
+   "contributedCommands": 7,
+   "providers": {},
+   "diagnostics": false
+  },
+  "jeanp413.open-remote-ssh@0.4.0": {
+   "rank": 116,
+   "downloads": 911286,
+   "declarative": {},
+   "workbench": [
+    "views",
+    "resourceLabelFormatters"
+   ],
+   "apiProposals": 2,
+   "bytes": 658169,
+   "state": "error",
+   "error": "Activating extension 'jeanp413.open-remote-ssh' failed: Cannot load module 'node:util'.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 12,
+   "providers": {},
+   "diagnostics": false
+  },
+  "dsznajder.es7-react-js-snippets@4.4.3": {
+   "rank": 120,
+   "downloads": 880246,
+   "declarative": {
+    "snippets": 4
+   },
+   "workbench": [],
+   "bytes": 233382,
+   "state": "error",
+   "error": "Activating extension 'dsznajder.es7-react-js-snippets' failed: Cannot load module './helpers/generateSnippets'.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 1,
+   "providers": {},
+   "diagnostics": false
+  },
+  "bierner.markdown-mermaid@1.32.1": {
+   "rank": 126,
+   "downloads": 829508,
+   "declarative": {},
+   "workbench": [
+    "notebookRenderer"
+   ],
+   "bytes": 35183675,
+   "state": "installed",
+   "activation": "no activation event fired",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "timonwong.shellcheck@0.48.0": {
+   "rank": 134,
+   "downloads": 738887,
+   "declarative": {
+    "grammars": 2,
+    "snippets": 2,
+    "languages": 3
+   },
+   "workbench": [
+    "walkthroughs"
+   ],
+   "bytes": 4923464,
+   "state": "active",
+   "commands": 6,
+   "contributedCommands": 4,
+   "providers": {
+    "codeAction": 4,
+    "hover": 1
+   },
+   "later": {
+    "linkProvider": 2
+   },
+   "diagnostics": false,
+   "unsupportedCalls": [
+    "Wz.setKeysForSync"
+   ],
+   "askedUser": {
+    "toasts": 1
+   }
+  },
+  "tamasfe.even-better-toml@0.21.2": {
+   "rank": 146,
+   "downloads": 668800,
+   "declarative": {
+    "grammars": 3,
+    "languages": 1
+   },
+   "workbench": [],
+   "state": "install-failed",
+   "error": "a file over the 32 MiB limit"
+  },
+  "malloydata.malloy-vscode@0.3.1790984375": {
+   "rank": 147,
+   "downloads": 661367,
+   "declarative": {
+    "grammars": 3,
+    "languages": 3
+   },
+   "workbench": [
+    "viewsContainers",
+    "views",
+    "viewsWelcome",
+    "walkthroughs",
+    "notebooks",
+    "notebookRenderer"
+   ],
+   "variant": "web",
+   "bytes": 46994859,
+   "state": "error",
+   "error": "Activating extension 'malloydata.malloy-vscode' failed: Extensions may only call createRendererMessaging() for renderers they contribute (got malloy.notebook-renderer).",
+   "activation": "failed",
+   "commands": 20,
+   "contributedCommands": 21,
+   "providers": {
+    "completion": 1,
+    "hover": 1,
+    "definition": 1,
+    "symbols": 1,
+    "codeAction": 1,
+    "format": 1
+   },
+   "later": {
+    "codeLensProvider": 1
+   },
+   "diagnostics": true,
+   "sandboxErrors": 4,
+   "askedUser": {
+    "toasts": 1
+   }
+  },
+  "k--kato.intellij-idea-keybindings@1.7.8": {
+   "rank": 151,
+   "downloads": 643999,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 800148,
+   "state": "active",
+   "commands": 2,
+   "contributedCommands": 1,
+   "providers": {},
+   "diagnostics": false
+  },
+  "aaron-bond.better-comments@3.0.2": {
+   "rank": 153,
+   "downloads": 623256,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 124742,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.json-language-features@1.95.3": {
+   "rank": 158,
+   "downloads": 604089,
+   "declarative": {},
+   "workbench": [],
+   "apiProposals": 1,
+   "bytes": 2961570,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 2,
+   "providers": {},
+   "diagnostics": false
+  },
+  "oderwat.indent-rainbow@8.3.1": {
+   "rank": 168,
+   "downloads": 574007,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 169915,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "christian-kohler.path-intellisense@2.8.0": {
+   "rank": 175,
+   "downloads": 555708,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 221464,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {
+    "completion": 2
+   },
+   "diagnostics": false
+  },
+  "salesforce.salesforcedx-vscode-lwc@67.27.6": {
+   "rank": 176,
+   "downloads": 554775,
+   "declarative": {
+    "snippets": 2
+   },
+   "workbench": [
+    "taskDefinitions",
+    "views",
+    "debuggers"
+   ],
+   "bytes": 13303612,
+   "state": "error",
+   "error": "Activating extension 'salesforce.salesforcedx-vscode-lwc' failed: An error has occurred.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 11,
+   "providers": {},
+   "diagnostics": false
+  },
+  "catppuccin.catppuccin-vsc@3.19.0": {
+   "rank": 180,
+   "downloads": 548486,
+   "declarative": {
+    "themes": 4
+   },
+   "workbench": [],
+   "bytes": 496573,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "salesforce.salesforcedx-vscode-soql@67.27.6": {
+   "rank": 185,
+   "downloads": 530896,
+   "declarative": {
+    "grammars": 1,
+    "languages": 1
+   },
+   "workbench": [
+    "customEditors",
+    "walkthroughs"
+   ],
+   "bytes": 7474250,
+   "state": "error",
+   "error": "Activating extension 'salesforce.salesforcedx-vscode-soql' failed: An error has occurred.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 8,
+   "providers": {},
+   "diagnostics": false
+  },
+  "salesforce.salesforcedx-vscode-visualforce@67.27.6": {
+   "rank": 189,
+   "downloads": 524040,
+   "declarative": {
+    "grammars": 1,
+    "languages": 1
+   },
+   "workbench": [],
+   "bytes": 9493151,
+   "state": "error",
+   "error": "Activating extension 'salesforce.salesforcedx-vscode-visualforce' failed: An error has occurred.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 2,
+   "providers": {},
+   "diagnostics": false
+  },
+  "tldraw-org.tldraw-vscode@2.375.2": {
+   "rank": 196,
+   "downloads": 506612,
+   "declarative": {},
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 17657517,
+   "state": "error",
+   "error": "Activating extension 'tldraw-org.tldraw-vscode' failed: Cannot load module 'buffer'.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 1,
+   "providers": {},
+   "diagnostics": false
+  },
+  "yoavbls.pretty-ts-errors@0.8.7": {
+   "rank": 201,
+   "downloads": 481336,
+   "declarative": {
+    "grammars": 1,
+    "languages": 1
+   },
+   "workbench": [
+    "viewsContainers",
+    "views"
+   ],
+   "bytes": 2484009,
+   "state": "active",
+   "commands": 5,
+   "contributedCommands": 4,
+   "providers": {},
+   "diagnostics": false,
+   "sandboxErrors": 1
+  },
+  "salesforce.salesforcedx-vscode-services@67.27.6": {
+   "rank": 204,
+   "downloads": 476933,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 26976051,
+   "state": "installed",
+   "activation": "started, never finished",
+   "commands": 0,
+   "contributedCommands": 1,
+   "providers": {},
+   "later": {
+    "linkProvider": 1
+   },
+   "diagnostics": false,
+   "askedUser": {
+    "toasts": 1
+   }
+  },
+  "slint.slint-nightly@2026.10.1023": {
+   "rank": 214,
+   "downloads": 453133,
+   "declarative": {
+    "grammars": 3,
+    "snippets": 1,
+    "languages": 1
+   },
+   "workbench": [
+    "walkthroughs"
+   ],
+   "state": "install-failed",
+   "error": "a file over the 32 MiB limit"
+  },
+  "salesforce.salesforcedx-vscode-apex-testing@67.27.6": {
+   "rank": 223,
+   "downloads": 432718,
+   "declarative": {},
+   "workbench": [
+    "viewsContainers",
+    "views",
+    "viewsWelcome",
+    "walkthroughs"
+   ],
+   "bytes": 9688679,
+   "state": "error",
+   "error": "Activating extension 'salesforce.salesforcedx-vscode-apex-testing' failed: An error has occurred.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 13,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.html-language-features@1.95.3": {
+   "rank": 225,
+   "downloads": 425797,
+   "declarative": {},
+   "workbench": [],
+   "apiProposals": 1,
+   "bytes": 17173226,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "sourcegraph.cody-ai@1.155.0": {
+   "rank": 229,
+   "downloads": 416621,
+   "declarative": {},
+   "workbench": [
+    "viewsContainers",
+    "views"
+   ],
+   "state": "install-failed",
+   "error": "over the 64 MiB limit for one extension"
+  },
+  "salesforce.salesforcedx-vscode-apex-log@67.27.6": {
+   "rank": 238,
+   "downloads": 402678,
+   "declarative": {
+    "grammars": 2,
+    "languages": 2
+   },
+   "workbench": [],
+   "bytes": 1761400,
+   "state": "error",
+   "error": "Activating extension 'salesforce.salesforcedx-vscode-apex-log' failed: An error has occurred.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 14,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.merge-conflict@1.95.3": {
+   "rank": 249,
+   "downloads": 385809,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 1650660,
+   "state": "error",
+   "error": "Activating extension 'vscode.merge-conflict' failed: Cannot read properties of undefined (reading 'length').",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 10,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.configuration-editing@1.95.3": {
+   "rank": 250,
+   "downloads": 385603,
+   "declarative": {
+    "languages": 2
+   },
+   "workbench": [],
+   "apiProposals": 1,
+   "bytes": 737200,
+   "state": "error",
+   "error": "Activating extension 'vscode.configuration-editing' failed: Extension 'vscode.configuration-editing' CANNOT use API proposal: profileContentHandlers.\nIts package.json#enabledApiProposals-property declares: [] but NOT profileContentHandlers.\n The missing proposal MUST be added and you must start in e",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "wakatime.vscode-wakatime@30.2.1": {
+   "rank": 252,
+   "downloads": 378897,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 979578,
+   "state": "active",
+   "commands": 7,
+   "contributedCommands": 10,
+   "providers": {},
+   "diagnostics": false,
+   "unsupportedCalls": [
+    "Wz.setKeysForSync"
+   ],
+   "askedUser": {
+    "picks": 1
+   }
+  },
+  "vscode.typescript-language-features@1.95.3": {
+   "rank": 253,
+   "downloads": 378463,
+   "declarative": {},
+   "workbench": [
+    "breakpoints",
+    "taskDefinitions",
+    "problemMatchers"
+   ],
+   "apiProposals": 7,
+   "bytes": 40083487,
+   "state": "active",
+   "commands": 24,
+   "contributedCommands": 13,
+   "providers": {
+    "completion": 6,
+    "definition": 2,
+    "highlights": 2,
+    "symbols": 2,
+    "formatOnType": 2,
+    "formatRange": 2,
+    "hover": 2,
+    "references": 2,
+    "signature": 2,
+    "typeDefinition": 2
+   },
+   "later": {
+    "linkProvider": 2,
+    "multiDocumentHighlightProvider": 2,
+    "foldingRangeProvider": 2,
+    "linkedEditingRangeProvider": 2,
+    "selectionRangeProvider": 2
+   },
+   "diagnostics": false
+  },
+  "salesforce.salesforcedx-vscode-org-browser@67.27.6": {
+   "rank": 254,
+   "downloads": 370117,
+   "declarative": {},
+   "workbench": [
+    "walkthroughs",
+    "viewsWelcome",
+    "viewsContainers",
+    "views"
+   ],
+   "bytes": 1707186,
+   "state": "error",
+   "error": "Activating extension 'salesforce.salesforcedx-vscode-org-browser' failed: An error has occurred.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 10,
+   "providers": {},
+   "diagnostics": false
+  },
+  "salesforce.salesforcedx-vscode-metadata@67.27.6": {
+   "rank": 257,
+   "downloads": 369035,
+   "declarative": {
+    "languages": 1
+   },
+   "workbench": [
+    "viewsContainers",
+    "views",
+    "viewsWelcome"
+   ],
+   "bytes": 3617759,
+   "state": "error",
+   "error": "Activating extension 'salesforce.salesforcedx-vscode-metadata' failed: An error has occurred.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 29,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.markdown-language-features@1.95.3": {
+   "rank": 261,
+   "downloads": 366470,
+   "declarative": {},
+   "workbench": [
+    "notebookRenderer",
+    "customEditors"
+   ],
+   "apiProposals": 1,
+   "bytes": 7358391,
+   "state": "active",
+   "commands": 16,
+   "contributedCommands": 11,
+   "providers": {
+    "hover": 1,
+    "definition": 1,
+    "references": 1,
+    "symbols": 1,
+    "codeAction": 2,
+    "rename": 1,
+    "completion": 1
+   },
+   "later": {
+    "linkProvider": 1,
+    "foldingRangeProvider": 1,
+    "selectionRangeProvider": 1,
+    "documentPasteEditProvider": 3,
+    "documentDropEditProvider": 1
+   },
+   "diagnostics": false,
+   "sandboxErrors": 2
+  },
+  "foam.foam-vscode@0.46.0": {
+   "rank": 266,
+   "downloads": 354816,
+   "declarative": {
+    "grammars": 1
+   },
+   "workbench": [
+    "views",
+    "viewsWelcome"
+   ],
+   "bytes": 3974861,
+   "state": "active",
+   "commands": 1,
+   "contributedCommands": 55,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.css-language-features@1.95.3": {
+   "rank": 269,
+   "downloads": 352696,
+   "declarative": {},
+   "workbench": [],
+   "apiProposals": 1,
+   "bytes": 4713199,
+   "state": "active",
+   "commands": 1,
+   "contributedCommands": 0,
+   "providers": {
+    "completion": 2,
+    "hover": 1,
+    "definition": 1,
+    "references": 1,
+    "highlights": 1,
+    "symbols": 1,
+    "codeAction": 1,
+    "rename": 1,
+    "formatRange": 3
+   },
+   "later": {
+    "linkProvider": 1,
+    "colorProvider": 1,
+    "foldingRangeProvider": 1,
+    "selectionRangeProvider": 1,
+    "documentDropEditProvider": 1,
+    "documentPasteEditProvider": 1
+   },
+   "diagnostics": false
+  },
+  "vscode.emmet@1.95.3": {
+   "rank": 273,
+   "downloads": 344737,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 1043795,
+   "state": "active",
+   "commands": 23,
+   "contributedCommands": 23,
+   "providers": {
+    "completion": 15
+   },
+   "diagnostics": false
+  },
+  "monokai.theme-monokai-pro-vscode@2.0.16": {
+   "rank": 293,
+   "downloads": 327268,
+   "declarative": {
+    "themes": 8
+   },
+   "workbench": [],
+   "bytes": 806020,
+   "state": "active",
+   "commands": 3,
+   "contributedCommands": 3,
+   "providers": {},
+   "diagnostics": false
+  },
+  "solomonkinard.git-blame@0.2.127": {
+   "rank": 340,
+   "downloads": 283981,
+   "declarative": {},
+   "workbench": [
+    "customEditors",
+    "viewsContainers",
+    "views"
+   ],
+   "bytes": 203336,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 75,
+   "providers": {},
+   "diagnostics": false
+  },
+  "hediet.vscode-drawio@1.6.6": {
+   "rank": 341,
+   "downloads": 283855,
+   "declarative": {
+    "languages": 1
+   },
+   "workbench": [
+    "customEditors"
+   ],
+   "state": "install-failed",
+   "error": "over the 64 MiB limit for one extension"
+  },
+  "myriad-dreamin.tinymist@0.15.8": {
+   "rank": 350,
+   "downloads": 268469,
+   "declarative": {
+    "grammars": 3,
+    "languages": 4
+   },
+   "workbench": [
+    "viewsContainers",
+    "views",
+    "taskDefinitions",
+    "breakpoints",
+    "debuggers"
+   ],
+   "bytes": 6849098,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 34,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.search-result@1.95.3": {
+   "rank": 356,
+   "downloads": 263418,
+   "declarative": {
+    "grammars": 1,
+    "languages": 1
+   },
+   "workbench": [],
+   "apiProposals": 1,
+   "bytes": 91548,
+   "state": "error",
+   "error": "Activating extension 'vscode.search-result' failed: Cannot load module 'path'.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "opentofu.vscode-opentofu@0.6.3": {
+   "rank": 367,
+   "downloads": 240133,
+   "declarative": {
+    "grammars": 4,
+    "snippets": 1,
+    "languages": 5
+   },
+   "workbench": [
+    "views",
+    "viewsContainers",
+    "viewsWelcome"
+   ],
+   "variant": "web",
+   "bytes": 902570,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 11,
+   "providers": {},
+   "diagnostics": false
+  },
+  "grapecity.gc-excelviewer@4.2.58": {
+   "rank": 370,
+   "downloads": 238574,
+   "declarative": {
+    "languages": 3
+   },
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 7309453,
+   "state": "active",
+   "commands": 4,
+   "contributedCommands": 4,
+   "providers": {},
+   "diagnostics": false,
+   "sandboxErrors": 6
+  },
+  "batisteo.vscode-django@1.8.0": {
+   "rank": 372,
+   "downloads": 237865,
+   "declarative": {
+    "grammars": 2,
+    "snippets": 4,
+    "languages": 2
+   },
+   "workbench": [],
+   "bytes": 440914,
+   "state": "error",
+   "error": "Activating extension 'batisteo.vscode-django' failed: Failed to fetch.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 1,
+   "providers": {},
+   "diagnostics": false
+  },
+  "marp-team.marp-vscode@3.6.1": {
+   "rank": 378,
+   "downloads": 233369,
+   "declarative": {},
+   "workbench": [
+    "languageModelTools"
+   ],
+   "bytes": 10622771,
+   "state": "active",
+   "commands": 5,
+   "contributedCommands": 4,
+   "providers": {
+    "codeAction": 3,
+    "hover": 1,
+    "completion": 1
+   },
+   "diagnostics": false,
+   "sandboxErrors": 1
+  },
+  "johnpapa.vscode-peacock@4.5.1": {
+   "rank": 383,
+   "downloads": 229787,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 221574,
+   "state": "active",
+   "commands": 13,
+   "contributedCommands": 15,
+   "providers": {},
+   "diagnostics": false
+  },
+  "adamraichu.pdf-viewer@1.1.2": {
+   "rank": 386,
+   "downloads": 227875,
+   "declarative": {},
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 1708515,
+   "state": "installed",
+   "activation": "no activation event fired",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.git-base@1.95.3": {
+   "rank": 390,
+   "downloads": 222670,
+   "declarative": {
+    "grammars": 3,
+    "languages": 3
+   },
+   "workbench": [],
+   "bytes": 40827,
+   "state": "active",
+   "commands": 1,
+   "contributedCommands": 1,
+   "providers": {},
+   "diagnostics": false
+  },
+  "naumovs.color-highlight@2.8.0": {
+   "rank": 392,
+   "downloads": 221420,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 232738,
+   "state": "active",
+   "commands": 1,
+   "contributedCommands": 1,
+   "providers": {},
+   "diagnostics": false
+  },
+  "catppuccin.catppuccin-vsc-icons@1.26.0": {
+   "rank": 394,
+   "downloads": 219066,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 2948458,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 1,
+   "providers": {},
+   "diagnostics": false
+  },
+  "zowe.vscode-extension-for-zowe@3.6.0": {
+   "rank": 401,
+   "downloads": 214019,
+   "declarative": {
+    "languages": 1
+   },
+   "workbench": [
+    "viewsContainers",
+    "views"
+   ],
+   "bytes": 16965493,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 113,
+   "providers": {},
+   "diagnostics": false
+  },
+  "dendron.nightly@0.124.77": {
+   "rank": 402,
+   "downloads": 213247,
+   "declarative": {
+    "languages": 1
+   },
+   "workbench": [
+    "viewsWelcome",
+    "viewsContainers",
+    "views"
+   ],
+   "bytes": 28270138,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 123,
+   "providers": {},
+   "diagnostics": false,
+   "askedUser": {
+    "toasts": 2
+   }
+  },
+  "pomdtr.excalidraw-editor@3.9.0": {
+   "rank": 416,
+   "downloads": 195931,
+   "declarative": {
+    "languages": 1
+   },
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 21099666,
+   "state": "active",
+   "commands": 10,
+   "contributedCommands": 10,
+   "providers": {},
+   "diagnostics": false,
+   "sandboxErrors": 1
+  },
+  "tonybaloney.vscode-pets@1.36.0": {
+   "rank": 423,
+   "downloads": 190440,
+   "declarative": {},
+   "workbench": [
+    "views"
+   ],
+   "bytes": 15038374,
+   "state": "active",
+   "commands": 9,
+   "contributedCommands": 10,
+   "providers": {},
+   "diagnostics": false,
+   "sandboxErrors": 2
+  },
+  "rjmacarthy.twinny@4.3.6": {
+   "rank": 429,
+   "downloads": 177962,
+   "declarative": {},
+   "workbench": [
+    "viewsContainers",
+    "views"
+   ],
+   "variant": "platform",
+   "state": "install-failed",
+   "error": "a file over the 32 MiB limit"
+  },
+  "vscode.markdown-math@1.95.3": {
+   "rank": 443,
+   "downloads": 167556,
+   "declarative": {
+    "grammars": 4,
+    "languages": 1
+   },
+   "workbench": [
+    "notebookRenderer"
+   ],
+   "bytes": 1489091,
+   "state": "installed",
+   "activation": "no activation event fired",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "ms-vscode.references-view@0.0.89": {
+   "rank": 446,
+   "downloads": 166231,
+   "declarative": {},
+   "workbench": [
+    "viewsContainers",
+    "views"
+   ],
+   "bytes": 51399,
+   "state": "active",
+   "commands": 23,
+   "contributedCommands": 21,
+   "providers": {},
+   "diagnostics": false,
+   "askedUser": {
+    "toasts": 1
+   }
+  },
+  "tuttieee.emacs-mcx@0.111.5": {
+   "rank": 451,
+   "downloads": 164226,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 912962,
+   "state": "active",
+   "commands": 95,
+   "contributedCommands": 63,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.simple-browser@1.95.3": {
+   "rank": 462,
+   "downloads": 154218,
+   "declarative": {},
+   "workbench": [],
+   "apiProposals": 1,
+   "bytes": 138883,
+   "state": "error",
+   "error": "Activating extension 'vscode.simple-browser' failed: Extension 'vscode.simple-browser' CANNOT use API proposal: externalUriOpener.\nIts package.json#enabledApiProposals-property declares: [] but NOT externalUriOpener.\n The missing proposal MUST be added and you must start in extension development mod",
+   "activation": "failed",
+   "commands": 2,
+   "contributedCommands": 1,
+   "providers": {},
+   "diagnostics": false,
+   "sandboxErrors": 1
+  },
+  "alygin.vscode-tlaplus-nightly@2024.8.1506": {
+   "rank": 469,
+   "downloads": 151931,
+   "declarative": {
+    "grammars": 4,
+    "snippets": 2,
+    "languages": 4
+   },
+   "workbench": [
+    "terminal",
+    "debuggers",
+    "breakpoints",
+    "viewsContainers",
+    "views"
+   ],
+   "bytes": 10397458,
+   "state": "active",
+   "commands": 0,
+   "contributedCommands": 16,
+   "providers": {
+    "formatOnType": 2,
+    "symbols": 1,
+    "completion": 2,
+    "declaration": 1,
+    "definition": 1
+   },
+   "diagnostics": false
+  },
+  "pranaygp.vscode-css-peek@4.4.3": {
+   "rank": 472,
+   "downloads": 146563,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 181266,
+   "state": "installed",
+   "activation": "no activation event fired",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "wayou.vscode-todo-highlight@1.0.5": {
+   "rank": 474,
+   "downloads": 145844,
+   "declarative": {},
+   "workbench": [],
+   "bytes": 1692143,
+   "state": "active",
+   "commands": 3,
+   "contributedCommands": 2,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.image-preview@1.70.2": {
+   "rank": 486,
+   "downloads": 138513,
+   "declarative": {},
+   "workbench": [
+    "customEditors"
+   ],
+   "bytes": 37506,
+   "state": "error",
+   "error": "Activating extension 'vscode.image-preview' failed: Failed to fetch.",
+   "activation": "failed",
+   "commands": 0,
+   "contributedCommands": 2,
+   "providers": {},
+   "diagnostics": false
+  },
+  "vscode.github-authentication@1.95.3": {
+   "rank": 487,
+   "downloads": 138411,
+   "declarative": {},
+   "workbench": [
+    "authentication"
+   ],
+   "bytes": 2107901,
+   "state": "installed",
+   "activation": "no activation event fired",
+   "commands": 0,
+   "contributedCommands": 0,
+   "providers": {},
+   "diagnostics": false
+  },
+  "salesforce.apex-language-server-extension@0.10.0": {
+   "rank": 490,
+   "downloads": 136594,
+   "declarative": {
+    "grammars": 3,
+    "snippets": 5,
+    "languages": 3
+   },
+   "workbench": [
+    "viewsContainers"
+   ],
+   "state": "install-failed",
+   "error": "over the 64 MiB limit for one extension"
+  }
+ }
+}

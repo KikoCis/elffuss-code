@@ -19,4 +19,10 @@ CLAUDE.md
 web/js/engine/
 
 # cachés de red de los scripts de tests
+# nivel 2 de extensiones: el bundle se compila (vendor/vscode-ext2/build.mjs)
+# y se despliega aparte (deploy-vendor.sh); en git solo va su manifiesto
+web/vendor/x2/
+vendor/vscode-ext2/node_modules/
+vendor/vscode-ext2/.build/
+vendor/vscode-ext2/.repro/
 tests/.cache/

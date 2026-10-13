@@ -24,6 +24,13 @@ async function hasta(fn, { tiempo = 15000, cada = 150 } = {}) {
   return v;
 }
 
+// Modo con extensiones (tests/lib/x2-mode.mjs): dos extensiones de código ya
+// están instaladas antes de empezar. Esta suite cuenta, comprueba y desinstala
+// solo las suyas; en el modo por defecto PREVIAS está vacía y nada cambia.
+const PREVIAS = (process.env.X2_SEEDED || '').split(',').filter(Boolean);
+const propias = sel => sel + PREVIAS.map(id => `:not([data-id="${id}"])`).join('');
+const sinPrevias = lista => (Array.isArray(lista) ? lista.filter(e => !PREVIAS.includes(e.id)) : lista);
+
 const b = await chromium.launch();
 const ctx = await b.newContext();
 await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} });
@@ -78,7 +85,8 @@ await p.goto(BASE + '/?test-opfs', { waitUntil: 'domcontentloaded' });
 await hasta(() => p.evaluate(() => !!window.monaco?.editor?.getEditors?.().length));
 await sleep(800);
 const extras = pedidas.filter(u => /\/js\/ext\/|\/css\/ext\.css|vscode-textmate|vscode-oniguruma|open-vsx|eclipsecontent/.test(u));
-ok('primer arranque sin extensiones: ni host, ni panel, ni motor TextMate, ni Open VSX', extras.length === 0, extras.join(' '));
+if (PREVIAS.length) notRun('primer arranque sin extensiones', 'en el modo con extensiones hay dos instaladas: el camino por defecto lo mide x2_bytes.mjs');
+else ok('primer arranque sin extensiones: ni host, ni panel, ni motor TextMate, ni Open VSX', extras.length === 0, extras.join(' '));
 ok('tema de serie (vs-dark)', (await fondo()) === 'rgb(30, 30, 30)', await fondo());
 
 // ── B. panel + tema desde un .vsix ──
@@ -155,8 +163,8 @@ ok('tras recargar: el tema sigue', await hasta(async () => (await fondo()) === r
 await abre('notes.elfs');
 ok('tras recargar: la gramática sigue', await colorDe('spell', THEME_DARK.control), JSON.stringify(await estilo('spell')));
 await abrePanel();
-ok('tras recargar: las dos extensiones siguen instaladas', (await p.locator('#ext-installed .ext-row').count()) === 2);
-const espejo = await p.evaluate(async () => (await import('/js/db.js')).get('kv', 'extensions'));
+ok('tras recargar: las dos extensiones siguen instaladas', (await p.locator(propias('#ext-installed .ext-row')).count()) === 2);
+const espejo = sinPrevias(await p.evaluate(async () => (await import('/js/db.js')).get('kv', 'extensions')));
 ok('la lista va al inventario del espacio de trabajo (kv «extensions»)', Array.isArray(espejo) && espejo.length === 2 && espejo.every(e => e.enabled), JSON.stringify(espejo));
 
 // ── F. selector de tema: previsualiza, Escape deshace, Enter elige ──
@@ -270,14 +278,14 @@ await filaInstalada('elffuss-test.elfscript').locator('.ext-uninstall').click();
 ok('desinstalar el lenguaje', await hasta(async () => (await filaInstalada('elffuss-test.elfscript').count()) === 0 && (await lenguaje()) === 'plaintext'));
 p.once('dialog', d => d.accept());
 await filaInstalada('elffuss-test.elf-theme').locator('.ext-uninstall').click();
-ok('desinstalar el tema', await hasta(async () => (await p.locator('#ext-installed .ext-row').count()) === 0));
-const restos = await p.evaluate(() => new Promise(res => {
+ok('desinstalar el tema', await hasta(async () => (await p.locator(propias('#ext-installed .ext-row')).count()) === 0));
+const restos = await p.evaluate(previas => new Promise(res => {
   const r = indexedDB.open('elffuss-code-ext');
-  r.onsuccess = () => { const q = r.result.transaction('files').objectStore('files').getAllKeys(); q.onsuccess = () => { res(q.result.length); r.result.close(); }; };
+  r.onsuccess = () => { const q = r.result.transaction('files').objectStore('files').getAllKeys(); q.onsuccess = () => { res(q.result.filter(k => !previas.some(id => String(k).startsWith(id + '@'))).length); r.result.close(); }; };
   r.onerror = () => res(-1);
-}));
+}), PREVIAS);
 ok('sin restos en IndexedDB tras desinstalar', restos === 0, String(restos));
-ok('kv «extensions» vacía', JSON.stringify(await p.evaluate(async () => (await import('/js/db.js')).get('kv', 'extensions'))) === '[]');
+ok('kv «extensions» vacía', JSON.stringify(sinPrevias(await p.evaluate(async () => (await import('/js/db.js')).get('kv', 'extensions')))) === '[]');
 
 // ── J. paquetes hostiles o rotos, mensajes, teclado y lector de pantalla ──
 const activo = () => p.evaluate(() => { const a = document.activeElement; return { id: a?.id, cls: a?.className, k: a?.dataset?.k, theme: a?.dataset?.theme, fila: a?.closest?.('.ext-row')?.dataset.id, label: a?.getAttribute?.('aria-label'), pressed: a?.getAttribute?.('aria-pressed') }; });
@@ -483,9 +491,9 @@ await p.keyboard.press('Escape');
 await p.setViewportSize(tamaño);
 
 // J11. fuera todo lo de esta sección
-await p.evaluate(async () => { const host = await (await import('/js/ide.js')).loadExt(); for (const e of host.list()) await host.uninstall(e.id); await host.setTheme('vs-dark'); });
+await p.evaluate(async previas => { const host = await (await import('/js/ide.js')).loadExt(); for (const e of host.list()) if (!previas.includes(e.id)) await host.uninstall(e.id); await host.setTheme('vs-dark'); }, PREVIAS);
 await abrePanel();
-ok('J: todo desinstalado', (await p.locator('#ext-installed .ext-row').count()) === 0);
+ok('J: todo desinstalado', (await p.locator(propias('#ext-installed .ext-row')).count()) === 0);
 
 // ── I. EN VIVO contra Open VSX ──
 const red = await p.evaluate(async () => { try { return (await fetch('https://open-vsx.org/api/vscode/theme-monokai', { credentials: 'omit' })).ok; } catch { return false; } });

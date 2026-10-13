@@ -1,0 +1,13 @@
+{
+  "note": "Upstream literals that match a generic path pattern and are not paths of any build machine. Each entry is the sha256 of the hit's context (the literal around it, up to 40 characters either side, cut at quotes and line breaks) and its exact count. Review every change with `node sweep.mjs --list <dir>`; see README.md.",
+  "hits": [
+    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "21bb4ac98d082d28fa8ae6ce26ab1b20aae44766c5fb5af7022a32e37d7d7113", "count": 1, "why": "VS Code help text: example value of the snippet variable for a file's full path" },
+    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "3fa62197a90229a32ff29958ceee0456500df8f205607f3f730456ed0b5b87b6", "count": 1, "why": "VS Code help text: example value of the snippet variable for a file's folder" },
+    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "c5f45d8ac8337524a265429444738a88ace7181e45a05175d2268d3ac6fd409c", "count": 1, "why": "VS Code help text: example value of the snippet variable for a parent folder" },
+    { "file": "sandbox-main.js", "pattern": "mac-home", "context": "35ee328bb70bcdbc07c66647e4c1b812e4aa0b893875a149d40d18609b16fd65", "count": 1, "why": "VS Code help text: example value of the snippet variable for the workspace folder" },
+    { "file": "sandbox-main.js", "pattern": "windows-home", "context": "8a1ea15f8a108a65a674f2ad973face2dcd00905df6537a7ddd331eef2fe5f62", "count": 1, "why": "VS Code help text: example literal paths in an agent sandbox setting description" },
+    { "file": "sandbox-main.js", "pattern": "file-url", "context": "7cd906927238de0295cb9c4ae6cd009c01fb4f4cb901f6232fa6583b6d68cfbc", "count": 2, "why": "VS Code code: case-insensitive checks for a file URL prefix (a bare file URL literal)" },
+    { "file": "exthost-worker.js", "pattern": "file-url", "context": "0bd9acb5e66d07412e4d0922f5b1d4ba4da416c296d085885f95e3381e3cc94c", "count": 2, "why": "VS Code code: case-insensitive checks for a file URL prefix (a bare file URL literal)" },
+    { "file": "exthost-worker.js", "pattern": "file-url", "context": "d1171537e428ea740b1d65a723f593ce30f7454598e58e8e19717c63d0234bdc", "count": 1, "why": "VS Code code: the worker's fetch wrapper rewrites file URLs to its own app scheme" }
+  ]
+}

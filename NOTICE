@@ -22,3 +22,12 @@ y con comprobación de integridad (SRI). Los colores TextMate de los temas de se
 (web/js/ext/themes.js) siguen los temas por defecto de VS Code (Microsoft, MIT).
 Las extensiones se buscan e instalan desde Open VSX (Eclipse Foundation), con la
 licencia que declara cada una.
+
+--- Extensiones con código, nivel 2 (crédito) ---
+El recinto de extensiones usa un bundle compilado aparte (lo compila
+vendor/vscode-ext2/; el resultado no entra en git) con
+@codingame/monaco-vscode-api 37.3.11 (CodinGame, MIT),
+que contiene el código de Visual Studio Code 1.138.0 (Microsoft, MIT), y con
+marked (MIT) y DOMPurify (MPL-2.0 o Apache-2.0). Cada compilación lleva al lado su
+LICENSES.txt con la licencia de todo lo que incluye
+(web/vendor/x2/<buildId>/LICENSES.txt, servido junto al bundle).

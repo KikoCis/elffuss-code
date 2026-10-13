@@ -74,9 +74,18 @@
 .ext-actions .ghost:hover:not(:disabled):not([aria-disabled="true"]) { color: var(--fg); border-color: var(--accent2); }
 .ext-actions button:disabled, .ext-actions button[aria-disabled="true"] { cursor: default; opacity: .75; }
 .ext-more { display: block; margin: 4px auto 10px; font-size: .76rem; }
+/* nivel 2: lo que ve cualquiera en el panel (cómo se aíslan, el filtro); los
+   mandos de las extensiones con código están en ext2.css */
+.ext-iso { margin: 0 0 8px; font-size: .74rem; max-width: 760px; }
+.ext-iso summary { cursor: pointer; color: var(--accent2); }
+.ext-iso ul { margin: 4px 0 0 18px; padding: 0; color: #b8c0d4; line-height: 1.45; }
+.ext-works-note { margin: 6px 0 0; font-size: .72rem; }
+.ext-works-note[hidden] { display: none; }
+.ext-iso summary:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
 @media (max-width: 560px) {
   .ext-row { flex-wrap: wrap; }
-  .ext-actions { flex-direction: row; width: 100%; max-width: none; justify-content: flex-end; }
+  .ext-actions { flex-direction: row; width: 100%; max-width: none; justify-content: flex-end; flex-wrap: wrap; }
 }
 
 /* selector de tema: como la paleta de comandos */

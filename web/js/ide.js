@@ -96,6 +96,9 @@ export function openTabs() {
   return tabs.filter(t => !t.model.isDisposed()).map(t => ({ path: t.path, language: t.model.getLanguageId(), active: t.path === active }));
 }
 export const languageOfPath = p => langOf(p);
+// El nivel 2 (ext2/docs.js) necesita los MODELOS de Monaco, no solo su lenguaje:
+// pares [ruta, modelo]. Va aparte porque el panel usa la forma de arriba.
+export const openTabModels = () => tabs.filter(t => !t.model.isDisposed()).map(t => [t.path, t.model]);
 
 export async function openFile(path) {
   let tab = tabs.find(t => t.path === path);
@@ -186,9 +189,23 @@ async function inlineLocalAssets(html, ownPath) {
   return '<!doctype html>\n' + doc.documentElement.outerHTML;
 }
 
+// Guardián opcional de la vista previa HTML (lo pone el nivel 2 de extensiones);
+// si falla o dice que no, se vuelve al código.
+let beforePreview = null;
+export function setBeforePreview(fn) { beforePreview = typeof fn === 'function' ? fn : null; }
+async function previewAllowed(path) {
+  if (!beforePreview) return true;
+  try { return (await beforePreview(path)) === true; } catch { return false; }
+}
+
 async function applyView() {
   const tab = tabs.find(t => t.path === active);
   const lang = tab ? langOf(tab.path) : null;
+  if (tab && tab.preview && lang === 'html' && !(await previewAllowed(tab.path))) {
+    tab.preview = false;
+    renderTabs();
+    return applyView();
+  }
   const showPreview = !!(tab && tab.preview && PREVIEWABLE.has(lang));
   $('editor').style.display = showPreview ? 'none' : '';
   let pane = document.getElementById('md-preview-pane');

@@ -5,7 +5,7 @@ import { uiLang } from '../i18n.js';
 const L = {
   es: {
     title: 'Extensiones', sub: 'Open VSX',
-    intro: 'Temas de color, gramáticas, snippets y ajustes de lenguaje de extensiones de VS Code. Aquí no se ejecuta el código de ninguna extensión, y tu proyecto no sale del navegador: a Open VSX solo va lo que buscas y lo que instalas.',
+    intro: 'Temas de color, gramáticas, snippets y ajustes de lenguaje de extensiones de VS Code. El código de una extensión no se ejecuta salvo que lo enciendas para ella, y entonces solo en un recinto sellado sin internet; tu proyecto no sale del navegador: a Open VSX solo va lo que buscas y lo que instalas.',
     paused: 'Extensiones en pausa en esta sesión (?noext): no se aplica ninguna. Puedes desactivarlas o desinstalarlas.',
     searchPh: 'Buscar extensiones en Open VSX…',
     catAll: 'Todo', catThemes: 'Temas', catSnippets: 'Snippets', catLangs: 'Lenguajes',
@@ -46,6 +46,9 @@ const L = {
     keepsBuiltin: 'Code ya resalta {list} a su manera y lo mantiene.',
     installOnlyThemes: 'Instalar solo los temas', installOnlyHighlight: 'Instalar solo el resaltado', installOnlySnippets: 'Instalar solo los snippets',
     installOnlyWorking: 'Instalar solo lo que funciona', notHere: 'No funciona en Code', nothingHere: 'Nada que aplicar',
+    vBrowserCode: 'Trae código para el navegador, que puede ejecutarse en el recinto de Code. Abre su detalle para ver si aquí corre.',
+    // las cuentas de lo declarativo que usa el nivel 2 (ext2/manage.js)
+    themes: '{n} tema|{n} temas', grammars: '{n} gramática|{n} gramáticas', languages: '{n} lenguaje|{n} lenguajes',
     errCodeOnly: '«{name}» no se ha instalado.',
     cThemeApplied: 'Tema «{name}» aplicado.', cThemeReady: 'Tema «{name}» listo para usar.', cThemesReady: '{n} temas listos: {list}.',
     bApplyNow: 'Aplicar ahora', bUndo: 'Deshacer', bPickTheme: 'Elegir tema…',
@@ -94,10 +97,24 @@ const L = {
     pickPh: 'Tema de color (↑↓ para previsualizar, Enter para elegir)', builtinGroup: 'Integrados',
     builtinDark: 'Oscuro (por defecto)', builtinLight: 'Claro', builtinHc: 'Alto contraste oscuro', builtinHcLight: 'Alto contraste claro',
     current: 'actual', palExt: 'Extensiones…', palTheme: 'Tema de color…',
+    // nivel 2: lo que el panel enseña a todos (lo demás, en ../ext2/strings.js)
+    introCode: 'Los temas, gramáticas, snippets y ajustes de lenguaje de las extensiones de VS Code se aplican directamente. Las que traen código para navegador pueden ejecutarlo si lo permites, pero solo en un recinto sellado en otro sitio: no tiene internet, no puede leer el almacenamiento de Code (tus proyectos, conversaciones o claves), solo ve los ficheros que tienes abiertos y no puede guardar nada; sus cambios quedan sin guardar hasta que tú guardas. Los enlaces que quiera abrir te preguntan antes y muestran la dirección completa. A Open VSX solo va lo que buscas y lo que instalas, y, con el filtro «Funciona en Code», los manifiestos de los resultados que comprueba.',
+    isoTitle: 'Cómo se aíslan las extensiones',
+    iso1: 'El código de una extensión corre en un recinto en otro sitio web, sin ningún host en su política de seguridad: no puede pedir nada a internet, ni a Open VSX, ni a este servidor.',
+    iso2: 'Es otro sitio: no puede leer el almacenamiento de Code (proyectos, conversaciones, claves, modelos).',
+    iso3: 'Solo ve los ficheros que tienes abiertos; sus cambios quedan sin guardar hasta que guardas tú. No puede guardar.',
+    iso4: 'Lo que enseña (avisos, ayudas, diagnósticos) se pinta como texto: sin imágenes remotas ni enlaces que salgan solos.',
+    iso5: 'Abrir una dirección siempre pregunta antes y enseña la dirección entera. La vista previa de un fichero que cambió una extensión, y las peticiones web del agente, también preguntan.',
+    iso6: 'Quitar una extensión borra sus ficheros; apagar su código lo para en el acto, sin recargar (el recinto vuelve a arrancar con las demás, si las hay).',
+    chipWorks: 'Funciona en Code',
+    worksPrivacy: 'A Open VSX también le llegan las consultas de los manifiestos de estos resultados.',
+    worksChecked: '{k} funcionan · comprobadas {n} de {total}',
+    worksNone: 'Ninguna funciona en Code (comprobadas {n} de {total}).',
+    errCodeonly: 'Solo trae código: usa «Instalar y ejecutar su código…».',
   },
   en: {
     title: 'Extensions', sub: 'Open VSX',
-    intro: 'Color themes, grammars, snippets and language settings from VS Code extensions. No extension code runs here, and your project never leaves the browser: Open VSX only sees what you search for and what you install.',
+    intro: 'Color themes, grammars, snippets and language settings from VS Code extensions. No extension code runs unless you turn it on for one extension, and then only in a sealed sandbox with no internet; your project never leaves the browser: Open VSX only sees what you search for and what you install.',
     paused: 'Extensions are paused for this session (?noext): none is applied. You can still disable or uninstall them.',
     searchPh: 'Search extensions on Open VSX…',
     catAll: 'All', catThemes: 'Themes', catSnippets: 'Snippets', catLangs: 'Languages',
@@ -138,6 +155,8 @@ const L = {
     keepsBuiltin: 'Code already highlights {list} its own way and keeps it.',
     installOnlyThemes: 'Install only the themes', installOnlyHighlight: 'Install only the highlighting', installOnlySnippets: 'Install only the snippets',
     installOnlyWorking: 'Install only what works', notHere: 'Does not work in Code', nothingHere: 'Nothing to apply',
+    vBrowserCode: 'Ships browser code, which can run in Code’s sandbox. Open its details to see whether it runs here.',
+    themes: '{n} theme|{n} themes', grammars: '{n} grammar|{n} grammars', languages: '{n} language|{n} languages',
     errCodeOnly: '“{name}” was not installed.',
     cThemeApplied: 'Theme “{name}” applied.', cThemeReady: 'Theme “{name}” is ready to use.', cThemesReady: '{n} themes ready: {list}.',
     bApplyNow: 'Apply now', bUndo: 'Undo', bPickTheme: 'Choose theme…',
@@ -186,9 +205,25 @@ const L = {
     pickPh: 'Color theme (↑↓ to preview, Enter to select)', builtinGroup: 'Built-in',
     builtinDark: 'Dark (default)', builtinLight: 'Light', builtinHc: 'Dark High Contrast', builtinHcLight: 'Light High Contrast',
     current: 'current', palExt: 'Extensions…', palTheme: 'Color Theme…',
+    // level 2: what the panel shows everyone (the rest is in ../ext2/strings.js)
+    introCode: 'Themes, grammars, snippets and language settings from VS Code extensions apply directly. Extensions that bring browser code can also run it if you allow it, but only in a sealed sandbox on a separate site: it has no internet access, can’t read Code’s storage (your projects, conversations or keys), sees only the files you have open and can’t save anything; its changes stay unsaved until you save them. Links it wants to open ask you first and show the full address. Open VSX only sees what you search for and what you install, and, with the “Works in Code” filter on, the manifests of the results it checks.',
+    isoTitle: 'How extensions are isolated',
+    iso1: 'An extension’s code runs in a sandbox on another website, with no host in its security policy: it can’t request anything from the internet, from Open VSX or from this server.',
+    iso2: 'It is another site: it can’t read Code’s storage (projects, conversations, keys, models).',
+    iso3: 'It sees only the files you have open; its changes stay unsaved until you save. It can’t save.',
+    iso4: 'What it shows (notifications, hovers, diagnostics) is drawn as text: no remote images and no links that open on their own.',
+    iso5: 'Opening an address always asks first and shows the whole address. Previewing a file an extension changed, and the agent’s web requests, ask too.',
+    iso6: 'Uninstalling an extension deletes its files; turning its code off stops it at once, without a reload (the sandbox starts again with the others, if any).',
+    chipWorks: 'Works in Code',
+    worksPrivacy: 'Open VSX also sees the manifest lookups for these results.',
+    worksChecked: '{k} work · checked {n} of {total}',
+    worksNone: 'None of them works in Code (checked {n} of {total}).',
+    errCodeonly: 'It only brings code: use “Install and run its code…”.',
   },
 };
 
+// los del nivel 2 (../ext2/strings.js) se añaden al cargarse
+export function addStrings(t) { for (const lang of Object.keys(L)) Object.assign(L[lang], t[lang] || {}); }
 export const STRINGS = L;            // para comprobar en las pruebas que ES y EN tienen las mismas claves
 
 export function tx(key, vars) {

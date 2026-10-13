@@ -66,7 +66,7 @@ const view = await until(() => page.evaluate(() => {
   const rows = [...m.querySelectorAll('.menu-item')];
   return rows.length ? rows.map(r => [r.querySelector('b')?.textContent, r.querySelector('span')?.textContent ?? null]) : null;
 }));
-ok('menu bar rows keep their label and hint', !!view && view.some(([l, h]) => l === 'Command Palette' && h === 'Cmd+Shift+P'), JSON.stringify(view?.slice(0, 4)));
+ok('menu bar rows keep their label and hint', !!view && view.some(([l, h]) => /^Command palette$/i.test(l || '') && /^(⌘⇧P|Ctrl\+Shift\+P|Cmd\+Shift\+P)$/.test(h || '')), JSON.stringify(view?.slice(0, 6)));
 
 await sleep(300);
 ok('no handler from a file name ever ran', await page.evaluate(() => window.__xss === undefined));

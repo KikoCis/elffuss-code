@@ -75,7 +75,12 @@ const enlaces = await p.evaluate(() => ({
   fichas: [...document.querySelectorAll('.model-cards-links a')].map(a => ({ t: a.textContent, href: a.href, nombre: a.getAttribute('aria-label') })),
   docs: [...document.querySelectorAll('#settings-panel .prov-docs')].map(a => ({ href: a.href, nombre: a.getAttribute('aria-label') })),
 }));
-ok('3 · Ajustes enlaza la ficha del modelo ligero en Hugging Face', enlaces.fichas.some(f => f.href === 'https://huggingface.co/onnx-community/Qwen3.5-0.8B-ONNX' && /Qwen3\.5-0\.8B/.test(f.nombre)), JSON.stringify(enlaces.fichas));
+// El modelo ligero (ONNX) solo se ofrece con WebGPU: sin ella ningún dtype
+// funciona en wasm, y ofrecerlo era bajar ~600 MB para acabar en básico. Así
+// que su ficha se enlaza con GPU y NO se enlaza sin ella.
+const hayGPU = await p.evaluate(async () => !!(await navigator.gpu?.requestAdapter?.().catch(() => null)));
+const fichaLigero = enlaces.fichas.some(f => f.href === 'https://huggingface.co/onnx-community/Qwen3.5-0.8B-ONNX' && /Qwen3\.5-0\.8B/.test(f.nombre));
+ok(hayGPU ? '3 · Ajustes enlaza la ficha del modelo ligero en Hugging Face' : '3 · sin WebGPU no se ofrece el modelo ligero, ni se enlaza su ficha', hayGPU ? fichaLigero : !fichaLigero, JSON.stringify(enlaces.fichas));
 ok('3 · …y la documentación de la API de cada proveedor externo', enlaces.docs.some(d => /platform\.openai\.com/.test(d.href) && /OpenAI/.test(d.nombre)) && enlaces.docs.some(d => /docs\.anthropic\.com/.test(d.href)) && enlaces.docs.some(d => /ollama/.test(d.href)), JSON.stringify(enlaces.docs));
 
 // 4 · huella SHA-256 de las descargas del bridge

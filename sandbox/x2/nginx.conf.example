@@ -1,0 +1,76 @@
+# nginx for the level 2 extension sandbox of Elffuss Code, on x2.utopiaia.com:
+# another registrable domain than code.elffuss.com (web/js/ext2/config.js and
+# sandbox/x2/headers.json name this origin; deploy-sandbox.sh refuses any
+# other). Its folder is /var/www/x2.utopiaia.com, the one deploy-sandbox.sh
+# fills, owned by the user that deploys. Generate the two header snippets with
+#
+#   node sandbox/x2/headers.mjs --nginx
+#
+# and save them as /etc/nginx/snippets/x2-sandbox.conf and x2-exthost.conf.
+# Order (README, "Extensions that run code"): main's deploy.sh protecting
+# vendor/x2/ first (deploy-vendor.sh refuses until it does), x2.utopiaia.com
+# resolving to the server that serves Code and its certificate, this vhost
+# and Code's vendor location (at the end of this file), nginx -t and reload,
+# deploy-sandbox.sh, deploy-vendor.sh, and deploy.sh last: it publishes
+# config.js naming this sandbox, and refuses while the server lacks the bundle
+# the manifest names.
+
+server {
+  listen 443 ssl;          # http2 is per socket: set it where the other vhosts on :443 do
+  server_name x2.utopiaia.com;
+  ssl_certificate     /etc/letsencrypt/live/x2.utopiaia.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/x2.utopiaia.com/privkey.pem;
+  root /var/www/x2.utopiaia.com;
+  # its own log, with the address truncated (log_format elffuss_anon of the
+  # server's conf.d/elffuss-zones.conf): no record of who loaded it
+  access_log /var/log/nginx/x2.utopiaia.com.access.log elffuss_anon;
+  error_log  /var/log/nginx/x2.utopiaia.com.error.log;
+  autoindex off;
+  server_tokens off;
+
+  # the sandbox document: only with no query string at all
+  location = /x2/v1/sandbox.html {
+    if ($args != "") { return 404; }
+    include snippets/x2-sandbox.conf;
+    try_files $uri =404;
+  }
+
+  # the extension-host document: only the exact query the library builds
+  location = /x2/v1/exthost-iframe.html {
+    if ($args !~ "^parentOrigin=https%3A%2F%2Fx2\.utopiaia\.com&vscodeWebWorkerExtHostId=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$") { return 404; }
+    include snippets/x2-exthost.conf;
+    try_files $uri =404;
+  }
+
+  # nothing else exists on this host
+  location / { return 404; }
+}
+
+server {
+  listen 80;
+  server_name x2.utopiaia.com;
+  access_log /var/log/nginx/x2.utopiaia.com.access.log elffuss_anon;
+  # in a location, not at server level: a server-level return runs before
+  # certbot's nginx authenticator gets to answer the HTTP-01 challenge, and the
+  # certificate would stop renewing
+  location / { return 301 https://$host$request_uri; }
+}
+
+# In the server block of Code (code.elffuss.com), for the verified vendor
+# bundle that deploy-vendor.sh uploads (never compressed again on the way, so
+# the browser checks the exact bytes of the manifest):
+#
+#   location ^~ /vendor/x2/ {
+#     default_type application/octet-stream;
+#     gzip off;
+#     add_header Cache-Control "public, max-age=31536000, immutable";
+#     add_header X-Content-Type-Options nosniff always;
+#   }
+#
+# No `always` on Cache-Control: nginx then adds it only to successful
+# responses. With `always`, a 404 for a build that is not there yet would be
+# cached as immutable for a year, and since the buildId is a content hash,
+# uploading the same bytes later would not help those browsers.
+#
+# Code's host must never serve /x2/ (the sandbox documents live outside web/,
+# so deploy.sh never uploads them).

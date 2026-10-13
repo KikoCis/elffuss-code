@@ -2,12 +2,16 @@
 // (temas de color, gramáticas TextMate, snippets y configuración de lenguajes).
 // NINGÚN JavaScript de una extensión se ejecuta aquí.
 //
+// El código de las extensiones (nivel 2) lo lleva ../ext2/host2.js, que solo
+// se importa con alguna con su código encendido o al pedir algo de eso.
+//
 // ide.js lo carga solo si hay alguna extensión activa (o un tema elegido) y el
 // panel lo carga al abrirse: sin extensiones, el arranque de Code no cambia.
 // Cada cambio (instalar, activar, desactivar, desinstalar) deshace lo aplicado
 // y lo vuelve a aplicar desde cero, de uno en uno: más simple y sin restos.
 // Las gramáticas solo se rehacen si su lista cambia.
 import * as store from './store.js';
+import * as maindb from '../db.js';
 import { BASES, builtinTheme, toMonacoTheme, toTextMateTheme, chromeCss, themeIdFor } from './themes.js';
 import { registerSnippets } from './snippets.js';
 import { toLanguageConfiguration, matchLanguage, firstLineCandidates } from './languages.js';
@@ -78,6 +82,7 @@ export function init(monaco, opts = {}) {
 
 async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   const paused = /[?&]noext\b/.test(location.search);
+  const sinCodigo = /[?&]noext2(?:[=&]|$)/.test(location.search);
   const builtin = new Set(monaco.languages.getLanguages().map(l => l.id));
   const registrados = new Set();      // lenguajes que registramos (Monaco no permite quitarlos)
   const listeners = new Set();
@@ -86,7 +91,8 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   let langContribs = [];
   let themeIndex = new Map();         // id de tema → { key, label, uiTheme, ext, extName }
   let pref = leePref();
-  let actual = 'vs-dark', monacoId = 'vs-dark';
+  let actual = 'vs-dark', monacoId = 'vs-dark', uiTheme = 'vs-dark';
+  let n2 = null, dos = null;          // ../ext2/host2.js: su carga, y ya cargado
   let estilo = null;
   let firmaGramaticas = '[]';
   let cola = Promise.resolve();       // los cambios se aplican de uno en uno
@@ -132,6 +138,8 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     actual = elegido;
     monacoId = mid;
     pintaCromo(tema, elegido);
+    uiTheme = tema.uiTheme;
+    dos?.setTheme(uiTheme);
     if (guardar) guardaPref(elegido);
     return elegido;
   }
@@ -186,8 +194,27 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     for (const f of listeners) { try { f(); } catch { /* un oyente roto no para al resto */ } }
     try { onLanguagesChanged(); } catch { /* — */ }
   };
+
+  // ── nivel 2 ──
+  const oyentesCodigo = new Set();     // el panel: estado del recinto
+  const nivelDos = () => (n2 ??= import('../ext2/host2.js').then(m => (dos = m.attach({
+    monaco, exts: () => exts, recarga, emit, paused, sinCodigo, listeners: oyentesCodigo, uiTheme: () => uiTheme,
+  }))));
+  const deDos = f => (...a) => nivelDos().then(d => d[f](...a));
+  function sincronizaCodigo() {
+    if (n2 || (!paused && !sinCodigo && exts.some(e => e.enabled && e.runs))) deDos('sync')().catch(e => console.warn('[elffuss-ext] nivel 2:', e?.message || e));
+  }
+  // Con alguna extensión con código instalada, la vista previa HTML de un
+  // fichero en el que entró texto suyo (kv «x2.touched») pregunta antes.
+  async function guardaVistaPrevia() {
+    (await import('../ide.js')).setBeforePreview(exts.some(e => e.code) ? async path => {
+      const marcas = await maindb.get('kv', 'x2.touched').catch(() => null);
+      return !marcas?.[path] || (await import('../ext2/gates.js')).allowPreview(path);
+    } : null);
+  }
+
   function recarga() {
-    const r = cola.then(async () => { exts = await store.list(); await reaplica(); });
+    const r = cola.then(async () => { exts = await store.list(); await reaplica(); sincronizaCodigo(); await guardaVistaPrevia(); });
     cola = r.catch(() => {});
     return r.then(emit);
   }
@@ -196,10 +223,14 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
   try { await store.reconcile(); } catch (e) { console.warn('[elffuss-ext] no pude ordenar las extensiones guardadas:', e?.message || e); }
   exts = await store.list().catch(() => []);
   await reaplica();
+  sincronizaCodigo();
+  guardaVistaPrevia().catch(() => {});
 
   const quitaTemasDe = id => { if (themeIndex.get(pref)?.ext === id) guardaPref('vs-dark'); };
 
-  async function install(src, { onProgress, confirmLarge, signal } = {}) {
+  // Instalar: lo declarativo y, con `withCode` (aceptado por el usuario), su
+  // código vía host2.js, con la suma SHA-256 publicada obligatoria.
+  async function install(src, { onProgress, confirmLarge, signal, withCode = false } = {}) {
     let bytes, sha256, verified = false, source = 'file', meta = null;
     const ovsx = await import('./openvsx.js');
     if (src instanceof Blob) {
@@ -207,7 +238,7 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       sha256 = await ovsx.sha256Hex(bytes);
     } else {
       meta = await ovsx.metadata(src.namespace, src.name, src.version || '', { signal });
-      ({ bytes, sha256, verified } = await ovsx.download(meta, { onProgress, confirmLarge, signal }));
+      ({ bytes, sha256, verified } = await ovsx.download(meta, { onProgress, confirmLarge, signal, requireHash: withCode }));
       source = 'open-vsx';
     }
     const { readVsix } = await import('./vsix.js');
@@ -215,21 +246,25 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     if (meta && v.id !== `${meta.namespace}.${meta.name}`.toLowerCase()) {
       throw Object.assign(new Error(`el paquete dice ser ${v.id}, no ${meta.namespace}.${meta.name}`), { code: 'mismatch', got: v.id, want: `${meta.namespace}.${meta.name}` });
     }
+    const previo = exts.find(e => e.id === v.id);
+    const codigo = withCode ? await deDos('codeFiles')(v, bytes, previo) : null;
     // lo que el usuario VERÍA: temas, snippets, resaltado de un lenguaje o los
     // ajustes de uno nuevo. Un lenguaje que solo asocia extensiones de fichero
     // no cambia nada en pantalla; si además el valor de la extensión es su
-    // código, instalarla sería inútil y se dice en vez de fingir que funciona.
+    // código y NO se instala con él (nivel 2), instalarla sería inútil y se dice
+    // en vez de fingir que funciona.
     const seVe = v.themes.length || v.snippets.length
       || v.grammars.some(g => g.language && !(builtin.has(g.language) && !canOverride(monaco, g.language)))
       || v.languages.some(l => l.config && !builtin.has(l.id));
-    if (!seVe && v.analysis.hasCode) throw Object.assign(new Error('codeonly'), { code: 'codeonly', analysis: v.analysis, displayName: v.displayName });
-    if (!v.themes.length && !v.grammars.length && !v.snippets.length && !v.languages.length) {
+    if (!withCode && !seVe && v.analysis.hasCode) throw Object.assign(new Error('codeonly'), { code: 'codeonly', analysis: v.analysis, displayName: v.displayName });
+    if (!withCode && !v.themes.length && !v.grammars.length && !v.snippets.length && !v.languages.length) {
       // declaraba cosas aplicables pero ninguna se pudo leer: no es lo mismo
       // que no traer nada, y el usuario tiene que saber por qué
       if (v.warnings.length) throw Object.assign(new Error('unreadable'), { code: 'unreadable', warning: v.warnings[0], warnings: v.warnings });
+      // solo trae código para el navegador: eso se instala desde «… y ejecutar su código»
+      if (typeof v.manifest.browser === 'string') throw Object.assign(new Error('code-only'), { code: 'codeonly' });
       throw Object.assign(new Error('nothing-applies'), { code: 'nothing' });
     }
-    const previo = exts.find(e => e.id === v.id);
     const usados = new Set(exts.filter(e => e.id !== v.id).flatMap(e => (e.themes || []).map(t => t.themeId)));
     const files = new Map();
     const k = p => store.fileKey(v.id, v.version, p);
@@ -238,7 +273,7 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       displayName: v.displayName, description: v.description.slice(0, 500),
       license: (meta?.license || v.license || '').slice(0, 200), sha256, verified, source, size: bytes.length,
       installedAt: previo?.installedAt || Date.now(), enabled: previo ? previo.enabled : true,
-      hasCode: v.analysis.hasCode, ignored: v.analysis.ignored, pack: v.analysis.pack, warnings: v.warnings.slice(0, 20),
+      hasCode: v.analysis.hasCode, browser: typeof v.manifest.browser === 'string', ignored: v.analysis.ignored, pack: v.analysis.pack, warnings: v.warnings.slice(0, 20),
       categories: v.analysis.categories, sizes: v.analysis.sizes, webviews: v.analysis.webviews, browserEntry: v.analysis.browserEntry,
       themes: v.themes.map(t => { const key = k('theme/' + t.index); files.set(key, t.data); return { key, label: t.label, uiTheme: t.uiTheme, themeId: themeIdFor(v.id, t, t.index, usados) }; }),
       grammars: v.grammars.map(g => {
@@ -254,6 +289,7 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
       licenseKey: null,
     };
     if (v.licenseText) { rec.licenseKey = k('LICENSE'); files.set(rec.licenseKey, v.licenseText); }
+    if (codigo) { for (const [key, d] of codigo.files) files.set(key, d); Object.assign(rec, codigo.fields); }
     await store.put(rec, files);
     await recarga();
     return rec;
@@ -276,6 +312,12 @@ async function crear(monaco, { onLanguagesChanged = () => {} } = {}) {
     list: () => exts.map(e => ({ ...e })),
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     install, setEnabled, uninstall,
+    // nivel 2 (host2.js)
+    setRuns: deDos('setRuns'), setSettings: deDos('setSettings'), setFormatter: deDos('setFormatter'), codeRuntime: deDos('runtime'),
+    codeState: () => (dos ? dos.state() : { state: 'stopped', extensions: [], commands: [] }),
+    codeCommands: () => (dos ? dos.commands() : []),
+    onCodeChange(fn) { oyentesCodigo.add(fn); return () => oyentesCodigo.delete(fn); },
+    noCode: paused || sinCodigo,
     licenseText: async id => { const e = exts.find(x => x.id === id); return e?.licenseKey ? (await store.getFile(e.licenseKey)) || '' : ''; },
     themes: () => [
       ...BASES.map(id => ({ id, builtin: true, labelKey: nombresSerie[id], uiTheme: id })),

@@ -3086,7 +3086,7 @@ async function renderPalette() {
     const q = raw.slice(1).trim().toLowerCase();
     // Todo comando cierra la paleta al ejecutarse: «Nueva conversación», por
     // ejemplo, la dejaba abierta encima.
-    palItems = COMMANDS.filter(c => c.label.toLowerCase().includes(q)).map(c => ({ label: c.label, hint: t('palCmd'), run: () => { closePalette(); c.run(); } }));
+    palItems = COMMANDS.filter(c => c.label.toLowerCase().includes(q)).map(c => ({ label: c.label, hint: c.hint || t('palCmd'), run: () => { closePalette(); c.run(); } }));
   } else if (raw.startsWith('@')) {                // símbolos del archivo abierto (Monaco)
     palItems = [{ label: t('palGotoSym'), hint: '@', run: () => { closePalette(); conFichero(() => triggerEditor('editor.action.quickOutline'))(); } }];
   } else {                                          // archivos (con :línea opcional)
@@ -3328,7 +3328,8 @@ $('act-ext').addEventListener('click', () => (panelAbierto() === 'ext' && panelE
 rebuildSelect();
 skills.initSkills();
 boot();
-window.elffussClaw = { conv, get agent() { return conv.getActive()?.agent; }, send, openFile, parseToolCall, skills };
+// commands: la lista de la paleta (>), donde el nivel 2 pone los de extensiones
+window.elffussClaw = { conv, get agent() { return conv.getActive()?.agent; }, send, openFile, parseToolCall, skills, commands: COMMANDS };
 
 
 // ---------- puerta de móvil y chip de disco ----------

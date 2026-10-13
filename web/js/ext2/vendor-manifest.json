@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "enabled": true,
+  "buildId": "ad4bdda82184c442",
+  "protocol": 1,
+  "library": "@codingame/monaco-vscode-api@37.3.11",
+  "vscode": "1.138.0",
+  "node": "25.6.1",
+  "lockfileSha256": "4fe85d70914a5376ba736842e98f62f156703c53e4ce30c7f1fa315bd621e2a0",
+  "budgetGz": 2800000,
+  "totalGz": 2558822,
+  "files": [
+    {
+      "name": "sandbox-main.js",
+      "role": "main",
+      "raw": 7565470,
+      "gz": 1941656,
+      "sha256Raw": "d57f9067985e83362ff45e0d871d3d32d170d42b3ceaa8d7d8efff20a92ca4df",
+      "sriGz": "sha256-SvXy9LU48B28Hh1yynV0+SkPO+rkNpb7KcN9FRDHgps="
+    },
+    {
+      "name": "exthost-worker.js",
+      "role": "extensionHostWorkerMain",
+      "raw": 1920808,
+      "gz": 505644,
+      "sha256Raw": "d4117af133319a30aff564c821d32b79891a933f9e5e259b64ff33e75ad183f1",
+      "sriGz": "sha256-M3OmHxsVQFwoICkaBq6V0VOcWZLwM1OPzbIzxKtE6WI="
+    },
+    {
+      "name": "editor-worker.js",
+      "role": "editorWorkerService",
+      "raw": 378631,
+      "gz": 111522,
+      "sha256Raw": "3d9cd774e4391edab9bd15aa4c2ff873377f754abc7c1e30a0beb882f1fc21b8",
+      "sriGz": "sha256-35z/FRORb3wTxJr50SK13+KS1EkUUPjwOGAiHvci7Go="
+    }
+  ],
+  "licenses": {
+    "name": "LICENSES.txt",
+    "bytes": 29786,
+    "sha256": "3125b824ee2513799b9995e67ffda102588af9f3f2862912c74b6412790684b1"
+  }
+}
