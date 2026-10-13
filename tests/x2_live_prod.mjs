@@ -26,7 +26,9 @@ async function until(fn, { timeout = 30000, every = 200 } = {}) {
 const pkgs = [];
 for (const p of PINNED) {
   try { pkgs.push(await readCode((await fetchVsix({ ...p, offline: process.env.X2_OFFLINE === '1' })).bytes)); }
-  catch (e) { console.log(`⏭️  NOT RUN x2_live — ${p.namespace}.${p.name}@${p.version}: ${e.message}`); process.exit(0); }
+  // Exit 2, no 0: es un humo de producción que se encadena tras un despliegue,
+  // y un «no se ha podido mirar» que sale con 0 se lee como «producción bien».
+  catch (e) { console.log(`⏭️  NOT RUN x2_live_prod — ${p.namespace}.${p.name}@${p.version}: ${e.message} (exit 2: NOT verified)`); process.exit(2); }
 }
 ok('SHA-256 de los dos .vsix coincide con la publicada y con la fijada', pkgs.length === 2);
 
