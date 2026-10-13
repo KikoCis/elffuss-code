@@ -31,7 +31,11 @@ const errs = [];
 async function abre({ modelo, sembrar = true, id = 'abc123def' }) {
   const ctx = await b.newContext({ locale: 'es-ES' });
   await ctx.addInitScript(m => {
-    try { Object.defineProperty(Navigator.prototype, 'gpu', { get() { return undefined; }, configurable: true }); } catch { /* */ }
+    // WebGPU simulada y pequeña (no entra Gemma): desde d526a74 el ONNX ligero
+    // solo se ofrece con WebGPU, y este test va del flujo de la notificación,
+    // no de la GPU. transformers.js es de mentira: no se baja nada.
+    const falsa = { requestAdapter: async () => ({ limits: { maxBufferSize: 2 ** 28 }, features: new Set(), info: {}, requestDevice: async () => { throw new Error('no hace falta'); } }) };
+    try { Object.defineProperty(Navigator.prototype, 'gpu', { get() { return falsa; }, configurable: true }); } catch { /* */ }
     try { localStorage.setItem('elffusscode.model', m); } catch { /* */ }
   }, modelo);
   const p = await ctx.newPage({ viewport: { width: 1400, height: 900 } });

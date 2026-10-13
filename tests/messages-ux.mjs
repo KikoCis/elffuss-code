@@ -28,7 +28,14 @@ const b = await chromium.launch();
 const errs = [];
 const abre = async (locale, query = '') => {
   const ctx = await b.newContext({ locale });
-  await ctx.addInitScript(() => { try { localStorage.setItem('elffusscode.model', 'rules'); } catch {} window.__alerts = 0; window.alert = () => { window.__alerts++; }; });
+  // WebGPU simulada y pequeña: desde d526a74 la tarjeta del ONNX ligero solo sale
+  // con WebGPU, y el navegador de pruebas tiene navigator.gpu sin adaptador.
+  await ctx.addInitScript(() => {
+    try { localStorage.setItem('elffusscode.model', 'rules'); } catch {}
+    window.__alerts = 0; window.alert = () => { window.__alerts++; };
+    const falsa = { requestAdapter: async () => ({ limits: { maxBufferSize: 2 ** 28 }, features: new Set(), info: {}, requestDevice: async () => { throw new Error('no hace falta'); } }) };
+    try { Object.defineProperty(Navigator.prototype, 'gpu', { get() { return falsa; }, configurable: true }); } catch { /* */ }
+  });
   await ctx.route('**/js/providers/onnx.js*', r => r.fulfill({ status: 200, contentType: 'text/javascript', body: FALLA }));
   await ctx.route(/api\.github\.com|raw\.githubusercontent\.com/, r => r.abort());
   await ctx.route(/soundcloud/, r => r.abort());

@@ -33,6 +33,10 @@ const abre = async (arch) => {
     try { localStorage.setItem('elffusscode.model', 'rules'); localStorage.setItem('elffusscode.bridgeToken', 'tok-de-prueba'); } catch {}
     const datos = arch === null ? undefined : { getHighEntropyValues: async () => ({ architecture: arch }) };
     Object.defineProperty(Navigator.prototype, 'userAgentData', { get: () => datos, configurable: true });
+    // WebGPU simulada y pequeña: desde d526a74 la tarjeta del ONNX ligero solo
+    // sale con WebGPU, y el navegador de pruebas tiene navigator.gpu sin adaptador.
+    const falsa = { requestAdapter: async () => ({ limits: { maxBufferSize: 2 ** 28 }, features: new Set(), info: {}, requestDevice: async () => { throw new Error('no hace falta'); } }) };
+    try { Object.defineProperty(Navigator.prototype, 'gpu', { get() { return falsa; }, configurable: true }); } catch { /* */ }
   }, arch);
   const p = await ctx.newPage({ viewport: { width: 1400, height: 900 } });
   p.on('pageerror', e => errs.push(e.message.slice(0, 160)));
