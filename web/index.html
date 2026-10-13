@@ -68,6 +68,11 @@
       <button data-menu="view">View</button>
       <button data-menu="git">Git</button>
     </nav>
+    <!-- La búsqueda, siempre a la vista (como el «command center» de VS Code):
+         al pulsarla o escribir, abre la paleta justo debajo. -->
+    <button id="top-search" type="button" class="top-search" aria-keyshortcuts="Meta+P Control+P">
+      <span class="ts-ico" aria-hidden="true"></span><span class="ts-txt">Buscar archivos, símbolos y comandos</span><kbd class="ts-kbd" aria-hidden="true">⌘P</kbd>
+    </button>
     <div class="controls">
       <button id="btn-drawer" class="ghost icon-btn" type="button" aria-expanded="false" aria-controls="sidebar" title="Archivos y herramientas" aria-label="Archivos y herramientas">☰</button>
       <button id="git-branch" class="chip" title="rama actual" hidden></button>
@@ -91,7 +96,6 @@
   <main>
     <nav id="activity">
       <button id="act-files" class="on" title="Explorador"></button>
-      <button id="act-search" title="Buscar (Cmd/Ctrl+P)"></button>
       <button id="act-arch" title="Arquitectura (grafo de dependencias)"></button>
       <button id="act-city" title="Ciudad 3D"></button>
       <button id="act-term" title="Terminal (Ctrl+`)"></button>

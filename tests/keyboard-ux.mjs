@@ -147,9 +147,9 @@ await p.press('#pal-input', 'Enter');
 await p.waitForTimeout(500);
 const abierto = await p.evaluate(() => ({ activa: document.querySelector('#tabs-bar .tab.active')?.dataset.path, linea: window.monaco?.editor?.getEditors?.()[0]?.getPosition()?.lineNumber }));
 ok('7 · Enter abre el fichero en esa línea', abierto.activa === 'src/app.js' && abierto.linea === 2, JSON.stringify(abierto));
-await p.click('#act-search');
+await p.click('#top-search');
 await p.waitForTimeout(200);
-ok('7 · la lupa de la barra abre la paleta (y se queda abierta)', await p.evaluate(() => !document.getElementById('palette').hidden));
+ok('7 · la búsqueda fija de arriba abre la paleta (y se queda abierta)', await p.evaluate(() => !document.getElementById('palette').hidden));
 await p.keyboard.press('Escape');
 
 // 8 · detalles

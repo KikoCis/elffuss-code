@@ -2284,7 +2284,9 @@ paintFlip(false);
 
 // barra de actividad estilo VS Code
 $('act-files').innerHTML = ACTIVITY.files;
-$('act-search').innerHTML = ACTIVITY.search;
+// La búsqueda fija de la cabecera (sustituye a la lupa de la barra lateral).
+$('top-search').querySelector('.ts-ico').innerHTML = ACTIVITY.search;
+$('top-search').querySelector('.ts-kbd').textContent = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘P' : 'Ctrl+P';
 $('act-settings').innerHTML = ACTIVITY.gear;
 $('act-files').addEventListener('click', () => {
   document.body.classList.toggle('hide-tree');
@@ -2292,7 +2294,11 @@ $('act-files').addEventListener('click', () => {
 });
 // Lo que promete su título: buscar ficheros (la paleta, como Cmd/Ctrl+P). Antes
 // escribía «busca » en el chat. Buscar DENTRO del código es «#» en la paleta.
-$('act-search').addEventListener('click', (e) => { e.stopPropagation(); openPalette(''); });
+$('top-search').addEventListener('click', (e) => { e.stopPropagation(); openPalette(''); });
+// Con el foco en ella, escribir ya busca: la primera letra pasa a la paleta.
+$('top-search').addEventListener('keydown', (e) => {
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); openPalette(e.key); }
+});
 $('act-settings').addEventListener('click', () => $('btn-settings').click());
 
 // La barra de actividad dice qué está abierto. El explorador (☰ del árbol) y el
@@ -3036,6 +3042,12 @@ let volverDePaleta = null;
 function openPalette(prefix = '') {
   cierraVistaSiAbierta();
   if ($('palette').hidden) volverDePaleta = document.activeElement;
+  // Debajo de la búsqueda fija y con su mismo centro (como en VS Code). Si la
+  // barra es solo un icono (móvil), se queda centrada en la ventana como antes.
+  const barra = $('top-search')?.getBoundingClientRect();
+  const pal = $('palette');
+  if (barra && barra.width > 200) { pal.style.left = Math.round(barra.left + barra.width / 2) + 'px'; pal.style.top = Math.round(barra.bottom + 6) + 'px'; }
+  else { pal.style.left = ''; pal.style.top = ''; }
   $('palette').hidden = false;
   const inp = $('pal-input');
   inp.setAttribute('role', 'combobox');

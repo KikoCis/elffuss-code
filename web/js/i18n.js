@@ -17,7 +17,7 @@ const L = {
     openProject: '📁 Abrir carpeta de código', resume: 'Reanudar', discard: 'Descartar', cloneOpen: 'Descargar y abrir',
     clonePh: 'pega la URL de un repo público (GitHub/Bitbucket)…',
     searchPh: 'Buscar archivos por nombre (: ir a línea, @ símbolo, > comandos, # buscar en el código)',
-    tFiles: 'Explorador', tSearch: 'Buscar (Cmd/Ctrl+P)', tArch: 'Arquitectura (grafo de dependencias)',
+    tFiles: 'Explorador', tSearch: 'Buscar (Cmd/Ctrl+P)', tSearchBar: 'Buscar archivos, símbolos y comandos', tArch: 'Arquitectura (grafo de dependencias)',
     tCity: 'Ciudad 3D', tTerm: 'Terminal (Ctrl+`)', tSkills: 'Skills', tActSettings: 'Ajustes y modelo',
     tGitBranch: 'rama actual', tHistory: 'Historial de conversaciones', tTopSettings: 'Ajustes, modelo y API keys',
     tTermClose: 'cerrar (Ctrl+`)', tTermResize: 'arrastra para redimensionar',
@@ -268,7 +268,7 @@ const L = {
     openProject: '📁 Open code folder', resume: 'Resume', discard: 'Discard', cloneOpen: 'Download & open',
     clonePh: 'paste the URL of a public repo (GitHub/Bitbucket)…',
     searchPh: 'Search files by name (: go to line, @ symbol, > commands, # search in code)',
-    tFiles: 'Explorer', tSearch: 'Search (Cmd/Ctrl+P)', tArch: 'Architecture (dependency graph)',
+    tFiles: 'Explorer', tSearch: 'Search (Cmd/Ctrl+P)', tSearchBar: 'Search files, symbols and commands', tArch: 'Architecture (dependency graph)',
     tCity: '3D City', tTerm: 'Terminal (Ctrl+`)', tSkills: 'Skills', tActSettings: 'Settings & model',
     tGitBranch: 'current branch', tHistory: 'Conversation history', tTopSettings: 'Settings, model & API keys',
     tTermClose: 'close (Ctrl+`)', tTermResize: 'drag to resize',
@@ -536,8 +536,9 @@ export function applyI18n() {
   set('#try-browser', 'textContent', 'tryBrowser');
   set('#term-clear', 'textContent', 'termClear');
   set('#pal-input', 'placeholder', 'searchPh');
+  set('#top-search .ts-txt', 'textContent', 'tSearchBar');
   const titles = {
-    '#act-files': 'tFiles', '#act-search': 'tSearch', '#act-arch': 'tArch', '#act-city': 'tCity',
+    '#act-files': 'tFiles', '#top-search': 'tSearch', '#act-arch': 'tArch', '#act-city': 'tCity',
     '#act-term': 'tTerm', '#act-skills': 'tSkills', '#act-settings': 'tActSettings',
     '#git-branch': 'tGitBranch', '#btn-history': 'tHistory', '#btn-settings': 'tTopSettings',
     '#term-close': 'tTermClose', '#term-resize': 'tTermResize', '#ctx-meter': 'tCtx',
