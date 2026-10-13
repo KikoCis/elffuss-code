@@ -140,6 +140,10 @@ export async function renderCity(container, onOpenFile) {
     camera.aspect = w / h; camera.updateProjectionMatrix();
   };
   window.addEventListener('resize', onResize);
+  // …y cuando cambia el CONTENEDOR sin que cambie la ventana: abrir, cerrar o
+  // arrastrar la consola, que ahora convive con la vista debajo de ella.
+  const ro = 'ResizeObserver' in window ? new ResizeObserver(() => onResize()) : null;
+  ro?.observe(container);
 
   let raf = null;
   const loop = () => { raf = requestAnimationFrame(loop); controls.update(); composer.render(); };
@@ -209,6 +213,7 @@ export async function renderCity(container, onOpenFile) {
     clearTimeout(apaga);
     if (raf) cancelAnimationFrame(raf);
     window.removeEventListener('resize', onResize);
+    ro?.disconnect();
     canvas.removeEventListener('pointermove', onMove);
     canvas.removeEventListener('pointerdown', onDown);
     canvas.removeEventListener('pointerup', onUp);

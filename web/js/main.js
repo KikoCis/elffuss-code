@@ -1875,14 +1875,15 @@ $('code-flip').addEventListener('click', () => {
 $('act-arch').innerHTML = UI.graph || UI.code;
 $('act-city').innerHTML = UI.city || UI.code;
 let viewRenderSeq = 0;
-// La vista tapa el editor (y el terminal, si está abierto): mientras se ve, lo
-// de debajo queda INERTE y el foco entra en ella. Antes el foco se quedaba en el
+// La vista tapa el editor (la consola NO: si está abierta, la vista acaba encima
+// de ella y la consola sigue a mano). Mientras se ve, el editor queda INERTE y el
+// foco entra en ella. Antes el foco se quedaba en el
 // botón que la abría, y el Tab, tras la barra de actividad, el árbol y la
 // pestaña del editor, caía en el editor TAPADO: cada Tab sangraba el fichero
 // abierto sin que se viera, y la lista de la vista no se alcanzaba nunca. (La
 // Mente usa modal.js porque tapa la página entera; la vista solo tapa el
 // editor, y la barra de actividad, el árbol y el chat siguen a mano.)
-const TAPADO_POR_VISTA = ['editor', 'terminal-panel'];
+const TAPADO_POR_VISTA = ['editor'];
 const tapaVista = si => { for (const id of TAPADO_POR_VISTA) { const e = $(id); if (e) e.inert = si; } };
 let abridorVista = null;
 function seVe(e) { return !!e && e !== document.body && e.isConnected && e.getClientRects().length > 0; }
@@ -2009,6 +2010,21 @@ function closeView({ foco = false } = {}) {
 $('act-arch').addEventListener('click', () => openView('arch'));
 $('act-city').addEventListener('click', () => openView('city'));
 $('view-close').addEventListener('click', () => closeView({ foco: true }));
+// La vista tapa el editor. Si con ella abierta el usuario abre OTRA cosa (un
+// botón de la barra, la paleta, un fichero del árbol), se cierra primero: antes
+// esa otra cosa se abría DEBAJO, inerte, y parecía rota. La consola es la
+// excepción: convive con la vista, que termina encima de ella.
+// No se cierra cuando es el agente quien abre algo: la ciudad sirve para seguir
+// lo que hace.
+const vistaAbierta = () => !$('view-overlay').hidden;
+const cierraVistaSiAbierta = () => { if (vistaAbierta()) closeView(); };
+$('activity').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  // (la consola no: convive con la vista, debajo de ella y sin que nada la tape)
+  if (b && b.id !== 'act-arch' && b.id !== 'act-city' && b.id !== 'act-term') cierraVistaSiAbierta();
+}, true);
+$('tree').addEventListener('click', e => { if (e.target.closest('.file')) cierraVistaSiAbierta(); }, true);
+$('tree').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.closest('.file')) cierraVistaSiAbierta(); }, true);
 
 // ── Cerebro CEO autónomo + Mente de Elffuss ───────────────────────────────
 // Cuando NO estás pidiendo nada, la elfa trabaja: revisa el proyecto y propone
@@ -3018,6 +3034,7 @@ function abrirLab() { window.open('lab.html', '_blank', 'noopener'); }
 // aria-activedescendant), así un lector de pantalla sigue la selección.
 let volverDePaleta = null;
 function openPalette(prefix = '') {
+  cierraVistaSiAbierta();
   if ($('palette').hidden) volverDePaleta = document.activeElement;
   $('palette').hidden = false;
   const inp = $('pal-input');
