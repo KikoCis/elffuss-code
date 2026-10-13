@@ -46,6 +46,10 @@ export async function initEditor() {
     minimap: { enabled: false },
     padding: { top: 8 },
   });
+  // Al arrancar no hay ningún fichero abierto, y Monaco enseña su documento
+  // vacío con un «1» suelto. El aviso de «sin ficheros» solo se ponía al CERRAR
+  // la última pestaña, nunca al empezar. Abrir un fichero lo quita (openFile).
+  if (!tabs.length) setEmptyState(true);
   editor.addCommand(monacoRef.KeyMod.CtrlCmd | monacoRef.KeyCode.KeyS, saveActive);
   editor.onDidChangeModelContent(() => {
     const tab = tabs.find(t => t.path === active);
